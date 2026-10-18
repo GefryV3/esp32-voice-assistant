@@ -37,6 +37,16 @@ android {
         buildConfigField("String", "TOKEN", "\"${env.getProperty("JARVIS_DEVICE_TOKEN", "")}\"")
     }
 
+    buildTypes {
+        // R8 и в отладочной сборке: без него APK ~31 МБ (Compose целиком) и не пролезает
+        // на телефон через Remote Control (лимит 30 МБ). Наш код не трогаем — proguard-rules.pro.
+        debug {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
