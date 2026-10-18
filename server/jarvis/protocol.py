@@ -204,6 +204,35 @@ def ping(ping_id: int) -> Message:
     return {"type": "ping", "id": ping_id}
 
 
+# ── звук ─────────────────────────────────────────────────────────────────────
+
+AUDIO_RATE = 16_000        # микрофон колонки и звук по умолчанию: 16 кГц, 16 бит, моно
+
+
+def listen_start(gain_db: int = 12) -> Message:
+    return {"type": "listen_start", "gain": _int_in("gain", gain_db, 0, 30)}
+
+
+def listen_stop() -> Message:
+    return {"type": "listen_stop"}
+
+
+def audio_start(rate: int = AUDIO_RATE) -> Message:
+    return {"type": "audio_start", "rate": _int_in("rate", rate, 8000, 48_000)}
+
+
+def audio_end() -> Message:
+    return {"type": "audio_end"}
+
+
+def audio_stop() -> Message:
+    return {"type": "audio_stop"}
+
+
+def volume(level: int) -> Message:
+    return {"type": "volume", "level": _int_in("level", level, 0, 100)}
+
+
 def _clip(value: str, max_bytes: int) -> str:
     """Обрезать по границе символа, чтобы влезло в буфер колонки (байты UTF-8)."""
     data = value.encode()

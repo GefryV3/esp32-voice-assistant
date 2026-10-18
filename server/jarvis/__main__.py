@@ -8,6 +8,7 @@ import sys
 
 from pathlib import Path
 
+from .audio import Audio
 from .bridge import Bridge, SettingsStore
 from .config import ConfigError, load_settings
 from .console import add_admin_route, run_console
@@ -29,6 +30,7 @@ async def main() -> None:
     hub = DeviceHub(settings)
     add_admin_route(hub, settings.device_token)
     bridge = Bridge(hub, settings, SettingsStore(Path(settings.data_dir) / "settings.json"))
+    Audio(hub, settings.data_dir)
     async with hub:
         bridge.start()
         try:

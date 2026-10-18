@@ -7,6 +7,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "audio/audio.h"
 #include "board.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -67,6 +68,22 @@ void send_hello() {
   cJSON_AddStringToObject(m, "fw", esp_app_get_description()->version);
   cJSON *caps = cJSON_AddArrayToObject(m, "caps");
   cJSON_AddItemToArray(caps, cJSON_CreateString("display"));
+  cJSON_AddItemToArray(caps, cJSON_CreateString("mic"));
+  cJSON_AddItemToArray(caps, cJSON_CreateString("speaker"));
+  send_json(m);
+}
+
+// ── звук: колбэки для audio, зовутся из его задач ──
+
+bool send_mic(const uint8_t *data, size_t len) {
+  if (!s_online || !esp_websocket_client_is_connected(s_client)) return false;
+  // короткое ожидание: пока клиент занят приёмом, audio повторит, а кадры подождут в буфере
+  return esp_websocket_client_send_bin(s_client, reinterpret_cast<const char *>(data), len, pdMS_TO_TICKS(200)) >= 0;
+}
+
+void send_played() {
+  cJSON *m = cJSON_CreateObject();
+  cJSON_AddStringToObject(m, "type", "played");
   send_json(m);
 }
 
@@ -185,6 +202,18 @@ void on_message(const cJSON *m) {
     ui::set_night(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "on")));
   } else if (eq(type, "brightness")) {
     ui::set_brightness(num(m, "level", 255));
+  } else if (eq(type, "listen_start")) {
+    audio::listen(true, num(m, "gain", 12));
+  } else if (eq(type, "listen_stop")) {
+    audio::listen(false);
+  } else if (eq(type, "audio_start")) {
+    audio::play_start(num(m, "rate", 16000));
+  } else if (eq(type, "audio_end")) {
+    audio::play_end();
+  } else if (eq(type, "audio_stop")) {
+    audio::play_stop();
+  } else if (eq(type, "volume")) {
+    audio::set_volume(num(m, "level", 70));
   } else if (eq(type, "ping")) {
     cJSON *pong = cJSON_CreateObject();
     cJSON_AddStringToObject(pong, "type", "pong");
@@ -218,6 +247,8 @@ void go_offline() {
   if (s_online) ESP_LOGW(TAG, "связь с сервером потеряна");
   s_online = false;
   ui::set_online(false);
+  audio::listen(false);
+  audio::play_stop();
 }
 
 void on_ws_event(void *, esp_event_base_t, int32_t id, void *data) {
@@ -228,7 +259,9 @@ void on_ws_event(void *, esp_event_base_t, int32_t id, void *data) {
       send_hello();
       break;
     case WEBSOCKET_EVENT_DATA:
-      if (d->op_code == 0x1 || (d->op_code == 0x0 && d->payload_offset > 0)) {
+      if (d->op_code == 0x2) {
+        audio::play_data(reinterpret_cast<const uint8_t *>(d->data_ptr), d->data_len);
+      } else if (d->op_code == 0x1 || (d->op_code == 0x0 && d->payload_offset > 0)) {
         on_text_chunk(d);
       } else if (d->op_code == 0x8 && d->data_len >= 2) {
         int code = ((uint8_t)d->data_ptr[0] << 8) | (uint8_t)d->data_ptr[1];
@@ -256,6 +289,7 @@ void status_task(void *) {
 }  // namespace
 
 void start() {
+  audio::start(send_mic, send_played);
   xTaskCreatePinnedToCore(status_task, "link_status", 3072, nullptr, 3, &s_status_task, 0);
 
   esp_websocket_client_config_t cfg = {};

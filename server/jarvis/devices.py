@@ -38,6 +38,7 @@ class Device:
 
 
 MessageHandler = Callable[[Device, Message], Awaitable[None]]
+AudioHandler = Callable[[Device, bytes], None]
 RouteHandler = Callable[[ServerConnection], Awaitable[None]]
 
 
@@ -50,10 +51,12 @@ class DeviceHub:
         self._server: Server | None = None
         self.devices: dict[str, Device] = {}
         self._handlers: list[MessageHandler] = []
+        self._audio_handlers: list[AudioHandler] = []
         self._connect_handlers: list[Callable[[Device], Awaitable[None]]] = []
         self._routes: dict[str, RouteHandler] = {DEVICE_PATH: self._handle_device}
         self._background: set[asyncio.Task] = set()
         self.bridge: Any = None  # мост с телефоном и компьютером (jarvis.bridge), если запущен
+        self.audio: Any = None   # звук колонок (jarvis.audio), если запущен
 
     # ── жизненный цикл ──
 
@@ -88,6 +91,10 @@ class DeviceHub:
     def on_message(self, handler: MessageHandler) -> None:
         """Подписка на сообщения от колонок (кроме hello/pong — их хаб обрабатывает сам)."""
         self._handlers.append(handler)
+
+    def on_audio(self, handler: AudioHandler) -> None:
+        """Подписка на бинарные кадры (звук микрофона). Обработчик не должен ждать."""
+        self._audio_handlers.append(handler)
 
     def on_connect(self, handler: Callable[[Device], Awaitable[None]]) -> None:
         """Подписка на подключение колонки (вызывается сразу после welcome)."""
@@ -174,7 +181,9 @@ class DeviceHub:
 
     async def _dispatch(self, dev: Device, raw: str | bytes) -> None:
         if isinstance(raw, bytes):
-            return  # звук появится на этапе 2
+            for audio_handler in self._audio_handlers:
+                audio_handler(dev, raw)
+            return
         try:
             msg = protocol.decode(raw)
         except ProtocolError as e:

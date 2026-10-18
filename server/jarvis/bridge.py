@@ -40,9 +40,10 @@ DEFAULTS: dict[str, Any] = {
     "night_start": "23:30", "night_end": "07:00",
     "bedtime_check": True, "bedtime_at": "23:00",
     "sarcasm": 60, "mirror": True, "mirror_only_pc": True, "alarm_watchdog_min": 5,
+    "volume": 70,
 }
 RANGES = {"sleep_after_min": (1, 60), "brightness": (5, 100), "sarcasm": (0, 100),
-          "alarm_watchdog_min": (1, 30)}
+          "alarm_watchdog_min": (1, 30), "volume": (0, 100)}
 CHOICES = {"sleep_clock": ("top", "bottom")}
 TIMES = ("night_start", "night_end", "bedtime_at")
 
@@ -175,7 +176,8 @@ class Bridge:
     def speaker_config(self) -> list[Message]:
         v = self.store.values
         return [protocol.config(v["sleep_after_min"] * 60, v["sleep_clock"]),
-                protocol.brightness(round(v["brightness"] * 255 / 100))]
+                protocol.brightness(round(v["brightness"] * 255 / 100)),
+                protocol.volume(v["volume"])]
 
     async def _on_speaker(self, dev: Device) -> None:
         for m in self.speaker_config():
@@ -480,6 +482,13 @@ class Bridge:
                     return "компьютер не на связи"
                 await self.pc.send({"type": "open_url", "url": rest.strip()})
                 return "→ компьютер: ссылка"
+            case "vol":
+                if not rest.strip().isdigit():
+                    return f"vol 0..100, сейчас {self.store.values['volume']}"
+                level = self.store.update({"volume": int(rest)})["volume"]
+                await self.speaker(protocol.volume(level))
+                await self.push_settings()
+                return f"→ колонка: громкость {level}"
             case "notify":
                 await self.speaker(protocol.notify("msg", "Проверка", rest or "Уведомление с телефона", app="Консоль"))
                 return "→ колонка: уведомление"

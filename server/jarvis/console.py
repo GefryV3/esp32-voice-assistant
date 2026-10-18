@@ -29,6 +29,10 @@ HELP = """\
   weather <cond -1..7> <темп>   night on|off        bright 0..255
   coin 0|1   dice 1..6   wheel <секторов> <выпало>   rps <мой 0..2> <исход 0..2>
   magic8 1..10   ttt X.O......   rem <число>   (игры и счётчик новый экран пока не рисует)
+Звук:
+  rec [сек]   echo [сек]        записать микрофон в WAV / записать и сразу проиграть
+  beep [Гц] [мс]   play <wav>   тон / файл на динамике        stop — замолчать
+  vol 0..100                    громкость        gain 0..30 — усиление микрофона, дБ
 Телефон и компьютер:
   phone                         что известно о телефоне и компьютере
   ring [off]                    «где мой телефон»
@@ -114,8 +118,11 @@ def parse_command(line: str) -> Message:
     raise CommandError(f"не понял «{line.strip()}», help — список команд")
 
 
-async def execute(hub: DeviceHub, line: str) -> str:
-    """Выполнить строку консоли и вернуть текст ответа (общий код для клавиатуры и /admin)."""
+Reply = str | tuple[str, bytes]   # текст, или текст и WAV (rec, echo)
+
+
+async def execute(hub: DeviceHub, line: str) -> Reply:
+    """Выполнить строку консоли и вернуть ответ (общий код для клавиатуры и /admin)."""
     line = line.strip()
     if line == "help":
         return HELP
@@ -123,6 +130,10 @@ async def execute(hub: DeviceHub, line: str) -> str:
         if not hub.devices:
             return "колонок нет"
         return "\n".join(f"{d.id}  fw={d.hello.fw}  {d.status}" for d in hub.devices.values())
+    if hub.audio is not None:
+        reply = await hub.audio.command(line)
+        if reply is not None:
+            return reply
     if hub.bridge is not None:
         out = await hub.bridge.command(line)
         if out is not None:
@@ -153,12 +164,14 @@ async def run_console(hub: DeviceHub) -> None:
             continue
         if line in ("quit", "exit"):
             return
-        print(await execute(hub, line))
+        reply = await execute(hub, line)
+        print(reply[0] if isinstance(reply, tuple) else reply)
 
 
 def add_admin_route(hub: DeviceHub, token: str) -> None:
     """Служебный вход ws://…/admin для tools/send.py: первый кадр — токен, дальше каждый
-    текстовый кадр — строка консоли, в ответ — её вывод."""
+    текстовый кадр — строка консоли, в ответ — её вывод. Если команда сделала запись,
+    перед текстом приходит бинарный кадр с WAV."""
 
     async def handle(ws: ServerConnection) -> None:
         try:
@@ -171,7 +184,12 @@ def add_admin_route(hub: DeviceHub, token: str) -> None:
         try:
             async for line in ws:
                 if isinstance(line, str):
-                    await ws.send(await execute(hub, line))
+                    reply = await execute(hub, line)
+                    if isinstance(reply, tuple):
+                        text, wav = reply
+                        await ws.send(wav)
+                        reply = text
+                    await ws.send(reply)
         except ConnectionClosed:
             pass
 

@@ -15,6 +15,14 @@ CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 
+# Звук идёт по TCP 32 КБ/с в каждую сторону, а через ретранслятор задержка скачет до 300 мс.
+# Окно по умолчанию (5.7 КБ) при таких скачках даёт меньше 20 КБ/с — динамик хрипит от
+# пропусков. 32 КБ окна держат поток даже при 300 мс; буферы лежат в PSRAM.
+CONFIG_LWIP_TCP_WND_DEFAULT=32768
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+CONFIG_ESP_WIFI_RX_BA_WIN=32
+
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_FREERTOS_HZ=1000

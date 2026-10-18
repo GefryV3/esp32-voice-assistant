@@ -36,6 +36,7 @@ def build(dest: Path) -> list[str]:
     config = re.sub(r'(?m)^version: .*$', f'version: "{__version__}"', config)
     (dest / "config.yaml").write_text(config, encoding="utf-8", newline="\n")
     shutil.copyfile(SERVER / "addon" / "Dockerfile", dest / "Dockerfile")
+    shutil.copyfile(SERVER / "addon" / "CHANGELOG.md", dest / "CHANGELOG.md")  # HA показывает его при обновлении
     shutil.copyfile(SERVER / "pyproject.toml", dest / "pyproject.toml")
 
     pkg = dest / "jarvis"

@@ -13,10 +13,12 @@ idf_component_register(
         "ui/ui.cpp"
         "net/wifi.cpp"
         "net/uplink.cpp"
+        "audio/audio.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         app_update
         esp_driver_gpio
+        esp_driver_i2s
         esp_driver_spi
         esp_event
         esp_lcd

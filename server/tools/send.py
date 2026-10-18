@@ -2,6 +2,7 @@
 
     python tools/send.py dice 5
     python tools/send.py "emotion happy; weather 3 -2; devices"
+    python tools/send.py rec 5        # запись с микрофона → server/recordings/*.wav
 
 Команды — те же, что в консоли сервера (help — список). Несколько команд — через «;»,
 между ними пауза --gap секунд. Токен, адрес (JARVIS_SERVER) и порт берутся из server/.env.
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -20,14 +22,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from jarvis.config import read_env_file  # noqa: E402
 
 
+RECORDINGS = Path(__file__).resolve().parents[1] / "recordings"
+
+
 async def run(url: str, token: str, commands: list[str], gap: float) -> None:
-    async with connect(url) as ws:
+    async with connect(url, max_size=None) as ws:
         await ws.send(token)
         for i, cmd in enumerate(commands):
             if i:
                 await asyncio.sleep(gap)
             await ws.send(cmd)
-            print(await ws.recv())
+            reply = await ws.recv()
+            wav = None
+            if isinstance(reply, bytes):   # rec/echo: сначала WAV, потом текст
+                wav, reply = reply, await ws.recv()
+            print(reply)
+            if wav is not None:
+                m = re.search(r"запись (\S+\.wav)", reply)
+                path = RECORDINGS / (m.group(1) if m else "запись.wav")
+                path.parent.mkdir(exist_ok=True)
+                path.write_bytes(wav)
+                print(f"сохранено: {path}")
 
 
 def main() -> None:
