@@ -34,6 +34,7 @@ data class SpeakerSettings(
     val mirror: Boolean = true,
     val mirrorOnlyPc: Boolean = true,
     val alarmWatchdogMin: Int = 5,
+    val volume: Int = 50,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("sleep_after_min", sleepAfterMin)
@@ -47,6 +48,7 @@ data class SpeakerSettings(
         .put("mirror", mirror)
         .put("mirror_only_pc", mirrorOnlyPc)
         .put("alarm_watchdog_min", alarmWatchdogMin)
+        .put("volume", volume)
 
     companion object {
         fun from(j: JSONObject, b: SpeakerSettings = SpeakerSettings()) = SpeakerSettings(
@@ -61,6 +63,7 @@ data class SpeakerSettings(
             mirror = j.optBoolean("mirror", b.mirror),
             mirrorOnlyPc = j.optBoolean("mirror_only_pc", b.mirrorOnlyPc),
             alarmWatchdogMin = j.optInt("alarm_watchdog_min", b.alarmWatchdogMin),
+            volume = j.optInt("volume", b.volume),
         )
     }
 }

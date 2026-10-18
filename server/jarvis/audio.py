@@ -92,6 +92,69 @@ def levels(pcm: bytes) -> tuple[float, float, int]:
 
 # ── звук колонок ─────────────────────────────────────────────────────────────
 
+class Stream:
+    """Один непрерывный звук на колонке. Темп: держим колонку не больше чем на PLAY_LEAD_S
+    впереди. Где колонка сейчас, считаем сами: если данные запаздывали, она доиграла буфер и
+    ждёт — тогда новое начнёт играть сразу, «сейчас»."""
+
+    def __init__(self, audio: Audio, dev: Device, rate: int):
+        self._audio = audio
+        self.dev = dev
+        self.rate = rate
+        self._lock = audio._locks.setdefault(dev.id, asyncio.Lock())
+        self._fut: asyncio.Future | None = None
+        self._ends_at = 0.0          # когда колонка доиграет всё отправленное (по нашим часам)
+        self._chunk = int(rate * 2 * PLAY_CHUNK_S) // 2 * 2
+        self._stopped = False
+
+    async def __aenter__(self) -> Stream:
+        await self._lock.acquire()
+        try:
+            self._fut = self._audio._played[self.dev.id] = asyncio.get_running_loop().create_future()
+            await self.dev.send(protocol.audio_start(self.rate))
+        except BaseException:
+            self._audio._played.pop(self.dev.id, None)
+            self._lock.release()
+            raise
+        self._ends_at = self._audio._clock()
+        return self
+
+    async def write(self, pcm: bytes) -> None:
+        clock = self._audio._clock
+        for off in range(0, len(pcm), self._chunk):
+            if self._stopped:
+                return
+            ahead = self._ends_at - clock()
+            if ahead > PLAY_LEAD_S:
+                await asyncio.sleep(ahead - PLAY_LEAD_S)
+            piece = pcm[off:off + self._chunk]
+            await self.dev.ws.send(piece)
+            self._ends_at = max(self._ends_at, clock()) + len(piece) / (self.rate * 2)
+
+    async def stop(self) -> None:
+        """Замолчать сразу (перебили): колонка выбросит буфер."""
+        if not self._stopped:
+            self._stopped = True
+            await self.dev.send(protocol.audio_stop())
+
+    async def __aexit__(self, exc_type, *exc: object) -> None:
+        try:
+            if exc_type is not None and not self._stopped:
+                self._stopped = True
+                await self.dev.send(protocol.audio_stop())
+            elif not self._stopped:
+                await self.dev.send(protocol.audio_end())
+            left = max(0.0, self._ends_at - self._audio._clock())
+            await asyncio.wait_for(asyncio.shield(self._fut), (0 if self._stopped else left) + PLAYED_SLACK_S)
+        except TimeoutError:
+            log.warning("%s не ответила played — считаю, что доиграла", self.dev.id)
+        except Exception:
+            pass   # колонка отключилась — ждать нечего
+        finally:
+            self._audio._played.pop(self.dev.id, None)
+            self._lock.release()
+
+
 class Audio:
     def __init__(self, hub: DeviceHub, data_dir: Path | str, *, mic_gain: int = 12,
                  clock: Callable[[], float] = time.monotonic):
@@ -102,6 +165,7 @@ class Audio:
         self._rec: dict[str, bytearray] = {}
         self._played: dict[str, asyncio.Future] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self.keep_listening: set[str] = set()   # колонки, чей микрофон нужен постоянно (voice)
         hub.audio = self
         hub.on_audio(self._on_audio)
         hub.on_message(self._on_message)
@@ -129,36 +193,24 @@ class Audio:
             await asyncio.sleep(seconds)
         finally:
             del self._rec[dev.id]
-            try:
-                await dev.send(protocol.listen_stop())
-            except Exception:
-                pass
+            if dev.id not in self.keep_listening:   # слово пробуждения слушает дальше
+                try:
+                    await dev.send(protocol.listen_stop())
+                except Exception:
+                    pass
         return bytes(buf)
 
     # ── динамик ──
 
     async def play(self, dev: Device, pcm: bytes, rate: int = AUDIO_RATE) -> None:
         """Проиграть PCM 16 бит моно и дождаться, пока колонка доиграет."""
-        lock = self._locks.setdefault(dev.id, asyncio.Lock())
-        async with lock:
-            fut = self._played[dev.id] = asyncio.get_running_loop().create_future()
-            bytes_per_s = rate * 2
-            chunk = int(bytes_per_s * PLAY_CHUNK_S) // 2 * 2
-            try:
-                await dev.send(protocol.audio_start(rate))
-                t0 = self._clock()
-                for off in range(0, len(pcm), chunk):
-                    ahead = off / bytes_per_s - (self._clock() - t0)
-                    if ahead > PLAY_LEAD_S:
-                        await asyncio.sleep(ahead - PLAY_LEAD_S)
-                    await dev.ws.send(pcm[off:off + chunk])
-                await dev.send(protocol.audio_end())
-                left = len(pcm) / bytes_per_s - (self._clock() - t0)
-                await asyncio.wait_for(fut, max(0.0, left) + PLAYED_SLACK_S)
-            except TimeoutError:
-                log.warning("%s не ответила played — считаю, что доиграла", dev.id)
-            finally:
-                self._played.pop(dev.id, None)
+        async with self.stream(dev, rate) as s:
+            await s.write(pcm)
+
+    def stream(self, dev: Device, rate: int = AUDIO_RATE) -> Stream:
+        """Звук по мере поступления (ответ Gemini): async with audio.stream(dev, 24000) as s:
+        await s.write(...) сколько угодно раз; на выходе — дождаться, пока колонка доиграет."""
+        return Stream(self, dev, rate)
 
     async def stop(self, dev: Device) -> None:
         await dev.send(protocol.audio_stop())

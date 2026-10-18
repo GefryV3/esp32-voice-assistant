@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import logging
 import sys
+from collections import deque
 
 from websockets.asyncio.server import ServerConnection
 from websockets.exceptions import ConnectionClosed
@@ -17,6 +18,15 @@ from .protocol import Message
 log = logging.getLogger(__name__)
 
 ADMIN_PATH = "/admin"
+RECENT_LOG: deque[str] = deque(maxlen=500)   # журнал для команды log: в аддоне его иначе не видно
+
+
+class RecentLogHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            RECENT_LOG.append(self.format(record))
+        except Exception:
+            pass
 
 HELP = """\
 Команды (уходят первой подключённой колонке):
@@ -33,6 +43,11 @@ HELP = """\
   rec [сек]   echo [сек]        записать микрофон в WAV / записать и сразу проиграть
   beep [Гц] [мс]   play <wav>   тон / файл на динамике        stop — замолчать
   vol 0..100                    громкость        gain 0..30 — усиление микрофона, дБ
+Голос (Gemini Live):
+  ask <вопрос>                  спросить без слова пробуждения, ответ голосом на колонке
+  wake                          слушает ли слово пробуждения и как близко было за минуту
+  last                          последний разговор: что расслышал и что ответил
+  log [строк]                   последние строки журнала сервера (по умолчанию 40)
 Телефон и компьютер:
   phone                         что известно о телефоне и компьютере
   ring [off]                    «где мой телефон»
@@ -126,6 +141,9 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
     line = line.strip()
     if line == "help":
         return HELP
+    if line == "log" or line.startswith("log "):
+        n = line[4:].strip()
+        return "\n".join(list(RECENT_LOG)[-(int(n) if n.isdigit() else 40):]) or "журнал пуст"
     if line == "devices":
         if not hub.devices:
             return "колонок нет"
@@ -134,6 +152,10 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
         reply = await hub.audio.command(line)
         if reply is not None:
             return reply
+    if hub.voice is not None:
+        out = await hub.voice.command(line)
+        if out is not None:
+            return out
     if hub.bridge is not None:
         out = await hub.bridge.command(line)
         if out is not None:

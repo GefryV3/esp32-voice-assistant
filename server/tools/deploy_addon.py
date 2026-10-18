@@ -23,7 +23,8 @@ from jarvis.config import read_env_file  # noqa: E402
 
 DEFAULT_DEST = r"\\192.168.178.86\addons\jarvis"
 # в аддоне адрес и папка данных свои — с ноутбука разработки берём только эти
-ENV_KEYS = ("JARVIS_DEVICE_TOKEN", "JARVIS_TZ", "JARVIS_LOG_LEVEL")
+ENV_KEYS = ("JARVIS_DEVICE_TOKEN", "JARVIS_TZ", "JARVIS_LOG_LEVEL",
+            "GEMINI_API_KEY", "JARVIS_GEMINI_MODEL", "JARVIS_VOICE", "JARVIS_WAKE_THRESHOLD")
 
 
 def build(dest: Path) -> list[str]:

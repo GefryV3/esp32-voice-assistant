@@ -30,8 +30,8 @@ android {
         applicationId = "dev.jarvis.bridge"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         val port = env.getProperty("JARVIS_PORT", "8765")
         buildConfigField("String", "SERVER_URL", "\"ws://$serverHost:$port/phone\"")
         buildConfigField("String", "TOKEN", "\"${env.getProperty("JARVIS_DEVICE_TOKEN", "")}\"")
@@ -53,13 +53,16 @@ android {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("androidx.compose:compose-bom:2025.10.00"))
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.material3:material3")
+    // 1.5.0-alpha16 — последняя с открытыми Expressive API, которой хватает compileSdk 35 и AGP 8.7
+    // (в стабильной 1.4.0 они internal, с 1.5.0-alpha20 нужны SDK 37 и AGP 9.1)
+    implementation("androidx.compose.material3:material3:1.5.0-alpha16")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

@@ -8,11 +8,25 @@ import sys
 
 from pathlib import Path
 
+from collections.abc import Callable
+
 from .audio import Audio
 from .bridge import Bridge, SettingsStore
+from .voice import Voice
+from .wake import WakeWord, ensure_models
 from .config import ConfigError, load_settings
-from .console import add_admin_route, run_console
+from .console import RecentLogHandler, add_admin_route, run_console
 from .devices import DeviceHub
+
+
+async def wake_factory(model_dir: Path) -> Callable[[], WakeWord] | None:
+    """Модели слова пробуждения (скачать при первом запуске). Не вышло — без слова, но ask работает."""
+    try:
+        await asyncio.to_thread(ensure_models, model_dir)
+        return lambda: WakeWord(model_dir)
+    except Exception as e:
+        logging.getLogger("jarvis").warning("слово пробуждения выключено: %s", e)
+        return None
 
 
 async def main() -> None:
@@ -27,10 +41,17 @@ async def main() -> None:
         datefmt="%H:%M:%S",
     )
     logging.getLogger("websockets").setLevel(logging.WARNING)  # о подключениях пишет devices
+    recent = RecentLogHandler()
+    recent.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"))
+    logging.getLogger().addHandler(recent)
     hub = DeviceHub(settings)
     add_admin_route(hub, settings.device_token)
     bridge = Bridge(hub, settings, SettingsStore(Path(settings.data_dir) / "settings.json"))
-    Audio(hub, settings.data_dir)
+    audio = Audio(hub, settings.data_dir)
+    if settings.gemini_api_key:
+        Voice(hub, audio, settings, wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
+    else:
+        logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
     async with hub:
         bridge.start()
         try:

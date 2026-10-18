@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.jarvis.bridge
 
 import android.content.Intent
@@ -16,24 +18,45 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,12 +65,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -56,19 +79,18 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.jarvis.bridge.ui.ActionRow
+import dev.jarvis.bridge.ui.AppIcon
 import dev.jarvis.bridge.ui.AppTheme
-import dev.jarvis.bridge.ui.IosSwitch
-import dev.jarvis.bridge.ui.ListRow
-import dev.jarvis.bridge.ui.LocalPalette
-import dev.jarvis.bridge.ui.Section
-import dev.jarvis.bridge.ui.Segmented
-import dev.jarvis.bridge.ui.Separator
+import dev.jarvis.bridge.ui.ChoiceRow
+import dev.jarvis.bridge.ui.Dot
+import dev.jarvis.bridge.ui.Group
+import dev.jarvis.bridge.ui.RowIcon
+import dev.jarvis.bridge.ui.SettingRow
 import dev.jarvis.bridge.ui.SliderRow
+import dev.jarvis.bridge.ui.Status
 import dev.jarvis.bridge.ui.StepperRow
 import dev.jarvis.bridge.ui.ToggleRow
-import dev.jarvis.bridge.ui.Type
-import dev.jarvis.bridge.ui.ValueText
+import dev.jarvis.bridge.ui.screen
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
@@ -101,17 +123,27 @@ private fun sarcasmLabel(v: Int) = when {
     else -> "токсичный"
 }
 
+private fun volumeLabel(v: Int) = when {
+    v == 0 -> "без звука"
+    v < 35 -> "тихо"
+    v < 70 -> "${v} %"
+    else -> "${v} % · громко"
+}
+
+private data class SeenApp(val pkg: String, val name: String, val icon: androidx.compose.ui.graphics.ImageBitmap)
+
 @Composable
 private fun Home() {
     val ctx = LocalContext.current
-    val c = LocalPalette.current
     val state by Bridge.ui.collectAsStateWithLifecycle()
     val s = state.settings
     var perms by remember { mutableStateOf(Permissions.check(ctx)) }
     var editServer by remember { mutableStateOf(false) }
     // ползунки меняют значение сразу на экране, а серверу — когда палец отпустили
     var brightness by remember(s.brightness) { mutableStateOf(s.brightness / 100f) }
+    var volume by remember(s.volume) { mutableStateOf(s.volume / 100f) }
     var sarcasm by remember(s.sarcasm) { mutableStateOf(s.sarcasm / 100f) }
+    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     LifecycleResumeEffect(Unit) {
         perms = Permissions.check(ctx)
@@ -122,129 +154,219 @@ private fun Home() {
         Calls.register(ctx)
         Bt.sendAll(ctx)
     }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(c.bg)
-            .verticalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 32.dp)
-    ) {
-        Hero(state)
-
-        if (!perms.all) {
-            Section(
-                "Доступы",
-                footer = "Если Android пишет «Ограниченная настройка»: О приложении → ⋮ → Разрешить ограниченные настройки, потом снова сюда.",
-            ) {
-                PermissionRow("Уведомления", "Видеть уведомления и что играет", perms.listener) {
-                    ctx.startActivity(
-                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                            .putExtra(
-                                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                                android.content.ComponentName(ctx, NotifListener::class.java).flattenToString(),
-                            )
-                    )
-                }
-                Separator()
-                PermissionRow("Звонки, SMS, Bluetooth", "Кто звонит, «сбрось», заряд наушников", perms.runtime) {
-                    askRuntime.launch(Permissions.runtime)
-                }
-                Separator()
-                PermissionRow("Работа в фоне", "Чтобы OnePlus не выгружал приложение", perms.battery) {
-                    ctx.startActivity(
-                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
-                    )
-                }
+    val pm = ctx.packageManager
+    val apps = remember(state.seenApps) {
+        state.seenApps.mapNotNull { pkg ->
+            try {
+                val info = pm.getApplicationInfo(pkg, 0)
+                SeenApp(pkg, pm.getApplicationLabel(info).toString(), pm.getApplicationIcon(info).toBitmap(120, 120).asImageBitmap())
+            } catch (e: Exception) {
+                null
             }
-        }
+        }.sortedBy { it.name.lowercase() }
+    }
 
-        Section("Экран") {
-            StepperRow(
-                "Засыпать в тишине через", "${s.sleepAfterMin} мин",
-                onMinus = { Bridge.updateSettings { it.copy(sleepAfterMin = (it.sleepAfterMin - 1).coerceAtLeast(1)) } },
-                onPlus = { Bridge.updateSettings { it.copy(sleepAfterMin = (it.sleepAfterMin + 1).coerceAtMost(60)) } },
+    Scaffold(
+        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.screen,
+        topBar = {
+            LargeFlexibleTopAppBar(
+                title = { Text("Колонка") },
+                subtitle = { Text(statusText(state)) },
+                scrollBehavior = scroll,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.screen,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
             )
-            Separator()
-            ListRow("Часы во сне") {
-                Segmented(listOf("Сверху", "Снизу"), if (s.sleepClock == "bottom") 1 else 0) { i ->
-                    Bridge.updateSettings { it.copy(sleepClock = if (i == 1) "bottom" else "top") }
-                }
-            }
-            Separator()
-            SliderRow(
-                "Яркость", brightness, "тусклее", "ярче",
-                onChange = { brightness = it.coerceAtLeast(0.05f) },
-                onDone = { Bridge.updateSettings { it.copy(brightness = (brightness * 100).toInt()) } },
-            )
-        }
-
-        Section("Ночь", footer = "В тишину колонка гаснет и показывает только звонки и будильник.") {
-            StepperRow(
-                "Тишина с", s.nightStart,
-                onMinus = { Bridge.updateSettings { it.copy(nightStart = shiftTime(it.nightStart, -30)) } },
-                onPlus = { Bridge.updateSettings { it.copy(nightStart = shiftTime(it.nightStart, 30)) } },
-            )
-            Separator()
-            StepperRow(
-                "Тишина до", s.nightEnd,
-                onMinus = { Bridge.updateSettings { it.copy(nightEnd = shiftTime(it.nightEnd, -30)) } },
-                onPlus = { Bridge.updateSettings { it.copy(nightEnd = shiftTime(it.nightEnd, 30)) } },
-            )
-            Separator()
-            ToggleRow("Проверка перед сном", s.bedtimeCheck, subtitle = "Будильник, заряд, погода на завтра") { on ->
-                Bridge.updateSettings { it.copy(bedtimeCheck = on) }
-            }
-            if (s.bedtimeCheck) {
-                Separator()
-                StepperRow(
-                    "Показать в", s.bedtimeAt,
-                    onMinus = { Bridge.updateSettings { it.copy(bedtimeAt = shiftTime(it.bedtimeAt, -15)) } },
-                    onPlus = { Bridge.updateSettings { it.copy(bedtimeAt = shiftTime(it.bedtimeAt, 15)) } },
-                )
-            }
-            Separator()
-            StepperRow(
-                "Разбудить, если уснул после будильника", "через ${s.alarmWatchdogMin} мин",
-                onMinus = { Bridge.updateSettings { it.copy(alarmWatchdogMin = (it.alarmWatchdogMin - 1).coerceAtLeast(1)) } },
-                onPlus = { Bridge.updateSettings { it.copy(alarmWatchdogMin = (it.alarmWatchdogMin + 1).coerceAtMost(30)) } },
-            )
-        }
-
-        Section("Характер") {
-            SliderRow(
-                "Язвительность: ${sarcasmLabel((sarcasm * 100).toInt())}", sarcasm, "вежливый", "токсичный",
-                onChange = { sarcasm = it },
-                onDone = { Bridge.updateSettings { it.copy(sarcasm = (sarcasm * 100).toInt()) } },
-            )
-        }
-
-        Section(
-            "Уведомления",
-            footer = "Приложения появляются в списке, когда пришлют первое уведомление.",
+        },
+    ) { inner ->
+        LazyColumn(
+            contentPadding = PaddingValues(
+                start = 16.dp, end = 16.dp, top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding() + 32.dp,
+            ),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            ToggleRow("Показывать на колонке", s.mirror) { on -> Bridge.updateSettings { it.copy(mirror = on) } }
-            if (s.mirror) {
-                Separator()
-                ToggleRow(
-                    "Только когда я за компьютером", s.mirrorOnlyPc,
-                    subtitle = if (state.pcOnline) "Компьютер на связи" else "Компьютер не на связи",
-                ) { on -> Bridge.updateSettings { it.copy(mirrorOnlyPc = on) } }
-                AppList(state.seenApps, state.muted)
+            item { Hero(state) }
+
+            if (!perms.all) item {
+                Group(
+                    "Доступы",
+                    footer = "Если Android пишет «Ограниченная настройка»: О приложении → ⋮ → Разрешить ограниченные настройки, потом снова сюда.",
+                ) {
+                    row {
+                        PermissionRow(Icons.Filled.Notifications, "Уведомления", "Видеть уведомления и что играет", perms.listener) {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+                                    Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                                    android.content.ComponentName(ctx, NotifListener::class.java).flattenToString(),
+                                )
+                            )
+                        }
+                    }
+                    row {
+                        PermissionRow(Icons.Filled.Phone, "Звонки, SMS, Bluetooth", "Кто звонит, «сбрось», заряд наушников", perms.runtime) {
+                            askRuntime.launch(Permissions.runtime)
+                        }
+                    }
+                    row {
+                        PermissionRow(Icons.Filled.Lock, "Работа в фоне", "Чтобы OnePlus не выгружал приложение", perms.battery) {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
+                            )
+                        }
+                    }
+                }
             }
-        }
 
-        Section("Проверка") {
-            ActionRow("Показать уведомление на колонке") { Bridge.send("test") }
-            Separator()
-            ActionRow("Позвонить на этот телефон") { Finder.ring(ctx, true) }
-        }
+            item {
+                Group("Звук") {
+                    row {
+                        SliderRow(
+                            "Громкость", volume, "тише", "громче",
+                            leading = { RowIcon(Icons.Filled.PlayArrow) },
+                            valueText = volumeLabel((volume * 100).toInt()),
+                            onChange = { volume = it },
+                            onDone = { Bridge.updateSettings { it.copy(volume = (volume * 100).toInt()) } },
+                        )
+                    }
+                    row {
+                        SettingRow("Проверить звук", "Короткий сигнал на колонке", leading = { RowIcon(Icons.Filled.Refresh) }) {
+                            FilledTonalButton(onClick = { Bridge.send("beep") }) { Text("Сигнал") }
+                        }
+                    }
+                }
+            }
 
-        Section("Связь", footer = "Версия ${BuildConfig.VERSION_NAME}") {
-            ListRow("Сервер", subtitle = Prefs.serverUrl, onClick = { editServer = true }) {
-                ValueText(if (state.link) "на связи" else "нет связи", if (state.link) c.green else c.red)
+            item {
+                Group("Экран") {
+                    row {
+                        SliderRow(
+                            "Яркость", brightness, "тусклее", "ярче",
+                            leading = { RowIcon(Icons.Filled.Star) },
+                            onChange = { brightness = it.coerceAtLeast(0.05f) },
+                            onDone = { Bridge.updateSettings { it.copy(brightness = (brightness * 100).toInt()) } },
+                        )
+                    }
+                    row {
+                        StepperRow(
+                            "Засыпать в тишине через", "${s.sleepAfterMin} мин", leading = { RowIcon(Icons.Filled.DateRange) },
+                            onMinus = { Bridge.updateSettings { it.copy(sleepAfterMin = (it.sleepAfterMin - 1).coerceAtLeast(1)) } },
+                            onPlus = { Bridge.updateSettings { it.copy(sleepAfterMin = (it.sleepAfterMin + 1).coerceAtMost(60)) } },
+                        )
+                    }
+                    row {
+                        ChoiceRow("Часы во сне", listOf("Сверху", "Снизу"), if (s.sleepClock == "bottom") 1 else 0) { i ->
+                            Bridge.updateSettings { it.copy(sleepClock = if (i == 1) "bottom" else "top") }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Group("Ночь", footer = "В тишину колонка гаснет и показывает только звонки и будильник.") {
+                    row {
+                        StepperRow(
+                            "Тишина с", s.nightStart,
+                            onMinus = { Bridge.updateSettings { it.copy(nightStart = shiftTime(it.nightStart, -30)) } },
+                            onPlus = { Bridge.updateSettings { it.copy(nightStart = shiftTime(it.nightStart, 30)) } },
+                        )
+                    }
+                    row {
+                        StepperRow(
+                            "Тишина до", s.nightEnd,
+                            onMinus = { Bridge.updateSettings { it.copy(nightEnd = shiftTime(it.nightEnd, -30)) } },
+                            onPlus = { Bridge.updateSettings { it.copy(nightEnd = shiftTime(it.nightEnd, 30)) } },
+                        )
+                    }
+                    row {
+                        ToggleRow(
+                            "Проверка перед сном", s.bedtimeCheck, subtitle = "Будильник, заряд, погода на завтра",
+                            leading = { RowIcon(Icons.Filled.Done) },
+                        ) { on -> Bridge.updateSettings { it.copy(bedtimeCheck = on) } }
+                    }
+                    if (s.bedtimeCheck) row {
+                        StepperRow(
+                            "Показать в", s.bedtimeAt,
+                            onMinus = { Bridge.updateSettings { it.copy(bedtimeAt = shiftTime(it.bedtimeAt, -15)) } },
+                            onPlus = { Bridge.updateSettings { it.copy(bedtimeAt = shiftTime(it.bedtimeAt, 15)) } },
+                        )
+                    }
+                    row {
+                        StepperRow(
+                            "Разбудить, если уснул после будильника", "через ${s.alarmWatchdogMin} мин",
+                            leading = { RowIcon(Icons.Filled.Warning) },
+                            onMinus = { Bridge.updateSettings { it.copy(alarmWatchdogMin = (it.alarmWatchdogMin - 1).coerceAtLeast(1)) } },
+                            onPlus = { Bridge.updateSettings { it.copy(alarmWatchdogMin = (it.alarmWatchdogMin + 1).coerceAtMost(30)) } },
+                        )
+                    }
+                }
+            }
+
+            item {
+                Group("Характер") {
+                    row {
+                        SliderRow(
+                            "Язвительность", sarcasm, "вежливый", "токсичный",
+                            leading = { RowIcon(Icons.Filled.Face) },
+                            valueText = sarcasmLabel((sarcasm * 100).toInt()),
+                            onChange = { sarcasm = it },
+                            onDone = { Bridge.updateSettings { it.copy(sarcasm = (sarcasm * 100).toInt()) } },
+                        )
+                    }
+                }
+            }
+
+            item {
+                Group("Уведомления", footer = "Приложения появляются в списке, когда пришлют первое уведомление.") {
+                    row {
+                        ToggleRow("Показывать на колонке", s.mirror, leading = { RowIcon(Icons.Filled.Notifications) }) { on ->
+                            Bridge.updateSettings { it.copy(mirror = on) }
+                        }
+                    }
+                    if (s.mirror) {
+                        row {
+                            ToggleRow(
+                                "Только когда я за компьютером", s.mirrorOnlyPc,
+                                subtitle = if (state.pcOnline) "Компьютер на связи" else "Компьютер не на связи",
+                                leading = { RowIcon(Icons.Filled.Home) },
+                            ) { on -> Bridge.updateSettings { it.copy(mirrorOnlyPc = on) } }
+                        }
+                        apps.forEach { app ->
+                            row {
+                                ToggleRow(app.name, app.pkg !in state.muted, leading = { AppIcon(app.icon) }) { on ->
+                                    Bridge.setMuted(app.pkg, !on)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Group("Проверка") {
+                    row {
+                        SettingRow("Уведомление на колонке", "Тестовая карточка «Мама: ужин готов»", leading = { RowIcon(Icons.Filled.Send) },
+                                   onClick = { Bridge.send("test") })
+                    }
+                    row {
+                        SettingRow("Позвонить на этот телефон", "Как «где мой телефон»", leading = { RowIcon(Icons.Filled.Call) },
+                                   onClick = { Finder.ring(ctx, true) })
+                    }
+                }
+            }
+
+            item {
+                Group("Связь", footer = "Версия ${BuildConfig.VERSION_NAME}") {
+                    row {
+                        SettingRow("Сервер", Prefs.serverUrl, leading = { RowIcon(Icons.Filled.Settings) }, onClick = { editServer = true }) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Dot(if (state.link) Status.ok else Status.bad)
+                                Text(if (state.link) "на связи" else "нет связи", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -252,40 +374,23 @@ private fun Home() {
     if (editServer) ServerDialog { editServer = false }
 }
 
-@Composable
-private fun PermissionRow(title: String, subtitle: String, ok: Boolean, onClick: () -> Unit) {
-    val c = LocalPalette.current
-    ListRow(title, subtitle = subtitle, onClick = if (ok) null else onClick) {
-        ValueText(if (ok) "Есть" else "Разрешить", if (ok) c.green else c.blue)
-    }
+private fun statusText(state: UiState) = when {
+    state.link && state.speakerOnline -> "На связи · ${state.speakerFps} кадров/с"
+    state.link -> "Сервер на связи, колонка — нет"
+    else -> "Нет связи с сервером"
 }
 
 @Composable
-private fun AppList(seen: Set<String>, muted: Set<String>) {
-    val ctx = LocalContext.current
-    val pm = ctx.packageManager
-    val apps = remember(seen) {
-        seen.mapNotNull { pkg ->
-            try {
-                val info = pm.getApplicationInfo(pkg, 0)
-                Triple(pkg, pm.getApplicationLabel(info).toString(), pm.getApplicationIcon(info).toBitmap(96, 96).asImageBitmap())
-            } catch (e: Exception) {
-                null
-            }
-        }.sortedBy { it.second.lowercase() }
-    }
-    apps.forEach { (pkg, name, icon) ->
-        Separator(inset = 57)
-        ListRow(name, icon = icon) {
-            IosSwitch(pkg !in muted, name) { on -> Bridge.setMuted(pkg, !on) }
-        }
+private fun PermissionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, ok: Boolean, onClick: () -> Unit) {
+    SettingRow(title, subtitle, leading = { RowIcon(icon) }, onClick = if (ok) null else onClick) {
+        if (ok) Text("Есть", style = MaterialTheme.typography.labelLarge, color = Status.ok)
+        else FilledTonalButton(onClick = onClick) { Text("Разрешить") }
     }
 }
 
-/** Вверху — сама колонка: круглый экран с глазами, которые моргают. */
+/** Вверху — сама колонка: круглый экран с моргающими глазами в «печеньке» Material. */
 @Composable
 private fun Hero(state: UiState) {
-    val c = LocalPalette.current
     val blink = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -295,49 +400,39 @@ private fun Hero(state: UiState) {
         }
     }
     val online = state.link && state.speakerOnline
-    val eye = if (online) Color(0xFFE2ECFF) else Color(0xFF8E939E)
-    val glow = if (online) Color(0xFF4080FF) else Color(0xFF4A4F5A)
-    Column(
-        Modifier.fillMaxWidth().padding(top = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Canvas(Modifier.size(148.dp).semantics { contentDescription = if (online) "Колонка на связи" else "Колонка не на связи" }) {
-            val r = size.minDimension / 2
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF3A3F48), Color(0xFF0B0C0E)), center = Offset(r * 0.6f, r * 0.45f), radius = r * 1.4f), r)
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF151922), Color.Black), center = center, radius = r * 0.9f), r * 0.9f)
-            val ew = size.width * 0.17f
-            val eh = size.height * 0.22f * blink.value
-            for (side in listOf(-1f, 1f)) {
-                val cx = center.x + side * size.width * 0.155f
-                val cy = center.y - size.height * 0.03f
-                for (k in 3 downTo 1) {  // мягкое свечение в три слоя
-                    val g = k * size.width * 0.018f
-                    drawRoundRect(
-                        glow.copy(alpha = 0.10f), Offset(cx - ew / 2 - g, cy - eh / 2 - g), Size(ew + 2 * g, eh + 2 * g),
-                        CornerRadius(ew * 0.4f + g),
-                    )
+    val cs = MaterialTheme.colorScheme
+    val eye = if (online) cs.primary else cs.outline
+    val glow = if (online) cs.primary else cs.outlineVariant
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+        Surface(
+            shape = MaterialShapes.Cookie9Sided.toShape(),
+            color = cs.primaryContainer,
+            modifier = Modifier.size(172.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Canvas(
+                    Modifier.size(120.dp).clip(androidx.compose.foundation.shape.CircleShape).background(cs.inverseSurface)
+                        .semantics { contentDescription = if (online) "Колонка на связи" else "Колонка не на связи" },
+                ) {
+                    val ew = size.width * 0.17f
+                    val eh = size.height * 0.24f * blink.value
+                    for (side in listOf(-1f, 1f)) {
+                        val cx = center.x + side * size.width * 0.16f
+                        val cy = center.y - size.height * 0.02f
+                        for (k in 3 downTo 1) {  // мягкое свечение в три слоя
+                            val g = k * size.width * 0.02f
+                            drawRoundRect(
+                                glow.copy(alpha = 0.14f), Offset(cx - ew / 2 - g, cy - eh / 2 - g), Size(ew + 2 * g, eh + 2 * g),
+                                CornerRadius(ew * 0.4f + g),
+                            )
+                        }
+                        drawRoundRect(eye, Offset(cx - ew / 2, cy - eh / 2), Size(ew, eh), CornerRadius(ew * 0.38f))
+                    }
                 }
-                drawRoundRect(
-                    Brush.verticalGradient(listOf(eye, eye.copy(alpha = 0.82f)), startY = cy - eh / 2, endY = cy + eh / 2),
-                    Offset(cx - ew / 2, cy - eh / 2), Size(ew, eh), CornerRadius(ew * 0.38f),
-                )
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Колонка", style = Type.largeTitle, color = c.label)
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(8.dp).background(if (online) c.green else if (state.link) c.orange else c.red, CircleShape))
-            Text(
-                when {
-                    online -> "На связи · ${state.speakerFps} кадров/с"
-                    state.link -> "Сервер на связи, колонка — нет"
-                    else -> "Нет связи с сервером"
-                },
-                style = Type.subhead, color = c.secondary,
-            )
-        }
     }
+    Spacer(Modifier.height(4.dp))
 }
 
 @Composable
@@ -345,11 +440,12 @@ private fun ServerDialog(onClose: () -> Unit) {
     var url by remember { mutableStateOf(Prefs.serverUrl) }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Адрес сервера", style = Type.bodyStrong) },
+        title = { Text("Адрес сервера") },
         text = {
             OutlinedTextField(
-                url, { url = it }, singleLine = true, textStyle = Type.subhead,
+                url, { url = it }, singleLine = true, label = { Text("ws://…:8765/phone") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
@@ -357,8 +453,8 @@ private fun ServerDialog(onClose: () -> Unit) {
                 Prefs.serverUrl = url.trim()
                 Bridge.restartLink()
                 onClose()
-            }) { Text("Сохранить", style = Type.bodyStrong) }
+            }) { Text("Сохранить") }
         },
-        dismissButton = { TextButton(onClick = onClose) { Text("Отмена", style = Type.body) } },
+        dismissButton = { TextButton(onClick = onClose) { Text("Отмена") } },
     )
 }

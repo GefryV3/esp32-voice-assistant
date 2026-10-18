@@ -5,10 +5,9 @@ name: Jarvis
 version: "0.0.0"
 slug: jarvis
 description: Сервер голосового ассистента Jarvis — колонка, телефон и компьютер
-arch:
+arch:   # armv7 нет: под него нет onnxruntime
   - amd64
   - aarch64
-  - armv7
 startup: application
 boot: auto
 ports:

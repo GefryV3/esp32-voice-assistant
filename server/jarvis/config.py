@@ -21,6 +21,10 @@ class Settings:
     tz: str = VIENNA_TZ
     log_level: str = "INFO"
     data_dir: str = "data"  # настройки колонки и прочее, что должно пережить перезапуск
+    gemini_api_key: str = ""                 # пусто — голоса нет, остальное работает
+    gemini_model: str = "gemini-3.8-live"
+    voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
+    wake_threshold: float = 0.5
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -52,6 +56,10 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         port = int(env.get("JARVIS_PORT", "8765"))
     except ValueError as e:
         raise ConfigError(f"JARVIS_PORT должен быть числом: {e}") from None
+    try:
+        wake_threshold = float(env.get("JARVIS_WAKE_THRESHOLD", "0.5"))
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_WAKE_THRESHOLD должен быть числом 0…1: {e}") from None
 
     return Settings(
         device_token=token,
@@ -60,4 +68,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         tz=env.get("JARVIS_TZ", VIENNA_TZ),
         log_level=env.get("JARVIS_LOG_LEVEL", "INFO").upper(),
         data_dir=env.get("JARVIS_DATA", "data"),
+        gemini_api_key=env.get("GEMINI_API_KEY", ""),
+        gemini_model=env.get("JARVIS_GEMINI_MODEL", "gemini-3.8-live"),
+        voice_name=env.get("JARVIS_VOICE", "Charon"),
+        wake_threshold=wake_threshold,
     )

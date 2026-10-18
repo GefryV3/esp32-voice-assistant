@@ -22,6 +22,7 @@ from websockets.asyncio.server import ServerConnection
 from websockets.exceptions import ConnectionClosed
 
 from . import __version__, protocol
+from .audio import tone
 from .config import Settings
 from .devices import Device, DeviceHub
 from .protocol import Hello, Message, ProtocolError
@@ -40,7 +41,7 @@ DEFAULTS: dict[str, Any] = {
     "night_start": "23:30", "night_end": "07:00",
     "bedtime_check": True, "bedtime_at": "23:00",
     "sarcasm": 60, "mirror": True, "mirror_only_pc": True, "alarm_watchdog_min": 5,
-    "volume": 70,
+    "volume": 50,
 }
 RANGES = {"sleep_after_min": (1, 60), "brightness": (5, 100), "sarcasm": (0, 100),
           "alarm_watchdog_min": (1, 30), "volume": (0, 100)}
@@ -354,6 +355,10 @@ class Bridge:
                 await self.push_settings()
         elif t == "test":
             await self.speaker(protocol.notify("msg", "Мама", "Ужин готов, спускайся", app="Telegram"))
+        elif t == "beep":   # «Проверить звук» в приложении
+            dev = self.hub.get()
+            if dev is not None and self.hub.audio is not None and "speaker" in dev.hello.caps:
+                await self.hub.audio.play(dev, tone(660, 150) + bytes(1600) + tone(880, 220))
 
     # ── сообщения компьютера ──
 

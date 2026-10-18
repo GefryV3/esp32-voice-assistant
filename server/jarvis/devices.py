@@ -57,6 +57,7 @@ class DeviceHub:
         self._background: set[asyncio.Task] = set()
         self.bridge: Any = None  # мост с телефоном и компьютером (jarvis.bridge), если запущен
         self.audio: Any = None   # звук колонок (jarvis.audio), если запущен
+        self.voice: Any = None   # разговор через Gemini Live (jarvis.voice), если есть ключ
 
     # ── жизненный цикл ──
 

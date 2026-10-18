@@ -1,270 +1,249 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.jarvis.bridge.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-// Компоненты в духе iOS: карточка-секция (insetGrouped), строки высотой от 44 dp,
-// переключатель, сегменты, степпер и слайдер как в системных «Настройках».
+// Группы настроек как в Android 16: заголовок цветом primary, строки-карточки с зазором 2 dp,
+// снаружи группа скруглена на 24 dp, между строками — 4 dp.
 
-@Composable
-fun Section(header: String? = null, footer: String? = null, content: @Composable ColumnScope.() -> Unit) {
-    val c = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(top = 24.dp)) {
-        if (header != null) {
-            Text(header, style = Type.footnote, color = c.secondary, modifier = Modifier.padding(start = 16.dp, bottom = 7.dp))
-        }
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.card)) { content() }
-        if (footer != null) {
-            Text(footer, style = Type.footnote, color = c.secondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 7.dp))
-        }
-    }
-}
+private val Outer = 24.dp
+private val Inner = 4.dp
 
-/** Тонкая линия между строками, с отступом слева, как в iOS. */
-@Composable
-fun Separator(inset: Int = 16) {
-    val c = LocalPalette.current
-    Box(Modifier.fillMaxWidth().padding(start = inset.dp).height(0.5.dp).background(c.separator))
-}
+/** Положение строки в группе — от него зависят скругления. */
+private val LocalRowShape = compositionLocalOf { RoundedCornerShape(Outer) }
 
-@Composable
-fun ListRow(
-    title: String,
-    modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    icon: ImageBitmap? = null,
-    titleColor: Color? = null,
-    onClick: (() -> Unit)? = null,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    val c = LocalPalette.current
-    Row(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = 44.dp)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (icon != null) {
-            Image(icon, contentDescription = null, modifier = Modifier.size(29.dp).clip(RoundedCornerShape(7.dp)))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = Type.body, color = titleColor ?: c.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (subtitle != null) Text(subtitle, style = Type.footnote, color = c.secondary, maxLines = 2)
-        }
-        if (trailing != null) trailing()
+class GroupScope internal constructor() {
+    internal val rows = mutableListOf<@Composable () -> Unit>()
+
+    /** Одна строка группы. */
+    fun row(content: @Composable () -> Unit) {
+        rows += content
     }
 }
 
 @Composable
-fun ValueText(text: String, color: Color? = null) {
-    Text(text, style = Type.body, color = color ?: LocalPalette.current.secondary)
-}
-
-/** Переключатель iOS: 51×31, зелёный, с пружинкой. */
-@Composable
-fun IosSwitch(checked: Boolean, label: String, onChange: (Boolean) -> Unit) {
-    val c = LocalPalette.current
-    val haptic = LocalHapticFeedback.current
-    val t by animateFloatAsState(if (checked) 1f else 0f, spring(dampingRatio = 0.75f, stiffness = 600f), label = "switch")
-    Box(
-        Modifier
-            .size(51.dp, 31.dp)
-            .clip(CircleShape)
-            .background(lerp(c.switchOff, c.green, t))
-            .semantics {
-                role = Role.Switch
-                contentDescription = label
-                stateDescription = if (checked) "включено" else "выключено"
+fun Group(title: String? = null, footer: String? = null, build: GroupScope.() -> Unit) {
+    val scope = GroupScope().apply(build)
+    Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+        if (title != null) {
+            Text(
+                title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            val n = scope.rows.size
+            scope.rows.forEachIndexed { i, row ->
+                val top = if (i == 0) Outer else Inner
+                val bottom = if (i == n - 1) Outer else Inner
+                CompositionLocalProvider(
+                    LocalRowShape provides RoundedCornerShape(top, top, bottom, bottom),
+                ) { row() }
             }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onChange(!checked)
-            },
-    ) {
-        Box(
-            Modifier
-                .padding(2.dp)
-                .offset(x = 20.dp * t)
-                .size(27.dp)
-                .shadow(3.dp, CircleShape)
-                .background(Color.White, CircleShape)
+        }
+        if (footer != null) {
+            Text(
+                footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            )
+        }
+    }
+}
+
+/** Ведущая иконка строки — в тональном кружке. */
+@Composable
+fun RowIcon(icon: ImageVector) {
+    Box(
+        Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+}
+
+@Composable
+fun AppIcon(bitmap: ImageBitmap) {
+    Image(bitmap, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
+}
+
+@Composable
+fun SettingRow(
+    title: String,
+    subtitle: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val shape = LocalRowShape.current
+    val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.row)
+    val content: @Composable () -> Unit = {
+        ListItem(
+            headlineContent = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            supportingContent = subtitle?.let { { Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis) } },
+            leadingContent = leading,
+            trailingContent = trailing,
+            colors = colors,
+        )
+    }
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) { content() }
+    } else {
+        Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) { content() }
+    }
+}
+
+@Composable
+fun ToggleRow(title: String, checked: Boolean, subtitle: String? = null, leading: (@Composable () -> Unit)? = null, onChange: (Boolean) -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    fun flip() {
+        haptic.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+        onChange(!checked)
+    }
+    SettingRow(title, subtitle, leading, onClick = ::flip) {
+        Switch(
+            checked = checked,
+            onCheckedChange = { flip() },
+            thumbContent = if (checked) {
+                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+            } else null,
+            modifier = Modifier.semantics { contentDescription = title },
         )
     }
 }
 
+/** Значение и пара кнопок «−» / «+». */
 @Composable
-fun ToggleRow(title: String, checked: Boolean, subtitle: String? = null, onChange: (Boolean) -> Unit) {
-    ListRow(title, subtitle = subtitle) { IosSwitch(checked, title, onChange) }
-}
-
-/** Сегменты (UISegmentedControl). */
-@Composable
-fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
-    val c = LocalPalette.current
-    Row(
-        modifier.height(32.dp).clip(RoundedCornerShape(9.dp)).background(c.fill).padding(2.dp),
-    ) {
-        options.forEachIndexed { i, s ->
-            val bg by animateColorAsState(if (i == selected) c.segment else Color.Transparent, label = "seg")
-            Box(
-                Modifier
-                    .width(86.dp)
-                    .fillMaxHeight()
-                    .then(if (i == selected) Modifier.shadow(1.dp, RoundedCornerShape(7.dp)) else Modifier)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(bg)
-                    .semantics { role = Role.RadioButton; contentDescription = s }
-                    .clickable { onSelect(i) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(s, style = Type.footnote.copy(fontWeight = if (i == selected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium), color = c.label)
-            }
+fun StepperRow(title: String, value: String, leading: (@Composable () -> Unit)? = null, onMinus: () -> Unit, onPlus: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    SettingRow(title, value, leading) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilledTonalIconButton(
+                onClick = { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onMinus() },
+                modifier = Modifier.semantics { contentDescription = "$title: меньше" },
+            ) { Text("−", style = MaterialTheme.typography.titleLarge) }
+            FilledTonalIconButton(
+                onClick = { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onPlus() },
+                modifier = Modifier.semantics { contentDescription = "$title: больше" },
+            ) { Icon(Icons.Filled.Add, contentDescription = null) }
         }
     }
 }
 
-/** Степпер (UIStepper): «−» и «+» в одной капсуле. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Stepper(label: String, onMinus: () -> Unit, onPlus: () -> Unit) {
-    val c = LocalPalette.current
-    val haptic = LocalHapticFeedback.current
-    Row(Modifier.height(32.dp).clip(RoundedCornerShape(8.dp)).background(c.fill), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.width(47.dp).fillMaxHeight().semantics { contentDescription = "$label: меньше" }
-                .clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onMinus() },
-            contentAlignment = Alignment.Center,
-        ) { Text("−", style = Type.title3, color = c.label) }
-        Box(Modifier.width(0.5.dp).height(18.dp).background(c.separator))
-        Box(
-            Modifier.width(47.dp).fillMaxHeight().semantics { contentDescription = "$label: больше" }
-                .clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onPlus() },
-            contentAlignment = Alignment.Center,
-        ) { Text("+", style = Type.title3, color = c.label) }
-    }
-}
-
-@Composable
-fun StepperRow(title: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
-    ListRow(title, subtitle = value) { Stepper(title, onMinus, onPlus) }
-}
-
-/** Слайдер iOS: тонкая дорожка, белый круглый бегунок. onDone — когда отпустили. */
-@Composable
-fun IosSlider(value: Float, label: String, onChange: (Float) -> Unit, onDone: () -> Unit) {
-    val c = LocalPalette.current
-    val change by rememberUpdatedState(onChange)
-    val done by rememberUpdatedState(onDone)
-    var width by remember { mutableFloatStateOf(1f) }
-    val thumb = 28.dp
-    val thumbPx = with(LocalDensity.current) { thumb.toPx() }
-    fun at(x: Float) = ((x - thumbPx / 2) / (width - thumbPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(36.dp)
-            .onSizeChanged { width = it.width.toFloat() }
-            .semantics { contentDescription = label; stateDescription = "${(value * 100).roundToInt()} %" }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(onDragEnd = { done() }) { ch, _ ->
-                    ch.consume()
-                    change(at(ch.position.x))
+fun ChoiceRow(title: String, options: List<String>, selected: Int, leading: (@Composable () -> Unit)? = null, onSelect: (Int) -> Unit) {
+    val shape = LocalRowShape.current
+    Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (leading != null) {
+                    leading()
+                    Spacer(Modifier.width(16.dp))
+                }
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+            }
+            Spacer(Modifier.height(10.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                options.forEachIndexed { i, label ->
+                    SegmentedButton(
+                        selected = i == selected,
+                        onClick = { onSelect(i) },
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                    ) { Text(label) }
                 }
             }
-            .pointerInput(Unit) {
-                detectTapGestures { change(at(it.x)); done() }
-            },
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        val v = value.coerceIn(0f, 1f)
-        Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(c.fill))
-        Box(
-            Modifier
-                .fillMaxWidth(((thumbPx / 2 + (width - thumbPx) * v) / width).coerceIn(0f, 1f))
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(c.blue)
-        )
-        Box(
-            Modifier
-                .offset { IntOffset(((width - thumbPx) * v).roundToInt(), 0) }
-                .size(thumb)
-                .shadow(4.dp, CircleShape)
-                .background(Color.White, CircleShape)
-        )
-    }
-}
-
-@Composable
-fun SliderRow(title: String, value: Float, left: String, right: String, onChange: (Float) -> Unit, onDone: () -> Unit) {
-    val c = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text(title, style = Type.body, color = c.label)
-        Spacer(Modifier.height(4.dp))
-        IosSlider(value, title, onChange, onDone)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(left, style = Type.caption, color = c.secondary)
-            Text(right, style = Type.caption, color = c.secondary)
         }
     }
 }
 
-/** Строка-кнопка: синий текст, как действия в «Настройках». */
+/** Ползунок: на экране меняется сразу, onDone — когда отпустили (тогда уходит на сервер). */
 @Composable
-fun ActionRow(title: String, destructive: Boolean = false, onClick: () -> Unit) {
-    val c = LocalPalette.current
-    ListRow(title, titleColor = if (destructive) c.red else c.blue, onClick = onClick)
+fun SliderRow(
+    title: String,
+    value: Float,
+    left: String,
+    right: String,
+    leading: (@Composable () -> Unit)? = null,
+    valueText: String = "${(value * 100).roundToInt()} %",
+    onChange: (Float) -> Unit,
+    onDone: () -> Unit,
+) {
+    val shape = LocalRowShape.current
+    Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (leading != null) {
+                    leading()
+                    Spacer(Modifier.width(16.dp))
+                }
+                Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(valueText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.widthIn(min = 40.dp))
+            }
+            Slider(
+                value = value,
+                onValueChange = onChange,
+                onValueChangeFinished = onDone,
+                modifier = Modifier.semantics { contentDescription = title; stateDescription = valueText },
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(left, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(right, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** Маленький цветной кружок состояния. */
+@Composable
+fun Dot(color: androidx.compose.ui.graphics.Color, size: Dp = 10.dp) {
+    Box(Modifier.size(size).background(color, CircleShape))
 }

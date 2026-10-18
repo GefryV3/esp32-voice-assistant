@@ -30,6 +30,11 @@ constexpr int SPK_DMA_DESC = 6;
 constexpr int SPK_DMA_FRAMES = 240;           // 15 мс на дескриптор при 16 кГц
 constexpr int SPK_CHUNK = 512;                // сэмплов за проход проигрывателя
 constexpr int PREBUF_MS = 400;
+// Маленький динамик ниже ~160 Гц не звучит, а только бьётся и хрипит, и усилитель тянет из
+// USB пики тока. Голос Gemini — больше половины энергии ниже 400 Гц, басы срезаем.
+constexpr float SPK_HIGHPASS_HZ = 160.0f;
+constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкалы, с которой работает ограничитель
+constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;
@@ -45,8 +50,9 @@ TaskHandle_t s_mic = nullptr;
 
 std::atomic<bool> s_listening{false};
 std::atomic<int> s_gain_q8{1019};             // усиление ×256: 12 дБ по умолчанию
-std::atomic<int> s_vol_q15{16056};            // громкость: 70 % → (0.7)² по квадратичной шкале
+std::atomic<int> s_vol_q15{2949};             // громкость 50 %, пока сервер не прислал свою
 std::atomic<bool> s_accept{false};            // принимать кадры звука в буфер
+std::atomic<bool> s_speaking{false};          // динамик сейчас играет
 std::atomic<bool> s_ended{false};
 std::atomic<bool> s_stop{false};
 std::atomic<int> s_rate_req{16000};
@@ -126,7 +132,9 @@ void mic_task(void *) {
       const float y = hpf(static_cast<float>(raw[i] >> 8));
       pcm[i] = static_cast<int16_t>(std::clamp(y * gain, -32768.0f, 32767.0f));
     }
-    if (!s_listening) continue;
+    // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
+    // трещит в такт отправкам. Да и слушать во время своего ответа пока нечего.
+    if (!s_listening || s_speaking) continue;
     if (xStreamBufferSend(s_mic_sb, pcm, n * sizeof(int16_t), 0) != n * sizeof(int16_t)) {
       if (dropped++ % 50 == 0) ESP_LOGW(TAG, "микрофон: сеть не успевает, теряю кадры (%lu)", (unsigned long)dropped);
     }
@@ -169,6 +177,15 @@ void init_speaker() {
   // канал включаем только на время звука: без тактов усилитель молчит и не шипит
 }
 
+// Мягкий ограничитель: до LIMIT_KNEE звук как есть, выше — плавно прижимается к потолку,
+// а не срезается ступенькой (ступенька и есть треск).
+float limit(float y) {
+  const float a = std::fabs(y);
+  if (a <= LIMIT_KNEE) return y;
+  const float r = 1.0f - LIMIT_KNEE;
+  return std::copysign(LIMIT_KNEE + r * std::tanh((a - LIMIT_KNEE) / r), y);
+}
+
 void set_rate(int rate) {
   if (rate == s_rate) return;
   i2s_std_clk_config_t clk = I2S_STD_CLK_DEFAULT_CONFIG(static_cast<uint32_t>(rate));
@@ -180,6 +197,7 @@ void set_rate(int rate) {
 }
 
 void play_once() {
+  s_speaking = true;
   set_rate(s_rate_req);
   // копим 400 мс: через ретранслятор задержка сети скачет до 300 мс
   const size_t prebuf = static_cast<size_t>(s_rate) * 2 * PREBUF_MS / 1000;
@@ -191,6 +209,7 @@ void play_once() {
 
   static uint8_t in[SPK_CHUNK * 2 + 1];
   static int16_t out[SPK_CHUNK];
+  Highpass hpf(SPK_HIGHPASS_HZ, static_cast<float>(s_rate));
   ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
   size_t carry = 0;
   uint32_t underruns = 0, samples_total = 0;
@@ -199,11 +218,11 @@ void play_once() {
     size_t n = carry + xStreamBufferReceive(s_spk_sb, in + carry, SPK_CHUNK * 2, pdMS_TO_TICKS(40));
     const size_t samples = n / 2;
     if (samples) {
-      const int vol = s_vol_q15;
+      const float vol = s_vol_q15 / 32768.0f / 32768.0f;  // и в шкалу −1…1
       for (size_t i = 0; i < samples; ++i) {
         int16_t x;
         memcpy(&x, in + 2 * i, 2);
-        out[i] = static_cast<int16_t>((x * vol) >> 15);
+        out[i] = static_cast<int16_t>(limit(hpf(static_cast<float>(x)) * vol) * 32767.0f);
       }
       size_t written = 0;
       i2s_channel_write(s_tx, out, samples * 2, &written, portMAX_DELAY);
@@ -223,6 +242,7 @@ void play_once() {
     for (int i = 0; i <= SPK_DMA_DESC; ++i) i2s_channel_write(s_tx, zeros, sizeof zeros, &written, portMAX_DELAY);
   }
   i2s_channel_disable(s_tx);
+  s_speaking = false;
   if (s_stop) xStreamBufferReset(s_spk_sb);  // писатель уже не пишет (s_accept снят)
   const uint32_t overflow = s_overflow.exchange(0);
   ESP_LOGI(TAG, "доиграл %.1f с%s, пропусков %lu, не влезло %lu байт", samples_total / (float)s_rate,
@@ -291,9 +311,11 @@ void play_stop() {
   s_stop = true;
 }
 
+// Квадратичная шкала с потолком: выше ~−9 дБ полной шкалы динамик и питание усилителя от USB
+// начинают хрипеть, поэтому 100 % — это ×0.36, а 50 % (×0.09) — громко и ещё чисто.
 void set_volume(int level) {
   const float v = std::clamp(level, 0, 100) / 100.0f;
-  s_vol_q15 = static_cast<int>(v * v * 32768.0f);
+  s_vol_q15 = static_cast<int>(v * v * MAX_GAIN * 32768.0f);
 }
 
 }  // namespace audio

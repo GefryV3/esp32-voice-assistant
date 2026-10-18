@@ -9,6 +9,8 @@ description = "Сервер-«мозг» голосового ассистент
 requires-python = ">=3.12"
 dependencies = [
     "websockets>=14",
+    "numpy>=1.26",          # слово пробуждения
+    "onnxruntime>=1.20",    # модели openWakeWord
 ]
 
 [project.optional-dependencies]
