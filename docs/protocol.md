@@ -116,13 +116,18 @@
 | `settings` | `values`: настройки колонки | поменяли в приложении |
 | `test` | — | кнопка «Показать уведомление на колонке» |
 
-**Сервер → телефон:** `settings` (`values`, `speaker`: {`online`, `fps`}, `pc`), `ring` (`on`),
+**Сервер → телефон:** `settings` (`values`, `speaker`: {`online`, `fps`, `screen`}, `pc`), `ring` (`on`),
 `reply` (`key`, `text`), `action` (`key`, `title`), `dismiss` (`key`), `media` (`cmd`:
 `play` / `pause` / `toggle` / `next` / `prev`), `call` (`sms` — сбросить и написать),
 `open_url` (`url`).
 
 **Компьютер → сервер:** `pc` (`idle` — секунд без мыши и клавиатуры, `battery`, `charging`)
 раз в 15 с; `to_phone` (`url`). **Сервер → компьютер:** `open_url` (`url`).
+
+`speaker.screen` — что сейчас на экране колонки, сервер выводит это из того, что ей отправлял
+([server/jarvis/screen.py](../server/jarvis/screen.py)): `mode` (`idle`, `sleep`, `listening`,
+`thinking`, `speaking`, `timer`, `night`, `card`, `player`, `offline`), `title` («Слушает»),
+`detail`, `until` (мс, конец таймера). Приходит заново при каждой смене режима.
 
 Уведомление уходит на колонку, когда экран телефона погашен, сейчас не ночные часы и (если
 включено «только за компьютером») мышь или клавиатуру трогали последние 2 минуты.

@@ -375,7 +375,7 @@ private fun Home() {
 }
 
 private fun statusText(state: UiState) = when {
-    state.link && state.speakerOnline -> "На связи · ${state.speakerFps} кадров/с"
+    state.link && state.speakerOnline -> "${state.screen.title} · ${state.speakerFps} кадров/с"
     state.link -> "Сервер на связи, колонка — нет"
     else -> "Нет связи с сервером"
 }
@@ -388,51 +388,27 @@ private fun PermissionRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
     }
 }
 
-/** Вверху — сама колонка: круглый экран с моргающими глазами в «печеньке» Material. */
+/** Вверху — сама колонка в том состоянии, в каком она сейчас, и что она делает словами. */
 @Composable
 private fun Hero(state: UiState) {
-    val blink = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(2500L + Random.nextLong(3500))
-            blink.animateTo(0.08f, tween(70))
-            blink.animateTo(1f, tween(150))
-        }
-    }
-    val online = state.link && state.speakerOnline
-    val cs = MaterialTheme.colorScheme
-    val eye = if (online) cs.primary else cs.outline
-    val glow = if (online) cs.primary else cs.outlineVariant
-    Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-        Surface(
-            shape = MaterialShapes.Cookie9Sided.toShape(),
-            color = cs.primaryContainer,
-            modifier = Modifier.size(172.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Canvas(
-                    Modifier.size(120.dp).clip(androidx.compose.foundation.shape.CircleShape).background(cs.inverseSurface)
-                        .semantics { contentDescription = if (online) "Колонка на связи" else "Колонка не на связи" },
-                ) {
-                    val ew = size.width * 0.17f
-                    val eh = size.height * 0.24f * blink.value
-                    for (side in listOf(-1f, 1f)) {
-                        val cx = center.x + side * size.width * 0.16f
-                        val cy = center.y - size.height * 0.02f
-                        for (k in 3 downTo 1) {  // мягкое свечение в три слоя
-                            val g = k * size.width * 0.02f
-                            drawRoundRect(
-                                glow.copy(alpha = 0.14f), Offset(cx - ew / 2 - g, cy - eh / 2 - g), Size(ew + 2 * g, eh + 2 * g),
-                                CornerRadius(ew * 0.4f + g),
-                            )
-                        }
-                        drawRoundRect(eye, Offset(cx - ew / 2, cy - eh / 2), Size(ew, eh), CornerRadius(ew * 0.38f))
-                    }
+    val screen = if (state.link && state.speakerOnline) state.screen else ScreenState()
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        SpeakerFace(screen)
+        Spacer(Modifier.height(14.dp))
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Dot(if (screen.mode == "offline") Status.bad else Status.ok)
+                Text(screen.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                if (screen.detail.isNotBlank()) {
+                    Text(screen.detail, style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f))
                 }
             }
         }
     }
-    Spacer(Modifier.height(4.dp))
 }
 
 @Composable

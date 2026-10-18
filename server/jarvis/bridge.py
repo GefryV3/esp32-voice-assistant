@@ -146,6 +146,7 @@ class Bridge:
         self._bedtime_day = ""
         self._loop_task: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
+        self._last_screen: dict[str, Any] = {}
         hub.bridge = self
         hub.add_route(PHONE_PATH, self._handle_phone)
         hub.add_route(PC_PATH, self._handle_pc)
@@ -189,14 +190,30 @@ class Bridge:
         if msg["type"] == "status":
             await self.push_settings()
 
+    def screen_summary(self) -> dict[str, Any]:
+        dev = self.hub.get()
+        if dev is None:
+            return {"mode": "offline", "title": "Не на связи", "detail": ""}
+        return dev.screen.summary(time.time())   # те же часы, что у Device.send
+
+    def screen_changed(self, dev: Device) -> None:
+        """Колонке что-то отправили: если режим экрана поменялся — сказать телефону."""
+        if self.phone is None or self.screen_summary() == self._last_screen:
+            return
+        task = asyncio.create_task(self.push_settings())   # не задерживаем того, кто шлёт колонке
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
     async def push_settings(self) -> None:
-        """Телефону — настройки колонки и её состояние."""
+        """Телефону — настройки колонки и её состояние, в том числе что сейчас на экране."""
         if self.phone is None:
             return
         dev = self.hub.get()
+        self._last_screen = self.screen_summary()
         await self.phone.send({
             "type": "settings", "values": self.store.values,
-            "speaker": {"online": dev is not None, "fps": int(dev.status.get("fps", 0)) if dev else 0},
+            "speaker": {"online": dev is not None, "fps": int(dev.status.get("fps", 0)) if dev else 0,
+                        "screen": self._last_screen},
             "pc": self.pc is not None,
         })
 
@@ -440,9 +457,12 @@ class Bridge:
         return "Перед сном", " · ".join(parts)
 
     async def _clock_loop(self) -> None:
-        """Раз в 20 с: не пора ли показать проверку перед сном."""
+        """Раз в 5 с: не уснула ли колонка, не кончился ли таймер или карточка (сказать
+        телефону) и не пора ли показать проверку перед сном."""
         while True:
-            await asyncio.sleep(20)
+            await asyncio.sleep(5)
+            if self.phone is not None and self.screen_summary() != self._last_screen:
+                await self.push_settings()
             v = self.store.values
             now = self._now()
             day = now.strftime("%Y-%m-%d")

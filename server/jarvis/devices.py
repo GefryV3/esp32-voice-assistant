@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed
 from . import __version__, protocol
 from .config import Settings
 from .protocol import Hello, Message, ProtocolError
+from .screen import Screen
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class Device:
     ws: ServerConnection
     connected_at: float = field(default_factory=time.time)
     status: dict[str, Any] = field(default_factory=dict)
+    screen: Screen = field(default_factory=Screen)
+    on_screen: Callable[[Device], None] | None = None   # что-то на экране поменялось
 
     @property
     def id(self) -> str:
@@ -35,6 +38,9 @@ class Device:
 
     async def send(self, msg: Message) -> None:
         await self.ws.send(protocol.encode(msg))
+        self.screen.apply(msg, time.time())
+        if self.on_screen is not None:
+            self.on_screen(self)
 
 
 MessageHandler = Callable[[Device, Message], Awaitable[None]]
@@ -101,6 +107,11 @@ class DeviceHub:
         """Подписка на подключение колонки (вызывается сразу после welcome)."""
         self._connect_handlers.append(handler)
 
+    def screen_changed(self, dev: Device) -> None:
+        """Экран колонки поменялся — сообщить мосту (он решит, слать ли телефону)."""
+        if self.bridge is not None:
+            self.bridge.screen_changed(dev)
+
     def add_route(self, path: str, handler: RouteHandler) -> None:
         """Дополнительный WebSocket-вход на том же порту (например, служебный /admin)."""
         self._routes[path] = handler
@@ -141,6 +152,7 @@ class DeviceHub:
             return  # оборвалась до hello — например, перезагрузилась во время прошивки
 
         dev = Device(hello=hello, ws=ws)
+        dev.on_screen = self.screen_changed
         old = self.devices.get(dev.id)
         self.devices[dev.id] = dev
         if old is not None:

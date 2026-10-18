@@ -68,10 +68,25 @@ data class SpeakerSettings(
     }
 }
 
+/** Что сейчас на экране колонки — сервер знает, что ей отправлял. */
+data class ScreenState(
+    val mode: String = "offline",   // idle sleep listening thinking speaking timer night card player offline
+    val title: String = "Не на связи",
+    val detail: String = "",
+    val until: Long = 0,            // мс, конец таймера
+) {
+    companion object {
+        fun from(j: JSONObject) = ScreenState(
+            j.optString("mode", "idle"), j.optString("title", ""), j.optString("detail", ""), j.optLong("until", 0),
+        )
+    }
+}
+
 data class UiState(
     val link: Boolean = false,
     val speakerOnline: Boolean = false,
     val speakerFps: Int = 0,
+    val screen: ScreenState = ScreenState(),
     val pcOnline: Boolean = false,
     val settings: SpeakerSettings = SpeakerSettings(),
     val seenApps: Set<String> = emptySet(),
@@ -267,6 +282,7 @@ object Bridge {
                         settings = values?.let { v -> SpeakerSettings.from(v, it.settings) } ?: it.settings,
                         speakerOnline = speaker?.optBoolean("online") ?: it.speakerOnline,
                         speakerFps = speaker?.optInt("fps") ?: it.speakerFps,
+                        screen = speaker?.optJSONObject("screen")?.let(ScreenState::from) ?: it.screen,
                         pcOnline = m.optBoolean("pc", it.pcOnline),
                     )
                 }
