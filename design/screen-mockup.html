@@ -1,0 +1,1206 @@
+<title>Экран колонки</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: workbench — the device sits on a quiet stage, controls in a side panel; stacks on phones. */
+:root {
+  --bg: #0D0F12;
+  --surface: #15181D;
+  --surface-2: #1D2127;
+  --fg: #E8EBF0;
+  --muted: #8C94A2;
+  --line: #282D35;
+  --accent: #5AA0FF;
+  --accent-ink: #061021;
+  --bezel-hi: #4A505A;
+  --bezel-lo: #0A0B0D;
+  --shadow: rgba(0, 0, 0, 0.55);
+  --glass: #000000;
+  --font-ui: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #ECEEF2; --surface: #FFFFFF; --surface-2: #F3F4F7; --fg: #15181D; --muted: #5B6371;
+    --line: #D8DCE2; --accent: #0B6BDB; --accent-ink: #FFFFFF; --bezel-hi: #5A616C;
+    --bezel-lo: #15171B; --shadow: rgba(20, 24, 32, 0.35); color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #ECEEF2; --surface: #FFFFFF; --surface-2: #F3F4F7; --fg: #15181D; --muted: #5B6371;
+  --line: #D8DCE2; --accent: #0B6BDB; --accent-ink: #FFFFFF; --bezel-hi: #5A616C;
+  --bezel-lo: #15171B; --shadow: rgba(20, 24, 32, 0.35); color-scheme: light;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 40px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+
+.stage {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 32px 16px 24px;
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+.device {
+  width: min(380px, 100%);
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  padding: 4.5%;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 30% 22%, var(--bezel-hi), var(--bezel-lo) 72%);
+  box-shadow: 0 22px 44px -20px var(--shadow);
+}
+.device canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--glass);
+  cursor: pointer;
+}
+.device canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: 6px; }
+.hint { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
+.readout { font: 500 12px/1.3 var(--font-mono); color: var(--muted); letter-spacing: 0.02em; }
+
+.dialog { width: min(440px, 100%); display: grid; gap: 8px; margin: 0; }
+.line { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; align-items: baseline; margin: 0; }
+.who { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.said { min-height: 1.45em; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 20px;
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.group { display: grid; gap: 10px; }
+.group h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.group p { margin: 0; color: var(--muted); font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+button.pill {
+  font: 500 14px/1 var(--font-ui);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 14px;
+  min-height: 38px;
+  cursor: pointer;
+}
+button.pill:hover { border-color: var(--muted); }
+button.pill[aria-pressed="true"], button.pill.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.fields { display: grid; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.field:first-child { border-top: 0; padding-top: 0; }
+.field label, .field .label { min-width: 0; }
+.field small { display: block; color: var(--muted); font-size: 12px; }
+select {
+  font: 500 14px var(--font-ui);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  max-width: 190px;
+}
+input[type="range"] { width: 130px; accent-color: var(--accent); }
+input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+output { font: 500 13px var(--font-mono); color: var(--fg); min-width: 3.5ch; display: inline-block; text-align: right; }
+.inline { display: flex; align-items: center; gap: 8px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Экран колонки</h1>
+    <p>Макет круглого экрана 240×240 перед переносом в прошивку. Картинка считается по пикселям и сводится к 16‑битному цвету, как на самом экране.</p>
+  </header>
+
+  <div class="bench">
+    <section class="stage" aria-label="Колонка">
+      <div class="device">
+        <canvas id="screen" width="240" height="240" tabindex="0" role="button" aria-label="Экран колонки. Нажми, чтобы заговорить."></canvas>
+      </div>
+      <p class="hint">Нажми на экран: колонка «услышит» фразу и ответит.</p>
+      <div class="readout" id="readout">Покой</div>
+      <div class="dialog" aria-live="polite">
+        <p class="line"><span class="who">Ты</span><span class="said" id="you">—</span></p>
+        <p class="line"><span class="who">Колонка</span><span class="said" id="voice">—</span></p>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Управление макетом">
+      <div class="group">
+        <h2>Сценарии</h2>
+        <div class="row">
+          <button class="pill primary" id="run" type="button">Разговор</button>
+          <button class="pill" id="timerBtn" type="button">Таймер на 30 секунд</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>С телефона</h2>
+        <p>Карточки, которые приходят через приложение-мост.</p>
+        <div class="row">
+          <button class="pill" type="button" data-card="notify">Уведомление</button>
+          <button class="pill" type="button" data-card="call">Звонок</button>
+          <button class="pill" type="button" data-card="player" aria-pressed="false">Плеер</button>
+          <button class="pill" type="button" data-card="battery">Батарея</button>
+          <button class="pill" type="button" data-card="check">Перед сном</button>
+          <button class="pill" type="button" data-card="remark">Ночью в телефоне</button>
+          <button class="pill" type="button" data-card="wake">Будильник выключен</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Состояние</h2>
+        <div class="row" role="group" aria-label="Состояние">
+          <button class="pill" type="button" data-mode="idle" aria-pressed="true">Покой</button>
+          <button class="pill" type="button" data-mode="listen" aria-pressed="false">Слушает</button>
+          <button class="pill" type="button" data-mode="think" aria-pressed="false">Думает</button>
+          <button class="pill" type="button" data-mode="speak" aria-pressed="false">Говорит</button>
+          <button class="pill" type="button" data-mode="sleep" aria-pressed="false">Сон</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Характер</h2>
+        <p>Сдержанный, но с колкостями. Реплика появляется под экраном.</p>
+        <div class="row">
+          <button class="pill" type="button" data-expr="skeptic">Скепсис</button>
+          <button class="pill" type="button" data-expr="roll">Закатывает глаза</button>
+          <button class="pill" type="button" data-expr="side">Косится</button>
+          <button class="pill" type="button" data-expr="happy">Доволен</button>
+          <button class="pill" type="button" data-expr="surprise">Удивлён</button>
+          <button class="pill" type="button" data-expr="sorry">Виноват</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Оформление</h2>
+        <p>Слои можно выключать и сравнивать. Дела и температура на экране — пример данных.</p>
+        <div class="fields">
+          <div class="field">
+            <label for="lAura">Живой фон<small>Цвет меняется со временем суток</small></label>
+            <input type="checkbox" id="lAura" checked>
+          </div>
+          <div class="field">
+            <label for="tod">Время суток</label>
+            <select id="tod">
+              <option value="auto" selected>Как сейчас</option>
+              <option value="morning">Утро</option>
+              <option value="day">День</option>
+              <option value="evening">Вечер</option>
+              <option value="night">Ночь</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="lArcs">Дата и дела по дуге</label>
+            <input type="checkbox" id="lArcs" checked>
+          </div>
+          <div class="field">
+            <label for="lGlass">Объёмные глаза<small>Два слоя свечения, блик, край ловит цвет фона</small></label>
+            <input type="checkbox" id="lGlass" checked>
+          </div>
+          <div class="field">
+            <label for="lRed">Красная ночь<small>Сон и ночные карточки — тусклым красным, как на Apple Watch</small></label>
+            <input type="checkbox" id="lRed" checked>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Покой и сон</h2>
+        <div class="fields">
+          <div class="field">
+            <label for="sleepAfter">Засыпает через<small>На колонке будут минуты</small></label>
+            <span class="inline"><input type="range" id="sleepAfter" min="5" max="60" step="1" value="12"><output id="sleepOut" for="sleepAfter">12 с</output></span>
+          </div>
+          <div class="field">
+            <span class="label">Часы во сне</span>
+            <span class="row" role="group" aria-label="Часы во сне">
+              <button class="pill" type="button" data-clock="top" aria-pressed="true">Сверху</button>
+              <button class="pill" type="button" data-clock="bottom" aria-pressed="false">Снизу</button>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Экран</h2>
+        <div class="fields">
+          <div class="field">
+            <label for="color">Цвет</label>
+            <select id="color">
+              <option value="565d" selected>16 бит со сглаживанием</option>
+              <option value="565">16 бит, как есть</option>
+              <option value="rgb">Полный цвет браузера</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="weather">Погода</label>
+            <select id="weather">
+              <option value="0">Ясно</option>
+              <option value="1" selected>Переменная облачность</option>
+              <option value="2">Дождь</option>
+              <option value="3">Снег</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="calm">Спокойный режим<small>Без пружин, блуждания взгляда и движения фона</small></label>
+            <input type="checkbox" id="calm">
+          </div>
+          <div class="field">
+            <label for="offline">Нет связи с сервером</label>
+            <input type="checkbox" id="offline">
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const W = 240, H = 240, C = 120, N = W * H, TAU = Math.PI * 2;
+  const cv = document.getElementById('screen');
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const frame = ctx.createImageData(W, H);
+  const px = frame.data;
+
+  // ── Геометрия экрана: радиус и угол каждого пикселя считаются один раз ──
+  const rad = new Float32Array(N), ang = new Float32Array(N), bgMap = new Float32Array(N), vign = new Float32Array(N);
+  const ringList = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, dx = x + 0.5 - C, dy = y + 0.5 - C, r = Math.sqrt(dx * dx + dy * dy);
+    rad[i] = r; ang[i] = Math.atan2(dy, dx);
+    const k = Math.max(0, 1 - r / 124); bgMap[i] = k * k;
+    vign[i] = r <= 121.5 ? 1 - 0.55 * Math.pow(Math.min(r, 120) / 120, 3) : 0;
+    if (r > 70 && r < 121) ringList.push(i);
+  }
+  const ringIdx = Int32Array.from(ringList);
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+  // ── Палитра: системные цвета Apple (тёмная тема) ──
+  const RING_STOPS = [[10, 132, 255], [191, 90, 242], [255, 55, 95], [255, 159, 10]];
+  const HUE = new Float32Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const f = i / 256 * RING_STOPS.length, k = Math.floor(f), t = f - k, s = t * t * (3 - 2 * t);
+    const a = RING_STOPS[k % RING_STOPS.length], b = RING_STOPS[(k + 1) % RING_STOPS.length];
+    for (let c = 0; c < 3; c++) HUE[i * 3 + c] = a[c] + (b[c] - a[c]) * s;
+  }
+  const ICE = [226, 236, 255], ICE_GLOW = [64, 128, 255];
+  const AMBER = [255, 196, 110], AMBER_GLOW = [255, 128, 20];
+  const NIGHT = [150, 172, 225], NIGHT_GLOW = [36, 64, 150];
+  const RED = [255, 96, 72], RED_GLOW = [190, 24, 12];          // ночной режим: красный, как на Apple Watch
+  const GREEN = [48, 209, 88];
+  // Живой фон: пятна, цвет по времени суток; accent — для подписей и колец
+  const PALETTES = {
+    morning: { blobs: [[255, 150, 70], [215, 80, 130], [110, 80, 200]], accent: [255, 196, 130] },
+    day: { blobs: [[30, 140, 230], [70, 100, 240], [20, 170, 170]], accent: [130, 205, 255] },
+    evening: { blobs: [[170, 70, 230], [255, 100, 60], [80, 60, 210]], accent: [225, 165, 255] },
+    night: { blobs: [[30, 50, 170], [90, 40, 170], [10, 90, 150]], accent: [140, 165, 255] },
+    alert: { blobs: [[255, 120, 20], [255, 70, 40], [200, 100, 20]], accent: [255, 180, 80] },
+    red: { blobs: [[120, 12, 6], [80, 6, 24], [110, 30, 0]], accent: [255, 96, 72] },
+    call: { blobs: [[20, 160, 80], [10, 120, 110], [40, 180, 60]], accent: [48, 209, 88] },
+  };
+  const BLOBS = [
+    { x: 78, y: 80, ax: 34, ay: 26, px: 23, py: 29, f: 0.3 },
+    { x: 168, y: 110, ax: 30, ay: 38, px: 31, py: 19, f: 2.1 },
+    { x: 112, y: 176, ax: 40, ay: 22, px: 37, py: 27, f: 4.2 },
+  ];
+  const AURA_INV = 1 / (64 * 64);
+  const INK = '236,240,247';
+  const FONT = 'Inter, "Golos Text", system-ui, sans-serif';
+  const DAYS = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ'];
+  const MONTHS = ['ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ', 'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ'];
+  const PHRASE = 'Включи свет на кухне';
+  // Цвет кружка приложения в уведомлении
+  const APP_COLORS = { telegram: [42, 171, 238], whatsapp: [37, 211, 102], instagram: [225, 48, 108], gmail: [234, 67, 53], discord: [88, 101, 242], youtube: [255, 0, 51] };
+
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const smooth = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
+  const pad2 = n => String(n).padStart(2, '0');
+  const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${(+a).toFixed(3)})`;
+  const partOfDay = () => { const h = new Date().getHours(); return h >= 6 && h < 10 ? 'morning' : h >= 10 && h < 17 ? 'day' : h >= 17 && h < 22 ? 'evening' : 'night'; };
+
+  // ── Пружины, как в iOS: response — время реакции, damping — 1 без отскока ──
+  class Spring {
+    constructor(v, response, damping) { this.v = v; this.target = v; this.vel = 0; this.r = response; this.d = damping; this.k = (TAU / response) ** 2; }
+    step(dt, calm) {
+      const d = calm ? Math.max(1, this.d) : this.d;
+      const a = -this.k * (this.v - this.target) - (2 * TAU * d / this.r) * this.vel;
+      this.vel += a * dt; this.v += this.vel * dt;
+    }
+  }
+  const S = {}, springs = [];
+  const sp = (name, v, r, d) => { const s = new Spring(v, r, d); S[name] = s; springs.push(s); };
+  const EYE = { x: [0, .32, .82], y: [0, .32, .82], w: [25, .3, .74], h: [31, .3, .74], rad: [15, .35, .9],
+    lidT: [0, .26, .9], lidA: [0, .3, .9], lidB: [0, .3, .82], bend: [0, .5, .95], bright: [1, .5, 1] };
+  for (const e of ['L', 'R']) for (const k in EYE) sp(e + k, ...EYE[k]);
+  // взгляд у глаз чуть разный по скорости — живее, чем синхронный робот
+  [['gxL', 0, .15, .8], ['gyL', 0, .15, .8], ['gxR', 0, .19, .8], ['gyR', 0, .19, .8],
+   ['faceY', 98, .55, .88], ['scale', 1, .5, .86],
+   ['clockY', 172, .75, .92], ['clockSize', 40, .75, .95], ['clockA', .92, .45, 1], ['wxA', 1, .45, 1],
+   ['capA', 0, .3, 1], ['timerA', 0, .4, 1], ['ring', 0, .12, 1], ['ringW', 10, .2, 1], ['think', 0, .35, 1],
+   ['alert', 0, .3, 1], ['reveal', 1, .45, 1], ['glow', .3, .5, 1], ['bg', 1, .8, 1],
+   ['arcA', 1, .45, 1], ['aura', .16, .6, 1], ['auraSpeed', 1, .8, 1], ['cardA', 0, .38, .82],
+   ['cr', ICE[0], .5, 1], ['cg', ICE[1], .5, 1], ['cb', ICE[2], .5, 1],
+   ['gr', ICE_GLOW[0], .5, 1], ['gg', ICE_GLOW[1], .5, 1], ['gb', ICE_GLOW[2], .5, 1],
+   ['inkR', 236, .6, 1], ['inkG', 240, .6, 1], ['inkB', 247, .6, 1]].forEach(a => sp(...a));
+  const pal0 = PALETTES[partOfDay()];
+  for (let k = 0; k < 3; k++) { sp('a' + k + 'r', pal0.blobs[k][0], .9, 1); sp('a' + k + 'g', pal0.blobs[k][1], .9, 1); sp('a' + k + 'b', pal0.blobs[k][2], .9, 1); }
+  sp('acr', pal0.accent[0], .9, 1); sp('acg', pal0.accent[1], .9, 1); sp('acb', pal0.accent[2], .9, 1);
+
+  // ── Состояние колонки ──
+  const state = {
+    mode: 'idle', modeAt: 0, idleSince: 0, expr: null,
+    gaze: [0, 0], nextSaccade: 0, nextBlink: 0, blinks: [], glanceUntil: 0, glanceUp: 0, lastMinute: null,
+    level: 0, amp: 0, caption: '', bottom: '', timer: null, zs: [], nextZ: 0, auraT: 0,
+    card: null, player: null,
+    sleepAfter: 12000, clockTop: true, calm: false, offline: false, color: '565d', weather: 1, tod: 'auto',
+    layers: { aura: true, arcs: true, glass: true, red: true },
+    script: [],
+  };
+  const DROWSY_MS = 3400;
+  const EXPR_MS = { skeptic: 2600, roll: 2500, side: 2600, happy: 2200, surprise: 1800, sorry: 2800 };
+  const LINES = {
+    skeptic: 'Третий таймер на пасту за неделю. Я не осуждаю. Я записываю.',
+    roll: 'Да, свет. Выключатель в двух шагах, но конечно, давай я.',
+    side: 'Я всё слышал. И делать вид, что нет, не буду.',
+    happy: 'Наконец-то вопрос, на который приятно отвечать.',
+    surprise: 'Ты встал раньше будильника? Отмечу этот день в календаре.',
+    sorry: 'Сервер не отвечает. Я бы ответил, честно.',
+  };
+  // Карточки «с телефона»: пример данных
+  const CARDS = {
+    notify: { app: 'Telegram', title: 'Мама', text: 'Ужин готов, спускайся. И телефон захвати', ms: 8000 },
+    call: { title: 'Мама', text: 'звонит', ms: 12000 },
+    battery: { title: 'Nothing Ear (a)', level: 15, ms: 8000 },
+    check: { title: 'Перед сном', rows: [['bell', 'Будильник 7:30'], ['phone', 'Телефон 40 %, заряжается'], ['buds', 'Наушники 55 %']], ms: 12000 },
+    remark: { title: 'Подъём через 6 ч 10 мин', text: 'Просто к сведению.', ms: 8000 },
+    wake: { title: 'Будильник выключен, а ты спишь', text: 'Вставай. Я всё вижу.', ms: 12000 },
+  };
+
+  const youEl = document.getElementById('you'), voiceEl = document.getElementById('voice');
+  const you = s => { youEl.textContent = s ? (s === '…' ? 'говоришь…' : '«' + s + '»') : '—'; };
+  const say = s => { voiceEl.textContent = s ? '«' + s + '»' : '—'; };
+
+  function later(ms, fn) { state.script.push(setTimeout(fn, ms)); }
+  function cancelScript() { state.script.forEach(clearTimeout); state.script = []; }
+
+  function blink(at, slow) {
+    state.blinks.push(slow ? { at, c: 220, h: 160, o: 380 } : { at, c: 70, h: 40, o: 130 });
+  }
+  function blinkAmount(now) {
+    let m = 0;
+    for (const b of state.blinks) {
+      const t = now - b.at; if (t < 0) continue;
+      let v = 0;
+      if (t < b.c) v = smooth(t / b.c);
+      else if (t < b.c + b.h) v = 1;
+      else if (t < b.c + b.h + b.o) v = 1 - smooth((t - b.c - b.h) / b.o);
+      if (v > m) m = v;
+    }
+    return m;
+  }
+
+  function setMode(m, now = performance.now()) {
+    const prev = state.mode;
+    state.mode = m; state.modeAt = now;
+    if (m === 'idle') state.idleSince = now;
+    if (m === 'sleep') state.nextZ = now + 900;
+    else state.zs = [];
+    if (m === 'listen') state.bottom = 'heard';
+    else if (m === 'think') state.bottom = 'phrase';
+    else if (m === 'speak') state.bottom = 'caption';
+    const wasAsleep = prev === 'sleep' || prev === 'drowsy';
+    if (wasAsleep && m !== 'sleep' && m !== 'drowsy') {   // просыпается: медленно, потом быстро
+      blink(now + 140, true); blink(now + 760, false); state.nextBlink = now + 3200;
+    }
+    if (m === 'listen' && prev !== 'listen') {   // мгновенная реакция на слово; сияние «наливается» снизу
+      blink(now, false); S.reveal.v = 0; S.reveal.vel = 0;
+    }
+    syncUI();
+  }
+  function wake() { if (state.mode === 'sleep' || state.mode === 'drowsy') setMode('idle'); }
+  function setExpr(name, silent) {
+    wake();
+    const now = performance.now();
+    state.expr = { name, at: now }; state.idleSince = now;
+    if (!silent) say(LINES[name]);
+  }
+  function showCard(kind) {
+    const now = performance.now();
+    if (kind === 'player') {
+      state.player = state.player ? null : { title: 'Nights', artist: 'Frank Ocean', dur: 307, pos: 42, at: now, playing: true };
+      syncUI(); wake(); state.idleSince = now; return;
+    }
+    if (kind !== 'remark') wake();
+    state.card = { kind, ...CARDS[kind], at: now };
+    state.idleSince = now;
+    if (kind === 'call') say('');
+  }
+
+  // Голос: слоги с паузами между словами
+  function speech(t, rate, seed) {
+    const syl = 0.5 + 0.5 * Math.sin(t * TAU * rate + 2 * Math.sin(t * 1.7 + seed));
+    const word = 0.5 + 0.5 * Math.sin(t * TAU * 0.8 + seed * 3);
+    return Math.pow(syl, 1.6) * (0.3 + 0.7 * word);
+  }
+
+  function update(now, dt) {
+    const m = state.mode;
+    if (m === 'idle' && !state.expr && !state.card && !state.player && now - state.idleSince > state.sleepAfter) setMode('drowsy', now);
+    else if (m === 'drowsy' && now - state.modeAt > DROWSY_MS) setMode('sleep', now);
+    if (state.expr && now - state.expr.at > EXPR_MS[state.expr.name]) { state.expr = null; state.idleSince = now; }
+    if (state.card && now - state.card.at > state.card.ms) { state.card = null; state.idleSince = now; }
+
+    if (state.mode !== 'sleep' && now >= state.nextBlink) {
+      const slow = state.mode === 'drowsy';
+      blink(now, slow);
+      if (!slow && Math.random() < 0.22) blink(now + 260, false);
+      state.nextBlink = now + (slow ? 1300 + Math.random() * 600 : 2400 + Math.random() * 3800);
+    }
+    state.blinks = state.blinks.filter(b => now - b.at < 1500);
+
+    if (state.mode === 'idle' && now >= state.nextSaccade) {
+      state.gaze = (state.calm || Math.random() < 0.35) ? [0, 0] : [(Math.random() * 2 - 1) * 14, Math.random() * 14 - 8];
+      state.nextSaccade = now + 1200 + Math.random() * 3000;
+    }
+    const minute = new Date().getMinutes();
+    if (minute !== state.lastMinute) {
+      if (state.lastMinute !== null && state.mode === 'idle' && !state.expr && !state.calm) state.glanceUntil = now + 1100;
+      state.lastMinute = minute;
+    }
+
+    const t = now / 1000, kA = 1 - Math.exp(-dt / 0.03), kR = 1 - Math.exp(-dt / 0.16);
+    let lv = 0;
+    if (state.mode === 'listen') { const p = (now - state.modeAt) % 2600; lv = (p > 200 && p < 2000) ? speech(t, 4.2, 1.3) : 0.03; }
+    state.level += (lv - state.level) * (lv > state.level ? kA : kR);
+    let am = 0;
+    if (state.mode === 'speak') { const p = (now - state.modeAt) % 1700; am = p < 1450 ? speech(t, 5, 0.4) : 0.02; }
+    state.amp += (am - state.amp) * (am > state.amp ? kA : kR);
+    state.auraT += dt * S.auraSpeed.v;
+
+    if (state.mode === 'timer' && state.timer && now - state.timer.start >= state.timer.dur) {
+      setMode('alert', now);
+      say('Паста готова. Или уже нет, смотря как быстро ты дойдёшь.');
+      later(9000, () => { if (state.mode === 'alert') setMode('idle'); });
+    }
+
+    if (state.mode === 'sleep' && !state.calm && now >= state.nextZ) { state.zs.push({ at: now, s: Math.random() }); state.nextZ = now + 2600; }
+    state.zs = state.zs.filter(z => now - z.at < 3400);
+  }
+
+  function redNight() { return state.layers.red; }
+
+  // Цели для пружин: что должно быть на экране в этом состоянии
+  function targets(now) {
+    const base = () => ({ x: 0, y: 0, w: 25, h: 31, rad: 15, lidT: 0, lidA: 0, lidB: 0, bend: 0, bright: 1 });
+    const L = base(), R = base();
+    const T = { faceY: 98, scale: 1, clockY: 172, clockSize: 40, clockA: .92, wxA: 1, capA: 0, timerA: 0,
+      ring: 0, ringW: 10, think: 0, alert: 0, reveal: 1, glow: .3, bg: 1, arcA: 1, aura: .16, auraSpeed: 1, cardA: 0 };
+    let gx = 0, gy = 0, col = ICE, gcol = ICE_GLOW, ink = [236, 240, 247], palName = null;
+    const calm = state.calm, both = f => { f(L); f(R); };
+    const quiet = () => { T.clockA = 0; T.clockY = 196; T.wxA = 0; T.arcA = 0; };
+
+    switch (state.mode) {
+      case 'idle':
+        gx = state.gaze[0]; gy = state.gaze[1];
+        if (now < state.glanceUntil) { gx = 0; gy = 10; }
+        if (now < state.glanceUp) { gx = 0; gy = -11; }
+        if (!calm) both(E => { E.h *= 1 + 0.012 * Math.sin(now / 1000 * TAU / 4.2); });
+        break;
+      case 'drowsy': {
+        const p = smooth((now - state.modeAt) / DROWSY_MS);
+        both(E => { E.lidT = 0.12 + 0.48 * p; });
+        T.faceY = 98 + 8 * p; gy = 3 * p;
+        T.arcA = 1 - 0.4 * p; T.aura = .16 - .06 * p; T.auraSpeed = .6;
+        break;
+      }
+      case 'sleep': {
+        const top = state.clockTop;
+        both(E => Object.assign(E, { w: 23, h: 3, rad: 3, bend: 6, bright: .5 }));
+        if (!calm) { const b = 0.5 + 0.5 * Math.sin(now / 1000 * TAU / 6.5); both(E => { E.bright = .38 + .2 * b; }); }
+        T.faceY = top ? 136 : 104;
+        T.clockY = top ? 66 : 190; T.clockSize = 30; T.clockA = .5; T.wxA = 0;
+        T.glow = .18; T.bg = .35; T.arcA = 0; T.aura = .06; T.auraSpeed = .35;
+        if (redNight()) { col = RED; gcol = RED_GLOW; ink = [255, 80, 60]; palName = 'red'; T.clockA = .42; }
+        else { col = NIGHT; gcol = NIGHT_GLOW; }
+        break;
+      }
+      case 'listen': {
+        const lv = calm ? 0.4 : state.level;
+        both(E => { E.w = 26; E.h = 33 + 3 * lv; });
+        T.faceY = 110; quiet(); T.capA = 1;
+        T.ring = .55 + .7 * lv; T.ringW = 9 + 10 * lv; T.glow = .36;
+        T.aura = .24 + .12 * lv; T.auraSpeed = 3.2;
+        break;
+      }
+      case 'think':
+        both(E => { E.lidT = .3; E.h = 30; });
+        gx = 10; gy = -9; T.faceY = 110; quiet(); T.capA = 1;
+        T.ring = .7; T.ringW = 11; T.think = 1; T.aura = .2; T.auraSpeed = 3.5;
+        break;
+      case 'speak': {
+        const a = calm ? 0 : state.amp;
+        both(E => { E.h = 31 * (1 - .12 * a); E.lidB = .1 * a; });
+        T.faceY = 98 - 2 * a; quiet(); T.capA = 1;
+        T.ring = .3 + .45 * (calm ? 0.4 : a); T.ringW = 8 + 6 * a;
+        T.aura = .2 + .06 * a; T.auraSpeed = 2;
+        break;
+      }
+      case 'timer':
+        T.scale = .52; T.faceY = 62; gy = 4; quiet(); T.timerA = 1;
+        T.aura = .1; T.auraSpeed = .6;
+        break;
+      case 'alert':
+        T.scale = .52; T.faceY = 62; quiet(); T.timerA = 1; T.alert = 1;
+        both(E => { E.w = 27; E.h = 35; });
+        col = AMBER; gcol = AMBER_GLOW; palName = 'alert'; T.aura = .14; T.auraSpeed = 1.5;
+        break;
+    }
+
+    // Плеер: в покое глаза уходят выше и покачиваются в такт, по краю — кольцо прогресса
+    if (state.player && state.mode === 'idle' && !state.card) {
+      quiet(); T.cardA = 1; T.scale = .72; T.faceY = 78;
+      if (state.player.playing && !calm) { gx = 5 * Math.sin(now / 1000 * TAU * 0.55); gy = 2 * Math.sin(now / 1000 * TAU * 1.1); both(E => { E.lidB = .22; }); }
+    }
+
+    // Карточки с телефона поверх состояния
+    const card = state.card;
+    if (card) {
+      quiet(); T.cardA = 1; T.capA = 0;
+      switch (card.kind) {
+        case 'notify': T.scale = .55; T.faceY = 62; gx = 0; gy = 7; break;
+        case 'check': T.scale = .5; T.faceY = 56; gy = 6; break;
+        case 'battery': T.scale = .55; T.faceY = 62; gy = 7; both(E => { E.lidT = .3; E.lidA = -.3; }); break;
+        case 'call':
+          T.scale = .8; T.faceY = 84; gx = 0; gy = 0; both(E => { E.w = 27; E.h = 36; });
+          palName = 'call'; gcol = [48, 209, 120]; T.aura = .26; T.auraSpeed = 2.5;
+          break;
+        case 'remark':
+          T.faceY = 92; gx = 17; gy = 1; both(E => { E.lidT = .46; });
+          if (redNight()) { col = RED; gcol = RED_GLOW; ink = [255, 80, 60]; palName = 'red'; T.bg = .4; T.aura = .07; }
+          break;
+        case 'wake':
+          T.faceY = 82; T.scale = .9; both(E => { E.w = 28; E.h = 37; });
+          T.alert = 1; col = AMBER; gcol = AMBER_GLOW; palName = 'alert'; T.aura = .2;
+          break;
+      }
+    }
+
+    if (state.expr) {
+      const t = now - state.expr.at;
+      switch (state.expr.name) {
+        case 'skeptic': Object.assign(L, { lidT: .48, lidA: .15 }); Object.assign(R, { h: R.h * 1.1, y: -3 }); gx = 6; gy = -1; break;
+        case 'roll':
+          both(E => { E.lidT = .3; });
+          if (t < 300) { gx = -14; gy = -8; }
+          else if (t < 1300) { const a = Math.PI * (1 - (t - 300) / 1000); gx = 15 * Math.cos(a); gy = -13 * Math.sin(a); }
+          else { gx = 0; gy = 2; both(E => { E.lidT = .42; }); }
+          break;
+        case 'side': both(E => { E.lidT = .46; }); gx = 17; gy = 1; break;
+        case 'happy': both(E => { E.lidB = .62; }); T.faceY -= 4; break;
+        case 'surprise': both(E => { E.w *= 1.1; E.h *= 1.22; }); gy = -2; break;
+        case 'sorry': both(E => { E.lidT = .34; E.lidA = -.38; E.bright = .85; }); gy = 7; break;
+      }
+    }
+
+    if (!state.layers.aura) T.aura = 0;
+    if (!state.layers.arcs) T.arcA = 0;
+    if (calm) T.auraSpeed = 0;
+    if (T.cardA > 0 && palName !== 'call') T.aura *= 0.7;   // под текстом карточки фон тише
+
+    for (const k in L) { S['L' + k].target = L[k]; S['R' + k].target = R[k]; }
+    for (const k in T) S[k].target = T[k];
+    S.gxL.target = S.gxR.target = gx; S.gyL.target = S.gyR.target = gy;
+    S.cr.target = col[0]; S.cg.target = col[1]; S.cb.target = col[2];
+    S.gr.target = gcol[0]; S.gg.target = gcol[1]; S.gb.target = gcol[2];
+    S.inkR.target = ink[0]; S.inkG.target = ink[1]; S.inkB.target = ink[2];
+    const pal = PALETTES[palName || (state.tod === 'auto' ? partOfDay() : state.tod)];
+    for (let k = 0; k < 3; k++) { S['a' + k + 'r'].target = pal.blobs[k][0]; S['a' + k + 'g'].target = pal.blobs[k][1]; S['a' + k + 'b'].target = pal.blobs[k][2]; }
+    S.acr.target = pal.accent[0]; S.acg.target = pal.accent[1]; S.acb.target = pal.accent[2];
+  }
+
+  // ── Отрисовка по пикселям: так же будет считать прошивка ──
+  function drawEye(e, now) {
+    const sc = S.scale.v, side = e === 'L' ? 1 : -1;
+    const gxe = S['gx' + e].v, gye = S['gy' + e].v;
+    const cx = C - side * 42 * sc + (S[e + 'x'].v + gxe) * sc;
+    const cy = S.faceY.v + (S[e + 'y'].v + gye) * sc;
+    const bl = state.mode !== 'sleep' ? blinkAmount(now) : 0;
+    const w = Math.max(1, S[e + 'w'].v * sc * (1 + 0.08 * bl));    // моргая, глаз чуть расплющивается
+    let h = S[e + 'h'].v * sc;
+    if (bl > 0) h = Math.max(1.4 * sc, h * (1 - 0.92 * bl));
+    const r = Math.max(0, Math.min(S[e + 'rad'].v * sc, w, h));
+    const lidT = clamp01(S[e + 'lidT'].v), lidA = S[e + 'lidA'].v, lidB = clamp01(S[e + 'lidB'].v);
+    const bend = S[e + 'bend'].v * sc, bright = clamp01(S[e + 'bright'].v);
+    const glass = state.layers.glass;
+    // свечение в два слоя: плотное у края и широкое мягкое
+    const g1 = S.glow.v * bright, g2 = glass ? S.glow.v * 0.55 * bright : 0;
+    const r1 = 5 * sc + 2, r2 = 14 * sc + 4;
+    const cr = S.cr.v, cg = S.cg.v, cb = S.cb.v, gr = S.gr.v, gg = S.gg.v, gb = S.gb.v;
+    // край стекла подхватывает цвет фона
+    const acc = [S.acr.v, S.acg.v, S.acb.v];
+    const edge = mixc(mixc([gr, gg, gb], [cr, cg, cb], 0.5), acc, glass ? 0.3 : 0);
+    const depth = Math.max(2, Math.min(w, h) * 0.8), glint = glass ? 0.6 * clamp01((h - 10 * sc) / (14 * sc)) : 0;
+    const gpx = -gxe * 0.18 * sc, gpy = -gye * 0.18 * sc;          // блик чуть смещается против взгляда — глубина
+    const Rb = w * 1.7, cyc = h + Rb + 1.5 - lidB * h * 1.45;
+    const lidBase = -h + lidT * 2 * h, lidK = Math.min(1, lidT * 4) * lidA * side;
+    const pad = (glass ? r2 : r1) * 4.2, ab = Math.abs(bend);
+    const x0 = Math.max(0, Math.floor(cx - w - pad)), x1 = Math.min(W - 1, Math.ceil(cx + w + pad));
+    const y0 = Math.max(0, Math.floor(cy - h - pad - ab)), y1 = Math.min(H - 1, Math.ceil(cy + h + pad + ab));
+    for (let y = y0; y <= y1; y++) {
+      const py0 = y + 0.5 - cy;
+      for (let x = x0; x <= x1; x++) {
+        const qx0 = x + 0.5 - cx;
+        const tt = qx0 / w < -1 ? -1 : qx0 / w > 1 ? 1 : qx0 / w;
+        const py = py0 - bend * (1 - tt * tt);
+        const qx = Math.abs(qx0) - w + r, qy = Math.abs(py) - h + r;
+        const ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+        let d = Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - r;
+        if (lidT > 0.001) { const l = lidBase + lidK * qx0 - py; if (l > d) d = l; }
+        if (lidB > 0.001) { const dy = py - cyc, c = Rb - Math.sqrt(qx0 * qx0 + dy * dy); if (c > d) d = c; }
+        const o = (y * W + x) * 4;
+        if (d > 0.5) {
+          const dd = d - 0.5, g = g1 * Math.exp(-dd / r1) + g2 * Math.exp(-dd / r2);
+          if (g < 0.004) continue;
+          px[o] += gr * g; px[o + 1] += gg * g; px[o + 2] += gb * g;
+        } else {
+          const a = Math.min(1, 0.5 - d) * bright;
+          const k = 1.04 - 0.1 * clamp01((py + h) / (2 * h));
+          let fr = cr * k, fg = cg * k, fb = cb * k;
+          if (glass) {
+            const core = 0.25 + 0.75 * smooth(-d / depth);
+            fr = edge[0] + (fr - edge[0]) * core; fg = edge[1] + (fg - edge[1]) * core; fb = edge[2] + (fb - edge[2]) * core;
+            if (glint > 0) {
+              const u = (qx0 + w * 0.36 - gpx) / (w * 0.24), v = (py + h * 0.5 - gpy) / (h * 0.15), s = (1 - u * u - v * v) * glint;
+              if (s > 0) { fr += (255 - fr) * s; fg += (255 - fg) * s; fb += (255 - fb) * s; }
+            }
+          }
+          const R0 = px[o] + gr * (g1 + g2) * (1 - a), G0 = px[o + 1] + gg * (g1 + g2) * (1 - a), B0 = px[o + 2] + gb * (g1 + g2) * (1 - a);
+          px[o] = R0 + (fr - R0) * a; px[o + 1] = G0 + (fg - G0) * a; px[o + 2] = B0 + (fb - B0) * a;
+        }
+      }
+    }
+  }
+
+  function drawPixels(now) {
+    const calm = state.calm, t = now / 1000;
+    const bl = S.bg.v, br = 15 * bl, bgc = 17 * bl, bb = 23 * bl;
+    const am = S.aura.v;
+    if (am > 0.003) {
+      const at = state.auraT, bx = [], by = [], cl = [];
+      for (let k = 0; k < 3; k++) {
+        const b = BLOBS[k];
+        bx.push(b.x + b.ax * Math.sin(TAU * at / b.px + b.f));
+        by.push(b.y + b.ay * Math.cos(TAU * at / b.py + b.f * 1.3));
+        cl.push([S['a' + k + 'r'].v * am, S['a' + k + 'g'].v * am, S['a' + k + 'b'].v * am]);
+      }
+      const [c0, c1, c2] = cl;
+      for (let y = 0, i = 0; y < H; y++) {
+        const d0 = (y - by[0]) * (y - by[0]) * AURA_INV, d1 = (y - by[1]) * (y - by[1]) * AURA_INV, d2 = (y - by[2]) * (y - by[2]) * AURA_INV;
+        for (let x = 0; x < W; x++, i++) {
+          const o = i * 4, k = bgMap[i], v = vign[i];
+          const x0 = x - bx[0], x1 = x - bx[1], x2 = x - bx[2];
+          let w0 = 1 / (1 + x0 * x0 * AURA_INV + d0); w0 *= w0 * v;
+          let w1 = 1 / (1 + x1 * x1 * AURA_INV + d1); w1 *= w1 * v;
+          let w2 = 1 / (1 + x2 * x2 * AURA_INV + d2); w2 *= w2 * v;
+          px[o] = br * k + c0[0] * w0 + c1[0] * w1 + c2[0] * w2;
+          px[o + 1] = bgc * k + c0[1] * w0 + c1[1] * w1 + c2[1] * w2;
+          px[o + 2] = bb * k + c0[2] * w0 + c1[2] * w1 + c2[2] * w2;
+          px[o + 3] = 255;
+        }
+      }
+    } else {
+      for (let i = 0, o = 0; i < N; i++, o += 4) { const k = bgMap[i]; px[o] = br * k; px[o + 1] = bgc * k; px[o + 2] = bb * k; px[o + 3] = 255; }
+    }
+
+    // Сияние по краю круга: слушает, думает, говорит; янтарный пульс — тревога
+    const ringAmt = S.ring.v, alertAmt = S.alert.v;
+    if (ringAmt > 0.004 || alertAmt > 0.004) {
+      const rw = S.ringW.v, th = S.think.v, rot = calm ? 0 : t * 0.35;
+      const comet = calm ? -Math.PI / 2 : t * 4.4 - Math.PI / 2;
+      const pulse = calm ? 0.8 : 0.55 + 0.45 * Math.sin(t * TAU * 1.1);
+      const rev = clamp01(S.reveal.v) * 1.25;
+      for (let j = 0; j < ringIdx.length; j++) {
+        const i = ringIdx[j], r = rad[i], edge = clamp01(121 - r);
+        if (edge <= 0) continue;
+        const e = r < 120 ? 120 - r : 0, a = ang[i], o = i * 4;
+        if (ringAmt > 0.004) {
+          // «наливается» снизу вверх по обе стороны
+          let db = a - Math.PI / 2; db = Math.abs(Math.atan2(Math.sin(db), Math.cos(db))) / Math.PI;
+          const m = rev >= 1.24 ? 1 : clamp01((rev - db) / 0.2);
+          if (m <= 0) continue;
+          let w = rw;
+          if (!calm) w *= 0.78 + 0.22 * Math.sin(3 * a + t * 1.9) + 0.14 * Math.sin(5 * a - t * 1.3);
+          let I = ringAmt * m * (Math.exp(-e / w) + 0.6 * Math.exp(-e / 1.6)) * edge;
+          if (th > 0.004) { let d = a - comet; d = Math.atan2(Math.sin(d), Math.cos(d)); I *= (1 - th) + th * (0.1 + 0.9 * Math.exp(-d * d / 0.6)); }
+          let hi = ((a + rot) / TAU) % 1; if (hi < 0) hi += 1;
+          const hk = ((hi * 256) | 0) * 3;
+          px[o] += HUE[hk] * I; px[o + 1] += HUE[hk + 1] * I; px[o + 2] += HUE[hk + 2] * I;
+        }
+        if (alertAmt > 0.004) {
+          const I = alertAmt * pulse * Math.exp(-e / 13) * edge;
+          px[o] += 255 * I; px[o + 1] += 140 * I; px[o + 2] += 20 * I;
+        }
+      }
+    }
+    drawEye('L', now);
+    drawEye('R', now);
+    ctx.putImageData(frame, 0, 0);
+  }
+
+  // ── Надписи по дуге: сверху дата, снизу ближайшее дело ──
+  function arcText(parts, r, bottom, size) {
+    ctx.font = `600 ${size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const chars = [];
+    for (const [text, fill] of parts) for (const ch of text) chars.push([ch, fill, ctx.measureText(ch).width]);
+    const spc = size * 0.12;
+    const total = chars.reduce((s, c) => s + c[2] + spc, -spc);
+    let th = bottom ? Math.PI / 2 + total / 2 / r : -Math.PI / 2 - total / 2 / r;
+    for (const [ch, fill, w] of chars) {
+      const mid = bottom ? th - w / 2 / r : th + w / 2 / r;
+      ctx.save();
+      ctx.translate(C + r * Math.cos(mid), C + r * Math.sin(mid));
+      ctx.rotate(bottom ? mid - Math.PI / 2 : mid + Math.PI / 2);
+      ctx.fillStyle = fill; ctx.fillText(ch, 0, 0);
+      ctx.restore();
+      th = bottom ? th - (w + spc) / r : th + (w + spc) / r;
+    }
+  }
+  const ink = a => `rgba(${S.inkR.v | 0},${S.inkG.v | 0},${S.inkB.v | 0},${(+a).toFixed(3)})`;
+  const accent = () => [S.acr.v, S.acg.v, S.acb.v];
+  function drawArcs() {
+    const a = S.arcA.v; if (a < 0.01) return;
+    const d = new Date();
+    const acc = rgba(accent(), 0.95 * a);
+    arcText([[DAYS[d.getDay()], acc], [` · ${d.getDate()} ${MONTHS[d.getMonth()]}`, ink(0.6 * a)]], 94, false, 12);
+    arcText([['ВРАЧ ', acc], ['ЗАВТРА В 9:30', ink(0.6 * a)]], 102, true, 12);
+  }
+
+  // ── Текст ──
+  let digitCache = new Map();
+  function cell(size, weight) {
+    const key = size + '/' + weight;
+    let v = digitCache.get(key);
+    if (!v) {
+      ctx.font = `${weight} ${size}px ${FONT}`;
+      let m = 0; for (let i = 0; i < 10; i++) m = Math.max(m, ctx.measureText(String(i)).width);
+      v = { d: m, c: ctx.measureText(':').width * 1.1 };
+      digitCache.set(key, v);
+    }
+    return v;
+  }
+  function drawTabular(text, cx, cy, size, weight, fill) {
+    const sz = Math.round(size * 4) / 4, m = cell(sz, weight);
+    ctx.font = `${weight} ${sz}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = fill;
+    let total = 0; for (const ch of text) total += ch === ':' ? m.c : m.d;
+    let x = cx - total / 2; const base = cy + sz * 0.364;
+    for (const ch of text) {
+      const w = ch === ':' ? m.c : m.d;
+      ctx.fillText(ch, x + w / 2, ch === ':' ? base - sz * 0.05 : base);
+      x += w;
+    }
+  }
+  function wrap(text, maxW) {
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function fit(text, maxW) {   // одна строка с многоточием
+    if (ctx.measureText(text).width <= maxW) return text;
+    let s = text; while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+    return s.trimEnd() + '…';
+  }
+  function textLines(lines, y, step, fill) { ctx.fillStyle = fill; lines.forEach((l, i) => ctx.fillText(l, C, y + i * step)); }
+
+  // ── Значки (линии одной толщины, как SF Symbols) ──
+  function sun(x, y, s) {
+    ctx.strokeStyle = 'rgb(255,204,0)';
+    ctx.beginPath(); ctx.arc(x, y, 4.2 * s, 0, TAU); ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * TAU / 8, c = Math.cos(a), n = Math.sin(a); ctx.moveTo(x + c * 7 * s, y + n * 7 * s); ctx.lineTo(x + c * 9.4 * s, y + n * 9.4 * s); }
+    ctx.stroke();
+  }
+  function cloud(x, y) {
+    ctx.beginPath();
+    ctx.arc(x - 5, y + 1, 4, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.arc(x + 0.5, y - 2, 5.5, Math.PI * 1.08, Math.PI * 1.98);
+    ctx.arc(x + 6, y + 1.5, 3.5, Math.PI * 1.5, Math.PI * 0.5);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fill();
+    ctx.strokeStyle = 'rgb(198,206,220)'; ctx.stroke();
+  }
+  function bell(x, y, c) {
+    ctx.strokeStyle = c; ctx.beginPath();
+    ctx.moveTo(x - 6, y + 4); ctx.lineTo(x - 5, y - 1); ctx.arc(x, y - 1, 5, Math.PI, 0); ctx.lineTo(x + 6, y + 4); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 2, y + 7); ctx.lineTo(x + 2, y + 7); ctx.stroke();
+  }
+  function phoneIcon(x, y, c) {
+    ctx.strokeStyle = c; ctx.beginPath(); ctx.roundRect(x - 4.5, y - 7.5, 9, 15, 2.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 1.5, y + 5); ctx.lineTo(x + 1.5, y + 5); ctx.stroke();
+  }
+  function budsIcon(x, y, c) {
+    ctx.strokeStyle = c;
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * 4, y - 3, 3, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x + s * 4, y); ctx.lineTo(x + s * 4, y + 7); ctx.stroke(); }
+  }
+  function batteryGlyph(x, y, level, c, alpha) {
+    const w = 46, h = 22;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.lineWidth = 1.8; ctx.strokeStyle = `rgba(${INK},0.7)`;
+    ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, 6); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(x + w / 2 + 2, y - 4, 3, 8, 1.5); ctx.fillStyle = `rgba(${INK},0.7)`; ctx.fill();
+    ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(x - w / 2 + 3, y - h / 2 + 3, Math.max(3, (w - 6) * level / 100), h - 6, 3); ctx.fill();
+    ctx.restore();
+  }
+
+  const TEMPS = [15, 12, 9, -2];
+  function drawWeather(a) {
+    if (a < 0.01) return;
+    const cond = state.weather, label = (TEMPS[cond] < 0 ? '−' + -TEMPS[cond] : TEMPS[cond]) + '°';
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.font = `500 16px ${FONT}`;
+    const tw = ctx.measureText(label).width, start = C - (22 + 6 + tw) / 2, x = start + 11, y = 43;
+    ctx.lineWidth = 1.7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (cond === 0) sun(x, y, 1);
+    else {
+      if (cond === 1) sun(x - 4, y - 4, 0.75);
+      const cy = cond === 1 ? y + 1 : y - 2;
+      cloud(x + (cond === 1 ? 1.5 : 0), cy);
+      if (cond === 2) {
+        ctx.strokeStyle = 'rgb(100,170,255)'; ctx.beginPath();
+        for (let i = -1; i <= 1; i++) { ctx.moveTo(x + i * 4.5, cy + 8.5); ctx.lineTo(x + i * 4.5 - 1.6, cy + 12); }
+        ctx.stroke();
+      } else if (cond === 3) {
+        ctx.fillStyle = 'rgb(230,238,250)';
+        for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(x + i * 4.5, cy + 10, 1.3, 0, TAU); ctx.fill(); }
+      }
+    }
+    ctx.fillStyle = ink(1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(label, start + 28, y + 6);
+    ctx.restore();
+  }
+
+  function drawClock() {
+    const a = S.clockA.v; if (a < 0.01) return;
+    const d = new Date();
+    drawTabular(d.getHours() + ':' + pad2(d.getMinutes()), C, S.clockY.v, S.clockSize.v, 300, ink(a));
+  }
+
+  function bulb(x, y) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 16);
+    g.addColorStop(0, 'rgba(255,204,0,0.35)'); g.addColorStop(1, 'rgba(255,204,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgb(255,204,0)'; ctx.lineWidth = 1.7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.arc(x, y - 2, 5.5, Math.PI * 0.8, Math.PI * 2.2); ctx.lineTo(x + 2.5, y + 6); ctx.lineTo(x - 2.5, y + 6); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 2.5, y + 9); ctx.lineTo(x + 2.5, y + 9); ctx.stroke();
+  }
+  function drawBottom(now) {
+    const a = S.capA.v; if (a < 0.01 || !state.bottom) return;
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.font = `500 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const lift = (1 - a) * 6;
+    if (state.bottom === 'heard') {
+      const words = PHRASE.split(' '), p = ((now - state.modeAt) % 2600 - 250) / 1800;
+      const n = Math.max(0, Math.min(words.length, Math.ceil(p * words.length)));
+      if (n) { ctx.fillStyle = ink(0.85); ctx.fillText(words.slice(0, n).join(' '), C, 188 + lift); }
+    } else if (state.bottom === 'phrase') {
+      ctx.fillStyle = ink(0.45); ctx.fillText(PHRASE, C, 188 + lift);
+    } else if (state.bottom === 'caption' && state.caption) {
+      bulb(C, 160 + lift);
+      ctx.fillStyle = ink(1);
+      wrap(state.caption, 168).slice(0, 2).forEach((l, i) => ctx.fillText(l, C, 190 + i * 19 + lift));
+    }
+    ctx.restore();
+  }
+
+  // ── Карточки с телефона: без подложек, как короткий взгляд на Apple Watch ──
+  function badge(x, y, app, a) {
+    const key = app.toLowerCase(), col = APP_COLORS[key] || [142, 142, 147];
+    ctx.fillStyle = rgba(col, a); ctx.beginPath(); ctx.arc(x, y, 11, 0, TAU); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center';
+    ctx.fillText(app.slice(0, 1).toUpperCase(), x, y + 4.3);
+  }
+  function capsText(text, y, fill, a) {
+    ctx.font = `600 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = fill;
+    if ('letterSpacing' in ctx) { ctx.letterSpacing = '1.2px'; ctx.fillText(text.toUpperCase(), C, y); ctx.letterSpacing = '0px'; }
+    else ctx.fillText(text.toUpperCase(), C, y);
+  }
+  function drawCard(now) {
+    const a = S.cardA.v;
+    if (a < 0.01) return;
+    const t = now / 1000, lift = (1 - a) * 14, card = state.card;
+    ctx.save(); ctx.textBaseline = 'alphabetic'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (!card && state.player) {   // мини-плеер
+      const p = state.player, pos = Math.min(p.dur, p.pos + (p.playing ? (now - p.at) / 1000 : 0)), frac = pos / p.dur;
+      ctx.globalAlpha = a; ctx.lineWidth = 3;
+      ctx.strokeStyle = rgba(accent(), 0.18); ctx.beginPath(); ctx.arc(C, C, 113, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = rgba(accent(), 0.95); ctx.beginPath(); ctx.arc(C, C, 113, -Math.PI / 2, -Math.PI / 2 + frac * TAU); ctx.stroke();
+      ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = ink(1);
+      ctx.fillText(fit(p.title, 170), C, 154 + lift);
+      ctx.font = `500 15px ${FONT}`; ctx.fillStyle = ink(0.55); ctx.fillText(fit(p.artist, 170), C, 174 + lift);
+      ctx.fillStyle = rgba(accent(), 1);
+      for (let i = 0; i < 3; i++) {   // эквалайзер
+        const hgt = p.playing ? 4 + 9 * Math.abs(Math.sin(t * (3.1 + i * 1.7) + i * 1.3)) : 3;
+        ctx.beginPath(); ctx.roundRect(C - 9 + i * 7 - 2, 200 + lift - hgt, 4, hgt, 2); ctx.fill();
+      }
+      ctx.restore(); return;
+    }
+    if (!card) { ctx.restore(); return; }
+    ctx.globalAlpha = a;
+    switch (card.kind) {
+      case 'notify': {
+        badge(C, 104 + lift, card.app, 1);
+        capsText(card.app, 130 + lift, rgba(accent(), 0.9));
+        ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = ink(1);
+        ctx.fillText(fit(card.title, 176), C, 152 + lift);
+        ctx.font = `500 15px ${FONT}`;
+        const lines = wrap(card.text, 176).slice(0, 2);
+        if (wrap(card.text, 176).length > 2) lines[1] = fit(lines[1] + ' …', 176);
+        textLines(lines, 172 + lift, 19, ink(0.75));
+        break;
+      }
+      case 'call': {
+        for (let i = 0; i < 3; i++) {   // волны от центра
+          const ph = ((t * 0.55 + i / 3) % 1), rr = 46 + 70 * ph;
+          ctx.strokeStyle = rgba(GREEN, (1 - ph) * (1 - ph) * 0.5); ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(C, C, rr, 0, TAU); ctx.stroke();
+        }
+        ctx.font = `600 24px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = ink(1);
+        ctx.fillText(fit(card.title, 180), C, 164 + lift);
+        capsText(card.text, 184 + lift, rgba(GREEN, 0.6 + 0.4 * Math.abs(Math.sin(t * 3))));
+        ctx.font = `500 12px ${FONT}`; ctx.fillStyle = ink(0.45); ctx.fillText('«сбрось» · «перезвоню»', C, 204 + lift);
+        break;
+      }
+      case 'battery': {
+        const lvl = card.level, c = lvl <= 10 ? 'rgb(255,69,58)' : 'rgb(255,159,10)';
+        batteryGlyph(C, 126 + lift, lvl, c, 1);
+        ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = ink(1);
+        ctx.fillText(fit(card.title, 176), C, 166 + lift);
+        ctx.font = `500 15px ${FONT}`; ctx.fillStyle = ink(0.7);
+        ctx.fillText(`${lvl} % · поставь на зарядку`, C, 186 + lift);
+        break;
+      }
+      case 'check': {
+        capsText(card.title, 98 + lift, rgba(accent(), 0.9));
+        ctx.font = `500 15px ${FONT}`; ctx.textAlign = 'left'; ctx.lineWidth = 1.6;
+        card.rows.forEach(([icon, text], i) => {
+          const y = 126 + i * 27 + lift, c = rgba(accent(), 1);
+          if (icon === 'bell') bell(66, y - 4, c); else if (icon === 'phone') phoneIcon(66, y - 5, c); else budsIcon(66, y - 4, c);
+          ctx.fillStyle = ink(0.9); ctx.fillText(fit(text, 132), 82, y + 1);
+        });
+        break;
+      }
+      case 'remark':
+      case 'wake': {
+        ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center';
+        const tl = wrap(card.title, 176).slice(0, 2), y0 = card.kind === 'wake' ? 160 : 168;
+        textLines(tl, y0 + lift, 20, ink(card.kind === 'remark' ? 0.8 : 1));
+        ctx.font = `500 15px ${FONT}`;
+        textLines([card.text], y0 + tl.length * 20 + 2 + lift, 19, ink(card.kind === 'remark' ? 0.5 : 0.7));
+        break;
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawTimer(now) {
+    const a = S.timerA.v; if (a < 0.01 || !state.timer) return;
+    const tm = state.timer, alert = state.mode === 'alert';
+    const rem = alert ? 0 : Math.max(0, tm.dur - (now - tm.start)), frac = rem / tm.dur;
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.lineCap = 'round'; ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,159,10,0.2)'; ctx.beginPath(); ctx.arc(C, C, 110, 0, TAU); ctx.stroke();
+    if (frac > 0.002) { ctx.strokeStyle = 'rgb(255,159,10)'; ctx.beginPath(); ctx.arc(C, C, 110, -Math.PI / 2, -Math.PI / 2 + frac * TAU); ctx.stroke(); }
+    const secs = Math.ceil(rem / 1000);
+    const k = alert && !state.calm ? 0.6 + 0.4 * Math.cos((now - state.modeAt) / 1000 * TAU * 1.1) : 1;
+    drawTabular(Math.floor(secs / 60) + ':' + pad2(secs % 60), C, 130, 50, 300, ink(k));
+    ctx.font = `500 14px ${FONT}`; ctx.fillStyle = 'rgb(255,159,10)'; ctx.textAlign = 'center';
+    ctx.fillText(alert ? 'Готово' : tm.label, C, 172);
+    ctx.restore();
+  }
+
+  function drawZs(now) {
+    if (!state.zs.length) return;
+    const x0 = C + 42 * S.scale.v + 18, y0 = S.faceY.v - 10;
+    ctx.save(); ctx.textAlign = 'center'; ctx.fillStyle = ink(1);
+    for (const z of state.zs) {
+      const p = (now - z.at) / 3400; if (p < 0 || p > 1) continue;
+      ctx.font = `500 ${(9 + 5 * p).toFixed(1)}px ${FONT}`;
+      ctx.globalAlpha = Math.sin(Math.PI * p) * 0.45;
+      ctx.fillText('z', x0 + 7 * Math.sin(p * Math.PI * 1.2 + z.s * 3), y0 - 34 * p);
+    }
+    ctx.restore();
+  }
+
+  function drawStatus() {
+    if (!state.offline) return;
+    const x = C - 46, y = 50;
+    ctx.save(); ctx.strokeStyle = 'rgb(255,69,58)'; ctx.fillStyle = 'rgb(255,69,58)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    for (const r of [4.5, 8.5]) { ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(x, y - 0.5, 1.4, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x - 7, y - 11); ctx.lineTo(x + 7, y + 1); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 16 бит (RGB565), как в панели GC9A01; сглаживание — упорядоченный дизеринг 4×4
+  function quantize(dither) {
+    const im = ctx.getImageData(0, 0, W, H), d = im.data;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const o = (y * W + x) * 4, t = dither ? (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16 : 0.5;
+      const r = Math.min(31, Math.floor(d[o] * 31 / 255 + t));
+      const g = Math.min(63, Math.floor(d[o + 1] * 63 / 255 + t));
+      const b = Math.min(31, Math.floor(d[o + 2] * 31 / 255 + t));
+      d[o] = (r * 255 / 31) | 0; d[o + 1] = (g * 255 / 63) | 0; d[o + 2] = (b * 255 / 31) | 0;
+    }
+    ctx.putImageData(im, 0, 0);
+  }
+
+  // ── Главный цикл ──
+  let last = performance.now();
+  function loop(ts) {
+    const dt = Math.min(0.05, Math.max(0, (ts - last) / 1000)); last = ts;
+    update(ts, dt);
+    targets(ts);
+    const steps = Math.max(1, Math.ceil(dt * 240)), h = dt / steps;
+    for (let s = 0; s < steps; s++) for (const sp of springs) sp.step(h, state.calm);
+    drawPixels(ts);
+    drawArcs();
+    drawWeather(S.wxA.v);
+    drawClock();
+    drawBottom(ts);
+    drawTimer(ts);
+    drawCard(ts);
+    drawZs(ts);
+    drawStatus();
+    if (state.color !== 'rgb') quantize(state.color === '565d');
+    requestAnimationFrame(loop);
+  }
+
+  // ── Сценарии ──
+  function runScenario() {
+    cancelScript(); state.expr = null; state.card = null;
+    if (state.mode === 'alert') { setMode('idle'); you('Выключи'); say('Выключил. Приятного аппетита.'); return; }
+    you('…'); say(''); state.caption = '';
+    setMode('listen');
+    later(2500, () => { you(PHRASE); setMode('think'); });
+    if (state.offline) { later(4600, () => { setMode('idle'); setExpr('sorry'); }); return; }
+    later(3500, () => { state.caption = 'Свет на кухне включён'; say('Включил. Выключатель, кстати, тоже работает.'); setMode('speak'); });
+    later(6900, () => { setMode('idle'); setExpr('side', true); });
+  }
+  function startTimer() {
+    cancelScript(); state.expr = null; state.card = null;
+    state.timer = { start: performance.now(), dur: 30000, label: 'Паста' };
+    you('Таймер на тридцать секунд для пасты'); say('Полминуты. Засекаю.');
+    setMode('timer');
+  }
+
+  // ── Управление ──
+  const modeBtns = [...document.querySelectorAll('[data-mode]')];
+  const clockBtns = [...document.querySelectorAll('[data-clock]')];
+  const playerBtn = document.querySelector('[data-card="player"]');
+  function syncUI() {
+    const m = state.mode === 'drowsy' ? 'idle' : state.mode;
+    modeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+    playerBtn.setAttribute('aria-pressed', String(!!state.player));
+  }
+  const touch = () => { state.idleSince = performance.now(); };
+
+  document.getElementById('run').addEventListener('click', runScenario);
+  document.getElementById('timerBtn').addEventListener('click', startTimer);
+  cv.addEventListener('click', () => { if (state.card) { state.card = null; touch(); } else runScenario(); });
+  cv.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runScenario(); } });
+
+  modeBtns.forEach(b => b.addEventListener('click', () => {
+    cancelScript(); state.expr = null; state.card = null;
+    const m = b.dataset.mode;
+    if (m === 'listen') { you('…'); say(''); }
+    else if (m === 'think') { you(PHRASE); say(''); }
+    else if (m === 'speak') { state.caption = 'Свет на кухне включён'; you(PHRASE); say('Включил. Выключатель, кстати, тоже работает.'); }
+    setMode(m);
+  }));
+  document.querySelectorAll('[data-expr]').forEach(b => b.addEventListener('click', () => setExpr(b.dataset.expr)));
+  document.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', () => {
+    cancelScript();
+    if (state.mode !== 'idle' && state.mode !== 'sleep' && state.mode !== 'drowsy') setMode('idle');
+    showCard(b.dataset.card);
+    const k = b.dataset.card;
+    if (k === 'call') say('');
+    if (k === 'remark') say('Подъём через шесть часов. Просто к сведению.');
+    if (k === 'wake') say('Будильник выключен, а ты спишь. Вставай, я всё вижу.');
+  }));
+
+  const layer = (id, key) => document.getElementById(id).addEventListener('change', e => { state.layers[key] = e.target.checked; wake(); touch(); });
+  layer('lAura', 'aura'); layer('lArcs', 'arcs'); layer('lGlass', 'glass'); layer('lRed', 'red');
+  document.getElementById('tod').addEventListener('change', e => { state.tod = e.target.value; wake(); touch(); });
+
+  const sleepAfter = document.getElementById('sleepAfter'), sleepOut = document.getElementById('sleepOut');
+  sleepAfter.addEventListener('input', () => { state.sleepAfter = +sleepAfter.value * 1000; sleepOut.textContent = sleepAfter.value + ' с'; touch(); });
+  clockBtns.forEach(b => b.addEventListener('click', () => {
+    state.clockTop = b.dataset.clock === 'top';
+    clockBtns.forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  document.getElementById('color').addEventListener('change', e => { state.color = e.target.value; });
+  document.getElementById('weather').addEventListener('change', e => {
+    state.weather = +e.target.value; wake(); touch();
+    if (!state.calm && state.mode === 'idle') state.glanceUp = performance.now() + 900;
+  });
+  const calm = document.getElementById('calm');
+  calm.addEventListener('change', () => { state.calm = calm.checked; if (state.calm) { state.gaze = [0, 0]; state.zs = []; } });
+  document.getElementById('offline').addEventListener('change', e => { state.offline = e.target.checked; });
+  try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) { calm.checked = true; state.calm = true; } } catch (_) {}
+
+  const NAMES = { idle: 'Покой', drowsy: 'Засыпает', sleep: 'Сон', listen: 'Слушает', think: 'Думает', speak: 'Говорит', timer: 'Таймер', alert: 'Таймер сработал' };
+  const CARD_NAMES = { notify: 'Уведомление', call: 'Звонок', battery: 'Батарея', check: 'Перед сном', remark: 'Колкость ночью', wake: 'Будит' };
+  const readout = document.getElementById('readout');
+  setInterval(() => {
+    const now = performance.now();
+    let s = state.card ? CARD_NAMES[state.card.kind] : state.player && state.mode === 'idle' ? 'Плеер' : NAMES[state.mode];
+    if (state.mode === 'idle' && !state.expr && !state.card && !state.player) s += ' · уснёт через ' + Math.max(0, Math.ceil((state.sleepAfter - (now - state.idleSince)) / 1000)) + ' с';
+    readout.textContent = s;
+    cv.setAttribute('aria-label', 'Экран колонки: ' + s.toLowerCase() + '. Нажми, чтобы заговорить.');
+  }, 250);
+
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load(`300 44px ${FONT}`), document.fonts.load(`500 15px ${FONT}`), document.fonts.load(`600 12px ${FONT}`), document.fonts.load(`600 24px ${FONT}`)])
+      .then(() => { digitCache = new Map(); }).catch(() => {});
+  }
+
+  const now0 = performance.now();
+  state.idleSince = now0; state.modeAt = now0; state.nextBlink = now0 + 1500; state.nextSaccade = now0 + 1800;
+  syncUI();
+  requestAnimationFrame(loop);
+})();
+</script>

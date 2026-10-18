@@ -1,0 +1,41 @@
+# Добавить в основной configuration.yaml (или через !include в отдельные файлы).
+# Токены/ключи — только в secrets.yaml, сюда их не вписывай напрямую.
+
+# --- Наш кастомный conversation agent ---
+gemini_assistant:
+  api_key: !secret gemini_api_key
+  memory_path: /config/gemini_assistant/memory.json
+  google_credentials_path: /config/gemini_assistant/credentials.json
+  google_token_path: /config/gemini_assistant/token.json
+  keep_token_path: /config/gemini_assistant/keep_token.json   # опционально - заметки в Google Keep, см. TUTORIAL.md
+
+sensor:
+  - platform: gemini_assistant
+
+# --- Telegram-бот для общения вне дома ---
+# Токен получить у @BotFather, allowed_chat_ids — твой личный chat_id
+# (можно узнать, написав боту @userinfobot).
+telegram_bot:
+  - platform: polling
+    api_key: !secret telegram_bot_token
+    allowed_chat_ids:
+      - !secret telegram_chat_id
+
+notify:
+  - platform: telegram
+    name: telegram_owner
+    chat_id: !secret telegram_chat_id
+
+# --- Google Calendar как триггер для напоминаний о встречах ---
+# (сам календарь в разговоре агент читает напрямую через Google API из
+# custom_component, а вот HA-триггер `calendar:` в automations.yaml нужен
+# отдельно - и в современных версиях HA настраивается НЕ через YAML, а через
+# UI (Settings -> Devices & Services -> Add Integration -> Google Calendar).
+# Секция ниже больше не нужна - оставлена как история, не раскомментируй.
+# client_id/client_secret вводятся прямо в диалоге добавления интеграции,
+# не в configuration.yaml. Подробности - TUTORIAL.md, шаг 12.
+
+# --- Whisper STT + Piper TTS локально (аддоны, ставятся через Settings → Add-ons) ---
+# После установки аддонов "Whisper" и "Piper" укажи их как STT/TTS в
+# Settings → Voice Assistants → твой pipeline, здесь дополнительно
+# ничего прописывать не нужно — Add-on сам регистрирует сервисы.

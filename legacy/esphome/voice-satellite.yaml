@@ -1,0 +1,649 @@
+## ESPHome-конфиг голосового спутника под точную распиновку из спецификации:
+## MCU: ESP32-S3 (Lolin Mini)
+## Дисплей: GC9A01 240x240, SPI
+## Микрофон: INMP441, I2S RX
+## Динамик: MAX98357A, I2S TX
+##
+## Перед прошивкой:
+##   1. Положи в secrets.yaml:  wifi_ssid, wifi_password, api_encryption_key, ota_password
+##   2. esphome run voice-satellite.yaml  (или через ESPHome Dashboard в Home Assistant)
+
+esphome:
+  name: home-voice-satellite
+  friendly_name: "Домашний ассистент"
+  # Собственный пиксельный рендер-движок лица (градиенты/сглаживание/блики,
+  # чего нет у ESPHome-дисплея из коробки). Файл лежит рядом с этим yaml.
+  includes:
+    - face_render.h
+
+esp32:
+  board: esp32-s3-devkitc-1
+  # По умолчанию ESPHome гоняет S3 на 160МГц. На 160МГц инференс вейк-ворда не
+  # успевает за микрофоном - лог спамит "Not enough free bytes in ring buffer".
+  # 240МГц - штатная частота S3, даёт +50% скорости инференса.
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+
+# --- PSRAM (внешняя память) ---
+# КРИТИЧНО для вейк-ворда. Без этого блока PSRAM не используется, и всё
+# (буфер дисплея 240x240 ~115КБ, буферы voice_assistant, тензоры нейросетки
+# micro_wake_word) выделяется из внутренней RAM (~320КБ). Итог в логе:
+#   "Failed to resize buffer. Requested: 19472, available 11876"
+#   "Failed to allocate tensors for the streaming model"
+# и wake word молча выключается (STOPPED) - "Окей Набу" не реагирует.
+# У Lolin S3 Mini чип ESP32-S3FH4R2: 2МБ quad-PSRAM на борту.
+psram:
+  mode: quad
+  speed: 80MHz
+
+# --- Подключение к Wi-Fi и Home Assistant API ---
+wifi:
+  # Роутер держит SSID скрытым (не транслирует имя сети) - без hidden: true
+  # ESP32 подключается к таким сетям заметно менее стабильно (видно по логу:
+  # частые "Disconnected ... reason=...", "Auth Expired", "Connecting to
+  # network failed"). hidden: true работает только внутри networks: -
+  # рядом с ssid/password напрямую ESPHome его не принимает (ошибка
+  # "invalid option for [wifi]").
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+  # power_save_mode: none отключает энергосбережение Wi-Fi на ESP32 -
+  # известная причина случайных обрывов соединения на этом чипе.
+  power_save_mode: none
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # Сервис, которым HA запускает "игривое занятие" (напевает/танцует) на 7с.
+  # Вызывается автоматизацией одновременно с проигрыванием звука.
+  # Имя в HA: esphome.home_voice_satellite_set_playful
+  services:
+    - service: set_playful
+      then:
+        - globals.set:
+            id: playful_until
+            value: !lambda "return millis() + 7000;"
+    # Монетка: HA передаёт result (0=орёл, 1=решка), экран крутит и приземляет монету.
+    - service: flip_coin
+      variables:
+        result: int
+      then:
+        - globals.set:
+            id: coin_result
+            value: !lambda "return result;"
+        - globals.set:
+            id: coin_until
+            value: !lambda "return millis() + 3200;"
+    # Крестики-нолики: HA передаёт поле из 9 символов (. X O), экран рисует его 45с.
+    - service: set_ttt
+      variables:
+        board: string
+      then:
+        - globals.set:
+            id: ttt_board
+            value: !lambda "return board;"
+        - globals.set:
+            id: ttt_until
+            value: !lambda "return millis() + 45000;"
+    # Эмоция-реакция (радость=1 при возвращении домой, тревога=2 при таймере).
+    - service: set_emotion
+      variables:
+        code: int
+        ms: int
+      then:
+        - globals.set:
+            id: emotion_code
+            value: !lambda "return code;"
+        - globals.set:
+            id: emotion_until
+            value: !lambda "return millis() + ms;"
+    # Ночной режим (сон в покое + приглушение) — включает автоматизация DND.
+    - service: set_night
+      variables:
+        on_state: bool
+      then:
+        - globals.set:
+            id: night_mode
+            value: !lambda "return on_state;"
+    # Яркость экрана 0..255.
+    - service: set_brightness
+      variables:
+        level: int
+      then:
+        - globals.set:
+            id: screen_bright
+            value: !lambda "return level;"
+    # Погода: cond 0..7, temp °C.
+    - service: set_weather
+      variables:
+        cond: int
+        temp: int
+      then:
+        - globals.set:
+            id: weather_cond
+            value: !lambda "return cond;"
+        - globals.set:
+            id: weather_temp
+            value: !lambda "return temp;"
+    # Кубик d6.
+    - service: roll_dice
+      variables:
+        result: int
+      then:
+        - globals.set:
+            id: dice_result
+            value: !lambda "return result;"
+        - globals.set:
+            id: dice_until
+            value: !lambda "return millis() + 2400;"
+    # Колесо фортуны.
+    - service: spin_wheel
+      variables:
+        count: int
+        result: int
+      then:
+        - globals.set:
+            id: wheel_count
+            value: !lambda "return count;"
+        - globals.set:
+            id: wheel_result
+            value: !lambda "return result;"
+        - globals.set:
+            id: wheel_until
+            value: !lambda "return millis() + 3400;"
+    # Камень-ножницы-бумага.
+    - service: play_rps
+      variables:
+        mine: int
+        result: int
+      then:
+        - globals.set:
+            id: rps_mine
+            value: !lambda "return mine;"
+        - globals.set:
+            id: rps_result
+            value: !lambda "return result;"
+        - globals.set:
+            id: rps_until
+            value: !lambda "return millis() + 3600;"
+    # Magic-8-ball.
+    - service: magic8
+      variables:
+        answer: int
+      then:
+        - globals.set:
+            id: magic8_answer
+            value: !lambda "return answer;"
+        - globals.set:
+            id: magic8_until
+            value: !lambda "return millis() + 3600;"
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# INFO на боевом устройстве; при отладке голосового тракта временно поднять
+# до DEBUG (+ по компонентам microphone/micro_wake_word/voice_assistant).
+logger:
+  level: INFO
+
+# --- SPI шина для дисплея GC9A01 ---
+spi:
+  clk_pin: GPIO12
+  mosi_pin: GPIO13
+  # miso не используется на этом дисплее (в исходной прошивке -1)
+
+# --- Глаза в стиле Deskimon: процедурная отрисовка вместо GIF ---
+# Раньше здесь был блок animation: с GIF-кадрами. Их убрали намеренно:
+# 1) кадровая анимация квантуется по кадрам и выглядит дёргано;
+# 2) 4 GIF по ~7КБ/кадр съедали ~450КБ flash - без них влезает media_player
+#    (нужен для assist_satellite.announce - проактивной озвучки без wake word).
+# Теперь глаза рисуются примитивами прямо в лямбде дисплея, а фазы движения
+# считаются от millis() - движение непрерывное, плавность ограничена только
+# частотой перерисовки (см. adaptive-интервал внизу файла).
+
+# --- Дисплей ---
+# data_rate: 80MHz - GC9A01 стабильно тянет 80МГц на коротких проводах, это вдвое
+# сокращает время передачи кадра (~12мс вместо ~23мс на полный кадр 240x240x16бит).
+# Если появятся артефакты/полосы на экране - вернуть 40MHz.
+#
+# update_interval: never - перерисовкой управляет adaptive-интервал внизу файла:
+# фиксированный update_interval здесь либо тормозит анимацию (1s), либо блокирует
+# главный loop и ломает звук (100ms, "Cannot receive audio, buffer is full" -
+# приём TTS-аудио по API идёт в том же loop, что и отрисовка).
+display:
+  - platform: ili9xxx
+    id: main_display
+    model: GC9A01A
+    invert_colors: true
+    cs_pin: GPIO16
+    dc_pin: GPIO15
+    reset_pin: GPIO14
+    rotation: 0
+    data_rate: 80MHz
+    # Без lambda и update_interval: never — дисплей ничего не рисует сам.
+    # Кадры рисует и выгружает движок face::render, вызываемый из interval ниже
+    # (он сам блитит буфер в панель через draw_pixels_at, минуя update()).
+    update_interval: never
+
+# Блок font: удалён — весь текст (часы, счёт, температура) рисуется
+# семисегментными примитивами seg7 в face_render.h, готовые шрифты не нужны.
+# Это убирает сетевую зависимость от gfonts при сборке и экономит flash.
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# --- Глобальные переменные для отображения состояния ---
+globals:
+  - id: va_state
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: pending_reminders
+    type: int
+    restore_value: false
+    initial_value: "0"
+  # ВРЕМЕННО true: демо-режим прокручивает 4 анимации по 10 с для показа.
+  # В финальной прошивке поставить false (тогда экран следует за va_state).
+  - id: demo_mode
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  # Пока millis() < playful_until — экран показывает "игривое занятие" (состояние 4).
+  - id: playful_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  # Монетка: пока millis() < coin_until показываем подброс; coin_result 0=орёл,1=решка.
+  - id: coin_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: coin_result
+    type: int
+    restore_value: false
+    initial_value: "0"
+  # Крестики-нолики: поле 9 символов (. X O), показывается пока millis()<ttt_until.
+  - id: ttt_board
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: ttt_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  # Эмоция-реакция: code 1=радость, 2=тревога; активна пока millis()<emotion_until.
+  - id: emotion_code
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: emotion_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  # Ночь: в покое экран «спит» (закрытые глаза) и приглушён.
+  - id: night_mode
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  # Яркость экрана 0..255 (день 255, ночь ~110) — программное затемнение в движке.
+  - id: screen_bright
+    type: int
+    restore_value: false
+    initial_value: "255"
+  # Погода из HA: cond 0..7 (0 ясно,1 перем,2 обл,3 дождь,4 снег,5 гроза,6 туман,7 ночь),
+  # temp в °C; weather_cond = -1 -> данных нет, виджет скрыт.
+  - id: weather_cond
+    type: int
+    restore_value: false
+    initial_value: "-1"
+  - id: weather_temp
+    type: int
+    restore_value: false
+    initial_value: "0"
+  # Кубик (d6): показывается пока millis()<dice_until, грань dice_result 1..6.
+  - id: dice_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: dice_result
+    type: int
+    restore_value: false
+    initial_value: "1"
+  # Колесо фортуны: wheel_count секторов, приземляется на wheel_result.
+  - id: wheel_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: wheel_count
+    type: int
+    restore_value: false
+    initial_value: "6"
+  - id: wheel_result
+    type: int
+    restore_value: false
+    initial_value: "0"
+  # Камень-ножницы-бумага: rps_mine 0 камень/1 бумага/2 ножницы; rps_result 0 ничья/1 выигрыш/2 проигрыш ассистента.
+  - id: rps_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: rps_mine
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: rps_result
+    type: int
+    restore_value: false
+    initial_value: "0"
+  # Magic-8-ball: показывает номер ответа (текст озвучивает агент).
+  - id: magic8_until
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: magic8_answer
+    type: int
+    restore_value: false
+    initial_value: "0"
+
+# --- Число напоминаний прилетает из HA как текстовый sensor ---
+text_sensor:
+  - platform: homeassistant
+    id: ha_pending_reminders
+    entity_id: sensor.assistant_pending_reminders
+    on_value:
+      then:
+        - lambda: |-
+            id(pending_reminders) = atoi(x.c_str());
+
+# --- Два независимых I2S-периферала ESP32-S3: один на микрофон, один на динамик ---
+i2s_audio:
+  - id: i2s_mic_bus
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO9
+  - id: i2s_speaker_bus
+    i2s_lrclk_pin: GPIO44
+    i2s_bclk_pin: GPIO4
+
+microphone:
+  - platform: i2s_audio
+    id: assistant_mic
+    i2s_audio_id: i2s_mic_bus
+    i2s_din_pin: GPIO11
+    adc_type: external
+    pdm: false
+    channel: left
+
+speaker:
+  # Физический выход на MAX98357A. Теперь это ВЫХОД микшера, а не прямой сток
+  # voice_assistant - поэтому большой буфер здесь не нужен (микшер отдаёт звук
+  # ровным потоком в реальном времени, а "залп" от HA копится в буфере
+  # source-динамиков ниже). 1s достаточно, чтобы DMA не голодал.
+  - platform: i2s_audio
+    id: assistant_speaker
+    i2s_audio_id: i2s_speaker_bus
+    i2s_dout_pin: GPIO5
+    dac_type: external
+    buffer_duration: 1000ms
+    timeout: 500ms
+
+  # --- Микшер: один I2S-динамик, два независимых источника ---
+  # КРИТИЧНО для announce. У платформы media_player: speaker announcement- и
+  # media-пайплайны ОБЯЗАНЫ иметь разные speaker'ы (иначе "The announcement and
+  # media pipelines cannot use the same speaker"). А напрямую два потребителя
+  # одной i2s-шины дают "Parent bus is busy" - шина занимается первым и второй
+  # не стартует (симптом: announce молчит, в логе "ESP_FAIL ... file reader").
+  # Микшер владеет единственным i2s-динамиком и подмешивает два виртуальных
+  # источника - именно так устроена официальная HA Voice PE.
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: assistant_speaker
+    num_channels: 1
+    source_speakers:
+      # Ответы голосового ассистента (TTS). buffer_duration 8s держит "залп":
+      # HA стримит озвучку быстрее реального времени, с маленьким буфером хвост
+      # ответа молча выбрасывается (хрип/обрывки).
+      - id: va_source_speaker
+        buffer_duration: 8000ms
+      # Проактивная озвучка (announce: напоминания, брифинг). Свой источник -
+      # может звучать параллельно/поверх, микшер сведёт.
+      - id: announce_source_speaker
+        buffer_duration: 8000ms
+
+# --- Медиаплеер поверх микшера ---
+# Нужен для assist_satellite.announce (проактивная озвучка напоминаний/брифинга
+# без wake word): без media_player HA отвечает "does not support action
+# assist_satellite.announce". Оба пайплайна в формате WAV - без FLAC/MP3
+# декодеров прошивка заметно меньше (важно: flash и так почти полон).
+# Каждый пайплайн - на СВОЙ source-динамик микшера (см. выше, почему нельзя один).
+media_player:
+  - platform: speaker
+    id: external_media_player
+    name: "Медиаплеер"
+    media_pipeline:
+      speaker: va_source_speaker
+      # format: NONE - включает ВСЕ декодеры (MP3/FLAC/WAV). Критично: облачный
+      # TTS (Home Assistant Cloud, голос Дарьи) отдаёт озвучку в MP3
+      # (http://<ha>/api/tts_proxy/xxxxx.mp3). С "format: WAV" декодер MP3 не
+      # компилировался и ридер падал с ESP_FAIL - announce молчал, а ответы
+      # диалога (тоже MP3 через этот media_player) не проигрывались.
+      format: NONE
+      sample_rate: 16000
+      num_channels: 1
+    announcement_pipeline:
+      speaker: announce_source_speaker
+      # format: NONE - включает ВСЕ декодеры (MP3/FLAC/WAV). Критично: облачный
+      # TTS (Home Assistant Cloud, голос Дарьи) отдаёт озвучку в MP3
+      # (http://<ha>/api/tts_proxy/xxxxx.mp3). С "format: WAV" декодер MP3 не
+      # компилировался и ридер падал с ESP_FAIL - announce молчал, а ответы
+      # диалога (тоже MP3 через этот media_player) не проигрывались.
+      format: NONE
+      sample_rate: 16000
+      num_channels: 1
+
+# --- Локальный wake word прямо на устройстве (аудио никуда не уходит до срабатывания) ---
+micro_wake_word:
+  id: mww
+  models:
+    # НЕ менять на короткое "okay_nabu": оно резолвится в V2-модель, а V2 падают
+    # с "Failed to resize buffer ... Failed to allocate tensors for the streaming
+    # model" даже при включённой PSRAM - известный баг ESPHome
+    # (github.com/esphome/esphome/issues/15603). V1-модель по прямой ссылке работает.
+    - model: github://esphome/micro-wake-word-models/models/okay_nabu.json@main
+      # Дефолтный порог 0.5 - впритык: реальные срабатывания идут с 0.53-0.58,
+      # но и случайный шум изредка перепрыгивает 0.5 - отсюда фантомные
+      # активации. 0.7 отсекает шум; если ассистент станет "туговат на ухо" -
+      # снизить до 0.6.
+      probability_cutoff: 0.7
+  # ЕДИНСТВЕННАЯ рабочая связка с voice_assistant - явный триггер ниже.
+  # Опция "micro_wake_word: mww" внутри voice_assistant этого НЕ делает
+  # (она только даёт HA переключать модели) - из-за этого после "Detected
+  # 'Okay Nabu'" в логе ничего не происходило: mww останавливался, а
+  # ассистент не стартовал.
+  on_wake_word_detected:
+    then:
+      # НЕ добавлять сюда voice_assistant.stop "для страховки": stop закрывает
+      # сокет, из которого VoiceAssistant::loop() в этот момент может читать -
+      # ловили крэш всей прошивки (LoadProhibited в voice_assistant.cpp:442,
+      # "CRASH DETECTED ON PREVIOUS BOOT" в логе). Зависание VA лечится не
+      # этим, а timeout: 500ms у динамика (см. блок speaker).
+      - voice_assistant.start:
+          wake_word: !lambda return wake_word;
+
+# --- Голосовой ассистент: связывает мик/динамик с Assist Pipeline в Home Assistant ---
+# micro_wake_word: mww - только регистрация компонента в HA (переключение моделей
+# из интерфейса). Сам запуск ассистента по фразе делает on_wake_word_detected
+# в блоке micro_wake_word выше.
+# use_wake_word здесь НЕ ставить: он включает wake word на стороне пайплайна HA
+# (сервер ждёт фразу ещё раз) - с локальным mww из-за него ассистент не стартует.
+voice_assistant:
+  id: va
+  microphone: assistant_mic
+  micro_wake_word: mww
+  # media_player вместо прямого speaker: TTS-ответы и announce идут через
+  # медиаплеер (стандартная архитектура Voice PE). Хаки buffer_duration/timeout
+  # у speaker остаются - он теперь общий сток обоих пайплайнов медиаплеера.
+  media_player: external_media_player
+  on_listening:
+    then:
+      - lambda: id(va_state) = "listening";
+  on_stt_vad_end:
+    then:
+      - lambda: id(va_state) = "thinking";
+  on_tts_start:
+    then:
+      - lambda: id(va_state) = "speaking";
+  # on_end срабатывает в момент окончания ПАЙПЛАЙНА (HA отдал URL озвучки),
+  # а НЕ окончания воспроизведения - динамик в этот момент ещё даже не начал
+  # играть. Если запустить micro_wake_word сразу (как было раньше), инференс
+  # нейросетки молотит CPU параллельно с проигрыванием TTS - голос прерывистый.
+  # wait_until ждёт, пока VA реально доиграет ответ и вернётся в IDLE.
+  # Бонус: va_state остаётся "speaking" на всё время речи - анимация на экране
+  # больше не сбрасывается в idle на середине фразы.
+  on_end:
+    then:
+      - wait_until:
+          not:
+            voice_assistant.is_running:
+      - lambda: id(va_state) = "";
+      # После каждого ответа - снова включаем локальное распознавание фразы
+      # (micro_wake_word останавливает себя сам после срабатывания - если не
+      # запустить заново, вторая команда "Окей Набу" уже не сработает).
+      - micro_wake_word.start:
+  # Без on_error устройство "умирает" при сбое пайплайна (нет сети, упал STT):
+  # вейк-ворд остаётся выключенным до перезагрузки.
+  on_error:
+    then:
+      - lambda: id(va_state) = "";
+      - wait_until:
+          not:
+            voice_assistant.is_running:
+      - micro_wake_word.start:
+  on_client_connected:
+    then:
+      - logger.log: "Voice assistant connected to Home Assistant"
+      # ВАЖНО: раньше тут стоял voice_assistant.start_continuous - это сразу
+      # включало постоянный стрим микрофона в HA, минуя локальное распознавание
+      # фразы (видно по логу: сразу START_PIPELINE -> STREAMING_MICROPHONE, без
+      # ожидания вейк-ворда). Правильная команда для запуска именно локального
+      # прослушивания фразы - micro_wake_word.start. Когда фраза распознается,
+      # micro_wake_word сам вызовет запуск voice_assistant (через связку
+      # micro_wake_word: mww выше) и включит полный стрим в HA.
+      - micro_wake_word.start:
+
+# --- Перерисовка экрана ---
+# Базовый интервал 16 мс (потолок ~60 fps). Реальная частота ограничена
+# стоимостью кадра (рендер по пикселям + выгрузка на SPI). Внизу лога печатается
+# фактическое время update() и потолок fps - по нему видно, где мы.
+# Частота по состоянию:
+#   demo:               максимум (каждый тик) - для показа
+#   listening/thinking: ~30 fps (каждый 2-й тик)
+#   speaking:           ~6 fps (приоритет звуку)
+#   idle:               30 fps в окна движения (саккада/моргание), иначе 1 fps
+interval:
+  - interval: 16ms
+    then:
+      - lambda: |-
+          static uint16_t tick = 0;
+          tick++;
+          const uint32_t now = millis();
+
+          // Приоритет состояний: короткие игры/анимации перекрывают всё, дальше
+          // голос, эмоции, ночь, покой. Демо-режим само-прогоняет весь список.
+          int st;
+          if (id(demo_mode)) {
+            // Демо ВСЕГО: 15 фаз по 6.5с. На входе в фазу выставляем глобалы,
+            // чтобы каждая анимация крутилась тем же механизмом, что и в бою.
+            const int NPH = 15;
+            int phase = (now / 6500) % NPH;
+            static int dph = -1;
+            if (phase != dph) {
+              dph = phase;
+              switch (phase) {
+                case 0:  id(weather_cond) = -1; break;                                              // чистый покой
+                case 4:  id(playful_until) = now + 6300; break;                                     // игривое
+                case 5:  id(coin_result) = (int)((now / 6500) & 1); id(coin_until) = now + 5800; break;
+                case 6:  id(dice_result) = (int)(now % 6) + 1; id(dice_until) = now + 5800; break;
+                case 7:  id(wheel_count) = 6; id(wheel_result) = (int)(now % 6); id(wheel_until) = now + 5800; break;
+                case 8:  id(rps_mine) = (int)(now % 3); id(rps_result) = (int)(now % 3); id(rps_until) = now + 5800; break;
+                case 9:  id(magic8_answer) = (int)(now % 8) + 1; id(magic8_until) = now + 5800; break;
+                case 10: id(ttt_until) = now + 6300; id(ttt_board) = "XOXOXOXOX"; break;
+                case 11: id(emotion_code) = 1; id(emotion_until) = now + 6300; break;               // радость
+                case 12: id(emotion_code) = 2; id(emotion_until) = now + 6300; break;               // тревога
+                case 13: id(weather_cond) = (int)((now / 6500) % 8); id(weather_temp) = -3; break;  // покой с погодой
+              }
+            }
+            if (now < id(coin_until)) st = 5;
+            else if (now < id(dice_until)) st = 10;
+            else if (now < id(wheel_until)) st = 11;
+            else if (now < id(rps_until)) st = 12;
+            else if (now < id(magic8_until)) st = 13;
+            else if (now < id(playful_until)) st = 4;
+            else if (now < id(ttt_until)) st = 6;
+            else if (now < id(emotion_until)) st = (id(emotion_code) == 2) ? 9 : 8;
+            else if (phase == 14) st = 7;                    // сон
+            else st = (phase <= 3) ? phase : 0;              // 0..3 глаза, 13 — покой с погодой
+          } else {
+            const std::string &s = id(va_state);
+            int voice = (s == "listening") ? 1 : (s == "thinking") ? 2 : (s == "speaking") ? 3 : 0;
+            bool emo = now < id(emotion_until); int ecode = id(emotion_code);
+            if (now < id(coin_until)) st = 5;                // монетка
+            else if (now < id(dice_until)) st = 10;          // кубик
+            else if (now < id(wheel_until)) st = 11;         // колесо
+            else if (now < id(rps_until)) st = 12;           // камень-ножницы-бумага
+            else if (now < id(magic8_until)) st = 13;        // magic-8-ball
+            else if (emo && ecode == 2) st = 9;              // тревога перекрывает
+            else if (now < id(playful_until)) st = 4;        // игривое
+            else if (voice != 0) st = voice;                 // голос — глаза реагируют
+            else if (emo && ecode == 1) st = 8;              // радость (в покое)
+            else if (now < id(ttt_until)) st = 6;            // поле между ходами
+            else if (id(night_mode)) st = 7;                 // ночь -> сон
+            else st = 0;                                     // покой
+          }
+
+          // Троттлинг частоты по состоянию.
+          bool doit;
+          if (id(demo_mode)) {
+            doit = true;
+          } else if (st == 1 || st == 2 || st == 4 || st == 5 || st == 8 || st == 9 || st == 10) {
+            doit = (tick & 1) == 0;                          // ~30 fps
+          } else if (st == 11 || st == 12 || st == 13) {
+            doit = (tick % 3) == 0;                          // ~20 fps (тяжелее)
+          } else if (st == 3) {
+            doit = (tick % 10) == 0;                         // ~6 fps (приоритет звуку)
+          } else if (st == 6) {
+            doit = (tick % 8) == 0;                          // поле статично между ходами
+          } else if (st == 7) {
+            doit = (tick % 6) == 0;                          // сон — спокойно
+          } else {
+            bool blink_win = (now % 3800) < 360 || (now % 3800) > 3380;
+            bool sacc_win = (now % 3000) < 500;
+            doit = ((tick & 1) == 0 && (blink_win || sacc_win)) || (tick % 60) == 0;
+          }
+          if (!doit) return;
+
+          // Время для часов + число напоминаний.
+          int hh = -1, mm = 0;
+          auto tnow = id(ha_time).now();
+          if (tnow.is_valid()) { hh = tnow.hour; mm = tnow.minute; }
+          int rem = id(pending_reminders);
+
+          // Рендер кадра движком (он сам выгружает буфер в панель).
+          uint32_t t0 = micros();
+          face::render(*id(main_display), st, now, hh, mm, rem,
+                       id(coin_until), id(coin_result), id(ttt_board).c_str(),
+                       id(dice_until), id(dice_result),
+                       id(wheel_until), id(wheel_count), id(wheel_result),
+                       id(rps_until), id(rps_mine), id(rps_result),
+                       id(magic8_until), id(magic8_answer),
+                       id(weather_cond), id(weather_temp), id(screen_bright));
+          uint32_t dt = micros() - t0;
+          static uint32_t acc = 0, cnt = 0, last = 0;
+          acc += dt; cnt++;
+          if (millis() - last > 2000) {
+            uint32_t avg = acc / cnt;
+            ESP_LOGI("fps", "frame=%u us  потолок ~%u fps", (unsigned)avg, (unsigned)(avg ? 1000000 / avg : 0));
+            acc = 0; cnt = 0; last = millis();
+          }

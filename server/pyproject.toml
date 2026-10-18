@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-server"
+version = "0.1.0"
+description = "Сервер-«мозг» голосового ассистента Jarvis"
+requires-python = ">=3.12"
+dependencies = [
+    "websockets>=14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

@@ -1,0 +1,20 @@
+# Локальный аддон Home Assistant. Сюда не копировать руками — tools/deploy_addon.py
+# собирает папку аддона (этот файл, Dockerfile, пакет jarvis, токен) и кладёт её в
+# \\<HA>\addons\jarvis. Версию подставляет скрипт из jarvis.__version__.
+name: Jarvis
+version: "0.0.0"
+slug: jarvis
+description: Сервер голосового ассистента Jarvis — колонка, телефон и компьютер
+arch:
+  - amd64
+  - aarch64
+  - armv7
+startup: application
+boot: auto
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: колонка, телефон и компьютер (WebSocket)
+watchdog: tcp://[HOST]:[PORT:8765]
+options: {}
+schema: {}

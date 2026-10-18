@@ -1,0 +1,32 @@
+# секреты
+.env
+secrets.h
+secrets.yaml
+
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# esp-idf
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/dependencies.lock
+
+# прочее
+*.log
+recordings/
+
+# данные сервера (настройки колонки)
+server/data/
+
+# android
+phone/.gradle/
+phone/build/
+phone/app/build/
+phone/local.properties
+phone/build.log

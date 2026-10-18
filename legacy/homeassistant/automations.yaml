@@ -1,0 +1,417 @@
+# person.owner и calendar.personal — реальные entity живой системы
+# (подставлены 2026-07-22 по подтверждению пользователя).
+# entity_id спутника уже подставлен твой реальный: assist_satellite.jarvis_hub_assist_satellite
+# (найден через Developer Tools -> States, фильтр "assist_satellite").
+# Озвучка идёт через media_player.play_media с media-source TTS (НЕ через
+# assist_satellite.announce): announce зацикливал плеер (гонг+речь + state-машина
+# voice_assistant не ловила конец chunked-TTS от tts_proxy → media_player застревал
+# в playing и пересоздавал буферы по кругу). play_media с media-source://tts/... играет
+# озвучку и корректно завершается. Плеер спутника: media_player.spalnia_domashnii_assistent_mediapleer.
+# message в TTS-URI обязательно через | urlencode (в тексте бывают & = ? и кириллица).
+
+# ---------------------------------------------------------------------------
+# 1. Периодическая проверка напоминаний (домашки, врачи и т.д.) + presence-роутинг:
+#    дома -> голосом на ESP32, не дома -> Telegram.
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: проверка напоминаний"
+  trigger:
+    - platform: time_pattern
+      minutes: "/5"
+  action:
+    - variables:
+        due: "{{ state_attr('sensor.assistant_pending_reminders', 'due_texts') | default([], true) }}"
+    - condition: template
+      value_template: "{{ due | length > 0 }}"
+    - choose:
+        # Дома и не ночь -> голосом на колонку, затем помечаем выполненным,
+        # чтобы не повторялось каждые 5 минут.
+        - conditions:
+            - condition: state
+              entity_id: person.owner
+              state: "home"
+            - condition: state
+              entity_id: input_boolean.assistant_dnd
+              state: "off"
+          sequence:
+            - repeat:
+                for_each: "{{ due }}"
+                sequence:
+                  - service: media_player.play_media
+                    target:
+                      entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+                    data:
+                      media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ ('Напоминаю: ' ~ repeat.item) | urlencode }}&language=ru-RU"
+                      media_content_type: music
+                      announce: true
+                  - service: gemini_assistant.mark_reminder_done
+                    data:
+                      text: "{{ repeat.item }}"
+        # Не дома -> Telegram (в том числе ночью: в телефоне не звучит вслух).
+        - conditions:
+            - condition: state
+              entity_id: person.owner
+              state: "not_home"
+          sequence:
+            - repeat:
+                for_each: "{{ due }}"
+                sequence:
+                  - service: notify.telegram_owner
+                    data:
+                      message: "🔔 Напоминаю: {{ repeat.item }}"
+                      # plain_text: иначе Telegram парсит _ * [ как Markdown и
+                      # падает с "Can't parse entities" на произвольном тексте
+                      data:
+                        parse_mode: plain_text
+                  - service: gemini_assistant.mark_reminder_done
+                    data:
+                      text: "{{ repeat.item }}"
+      # Дома + "не беспокоить": ничего не делаем - напоминание остаётся
+      # невыполненным и озвучится утром, когда DND выключится (08:00).
+
+# ---------------------------------------------------------------------------
+# 2. Утренний брифинг — ассистент сам заговаривает по будильнику,
+#    без wake word (используется announce, а не voice_assistant.start).
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: утренний брифинг"
+  trigger:
+    - platform: time
+      at: "07:30:00"
+  condition:
+    - condition: state
+      entity_id: person.owner
+      state: "home"
+  action:
+    - service: conversation.process
+      data:
+        agent_id: conversation.gemini_assistant  # entity_id агента (после перехода на ConversationEntity)
+        text: >
+          Сформируй короткий устный утренний брифинг: погода на сегодня,
+          ближайшие события календаря, важные непрочитанные письма, активные
+          напоминания. 2-4 предложения, для озвучки вслух.
+      response_variable: briefing
+    - service: media_player.play_media
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ briefing.response.speech.plain.speech | urlencode }}&language=ru-RU"
+        media_content_type: music
+        announce: true
+
+# ---------------------------------------------------------------------------
+# 3. Приём сообщений из Telegram, когда пользователь не дома —
+#    тот же самый агент и та же память, что и в голосовом диалоге.
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: сообщение из Telegram в общий диалог"
+  trigger:
+    - platform: event
+      event_type: telegram_text
+  action:
+    - service: conversation.process
+      data:
+        agent_id: conversation.gemini_assistant  # entity_id агента (после перехода на ConversationEntity)
+        text: "{{ trigger.event.data.text }}"
+        conversation_id: "telegram_{{ trigger.event.data.chat_id }}"
+      response_variable: reply
+    - service: notify.telegram_owner
+      data:
+        message: "{{ reply.response.speech.plain.speech }}"
+        data:
+          parse_mode: plain_text
+
+# ---------------------------------------------------------------------------
+# 4. Напоминание за 15 минут до события Google Calendar.
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: напоминание о календарном событии"
+  trigger:
+    - platform: calendar
+      event: start
+      entity_id: calendar.personal
+      offset: "-00:15:00"
+  action:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: person.owner
+              state: "home"
+            - condition: state
+              entity_id: input_boolean.assistant_dnd
+              state: "off"
+          sequence:
+            - service: media_player.play_media
+              target:
+                entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+              data:
+                media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ ('Через 15 минут: ' ~ trigger.calendar_event.summary) | urlencode }}&language=ru-RU"
+                media_content_type: music
+                announce: true
+      # Не дома ИЛИ ночь (DND) -> в Telegram, он не звучит вслух.
+      default:
+        - service: notify.telegram_owner
+          data:
+            message: "📅 Через 15 минут: {{ trigger.calendar_event.summary }}"
+            data:
+              parse_mode: plain_text
+
+# ---------------------------------------------------------------------------
+# 5. Режим "не беспокоить" ночью — просто пропускаем шаг 1 в эти часы
+#    (проверка внутри условия времени; сами напоминания копятся и уйдут утром).
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: не беспокоить ночью"
+  trigger:
+    - platform: time
+      at: "23:00:00"
+  action:
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.assistant_dnd
+    # тихий режим ночью — динамик приглушается (папа спит)
+    - service: media_player.volume_set
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        volume_level: 0.12
+    # экран засыпает (закрытые глаза) и приглушается
+    - service: esphome.home_voice_satellite_set_night
+      data:
+        on_state: true
+    - service: esphome.home_voice_satellite_set_brightness
+      data:
+        level: 90
+    # тихий зевок на ночь, только если хозяин дома
+    - condition: state
+      entity_id: person.owner
+      state: "home"
+    - service: media_player.play_media
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        media_content_id: "http://192.168.178.86:8123/local/yawn.wav"
+        media_content_type: music
+        announce: true
+- alias: "Ассистент: конец режима не беспокоить"
+  trigger:
+    - platform: time
+      at: "08:00:00"
+  action:
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.assistant_dnd
+    # день — обычная слышимая громкость
+    - service: media_player.volume_set
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        volume_level: 0.45
+    # экран просыпается на полную яркость
+    - service: esphome.home_voice_satellite_set_night
+      data:
+        on_state: false
+    - service: esphome.home_voice_satellite_set_brightness
+      data:
+        level: 255
+
+# ---------------------------------------------------------------------------
+# 6. Проактивный самоопрос: раз в 30 минут агент сам смотрит на память и
+#    календарь и решает, есть ли что сказать. Если нечего - молчит.
+#    Только дома и не в режиме "не беспокоить".
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: проактивный опрос (есть что сказать?)"
+  trigger:
+    # Раз в час (в :00). Раньше был /30 = 48 вызовов Gemini/сутки; на бесплатном
+    # тарифе (лимит ~1000/сут у flash-lite, но у preview-моделей бывает 20/сут)
+    # частый опрос, который почти всегда отвечает "НЕТ", впустую жёг квоту.
+    - platform: time_pattern
+      minutes: "0"
+  condition:
+    - condition: state
+      entity_id: person.owner
+      state: "home"
+    - condition: state
+      entity_id: input_boolean.assistant_dnd
+      state: "off"
+  action:
+    - service: conversation.process
+      data:
+        agent_id: conversation.gemini_assistant
+        conversation_id: proactive_check
+        text: >
+          Служебная проверка, пользователь тебя не звал. Посмотри на память,
+          активные напоминания и ближайшие события календаря: есть ли что-то,
+          о чём стоит проактивно сказать пользователю прямо сейчас вслух?
+          Не повторяй то, о чём уже говорил в прошлые проверки. Если сказать
+          нечего - ответь ровно одним словом: НЕТ. Если есть - сформулируй
+          короткую устную реплику в 1-2 предложения, без пояснений.
+      response_variable: proactive
+    - variables:
+        proactive_text: "{{ proactive.response.speech.plain.speech | trim }}"
+    - condition: template
+      value_template: "{{ not (proactive_text | upper).startswith('НЕТ') }}"
+    - service: media_player.play_media
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ proactive_text | urlencode }}&language=ru-RU"
+        media_content_type: music
+        announce: true
+
+# ---------------------------------------------------------------------------
+# 7. Суточная компакция: ночью Gemini сворачивает накопленные за день реплики
+#    в conversation_summary внутри memory.json, чтобы промпт не раздувался,
+#    а суть разговоров не терялась при обрезке истории.
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: суточная компакция истории разговоров"
+  trigger:
+    - platform: time
+      at: "03:30:00"
+  action:
+    - service: gemini_assistant.compact_history
+
+# ---------------------------------------------------------------------------
+# 8. Игривое занятие: раз в час (шанс ~45%) ассистент насвистывает/играет/бипает
+#    со синхронной анимацией "напевает". Только дома и не в режиме "не беспокоить".
+#    Звуки: /config/www/{whistle,melody,boop}.wav (сгенерированы синтетически).
+#    Анимация: ESPHome-сервис set_playful (состояние 4 в face_render.h).
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: игривое занятие"
+  trigger:
+    - platform: time_pattern
+      minutes: "0"
+  condition:
+    - condition: state
+      entity_id: person.owner
+      state: "home"
+    - condition: state
+      entity_id: input_boolean.assistant_dnd
+      state: "off"
+    - condition: template
+      value_template: "{{ (range(1, 101) | random) <= 45 }}"
+  action:
+    - variables:
+        snd: "{{ ['whistle', 'melody', 'boop', 'happy', 'curious', 'grumble'] | random }}"
+    - service: esphome.home_voice_satellite_set_playful
+    - service: media_player.play_media
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        media_content_id: "http://192.168.178.86:8123/local/{{ snd }}.wav"
+        media_content_type: music
+        announce: true
+
+# ---------------------------------------------------------------------------
+# 9. Погода на экран: раз в 15 минут (и при старте HA / смене погоды) шлём на
+#    спутник состояние (cond 0..7) и температуру. В покое рисуется иконка+°C
+#    и лёгкий погодный тон фона (face_render.h: drawWeatherIcon / тон buildBG).
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: погода на экран спутника"
+  trigger:
+    - platform: time_pattern
+      minutes: "/15"
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: weather.forecast_home_assistant
+  action:
+    - variables:
+        s: "{{ states('weather.forecast_home_assistant') }}"
+        night: "{{ is_state('sun.sun', 'below_horizon') }}"
+        # cond: 0 ясно,1 перем.обл,2 облачно,3 дождь,4 снег,5 гроза,6 туман,7 ясная ночь
+        cond: >
+          {% if s in ['lightning','lightning-rainy'] %}5
+          {% elif s in ['rainy','pouring','hail','snowy-rainy'] %}3
+          {% elif s == 'snowy' %}4
+          {% elif s == 'fog' %}6
+          {% elif s == 'partlycloudy' %}1
+          {% elif s in ['cloudy','windy','windy-variant','exceptional'] %}2
+          {% elif s == 'clear-night' %}7
+          {% elif s == 'sunny' %}{{ 7 if night else 0 }}
+          {% else %}2
+          {% endif %}
+        temp: "{{ (state_attr('weather.forecast_home_assistant','temperature') | default(0, true)) | round(0) | int }}"
+    - service: esphome.home_voice_satellite_set_weather
+      data:
+        cond: "{{ cond | int }}"
+        temp: "{{ temp | int }}"
+
+# ---------------------------------------------------------------------------
+# 10. Возвращение домой: спутник радуется (эмоция happy + весёлый чирп) и,
+#     если в комнате было темно (light.spalnia выключен), включает весь свет
+#     в спальне. Голосом здоровается — только когда не «не беспокоить».
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: приветствие по возвращении домой"
+  trigger:
+    - platform: state
+      entity_id: person.owner
+      from: "not_home"
+      to: "home"
+  action:
+    # радостная мордочка + чирп
+    - service: esphome.home_voice_satellite_set_emotion
+      data:
+        code: 1
+        ms: 6000
+    - service: media_player.play_media
+      target:
+        entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+      data:
+        media_content_id: "http://192.168.178.86:8123/local/greet.wav"
+        media_content_type: music
+        announce: true
+    # включить весь свет в комнате, если было темно
+    - if:
+        - condition: state
+          entity_id: light.spalnia
+          state: "off"
+      then:
+        - service: light.turn_on
+          target:
+            area_id: spalnia
+    # голосом поздороваться, если не ночь/не «не беспокоить»
+    - if:
+        - condition: state
+          entity_id: input_boolean.assistant_dnd
+          state: "off"
+      then:
+        - service: media_player.play_media
+          target:
+            entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+          data:
+            media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ ['С возвращением!','С приходом! Рад тебя видеть.','О, ты дома! Привет.'] | random | urlencode }}&language=ru-RU"
+            media_content_type: music
+            announce: true
+
+# ---------------------------------------------------------------------------
+# 11. Сработал таймер (timer.finished, напр. кухонный таймер по голосу):
+#     спутник тревожится (эмоция alarm) + сигнал. Голосом — только дома и не DND.
+# ---------------------------------------------------------------------------
+- alias: "Ассистент: таймер сработал"
+  trigger:
+    - platform: event
+      event_type: timer.finished
+  action:
+    - service: esphome.home_voice_satellite_set_emotion
+      data:
+        code: 2
+        ms: 8000
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: person.owner
+              state: "home"
+            - condition: state
+              entity_id: input_boolean.assistant_dnd
+              state: "off"
+          sequence:
+            - service: media_player.play_media
+              target:
+                entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+              data:
+                media_content_id: "http://192.168.178.86:8123/local/alert.wav"
+                media_content_type: music
+                announce: true
+            - service: media_player.play_media
+              target:
+                entity_id: media_player.spalnia_domashnii_assistent_mediapleer
+              data:
+                media_content_id: "media-source://tts/tts.edge_tts_service_edge_tts?message={{ 'Таймер сработал!' | urlencode }}&language=ru-RU"
+                media_content_type: music
+                announce: true

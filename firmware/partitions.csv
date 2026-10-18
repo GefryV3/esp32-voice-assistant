@@ -1,0 +1,7 @@
+# Байт в байт как у старой прошивки ESPHome: можно обновляться по воздуху в обе стороны.
+# Name,   Type, SubType, Offset,   Size
+otadata,  data, ota,     0x9000,   0x2000
+phy_init, data, phy,     0xb000,   0x1000
+app0,     app,  ota_0,   0x10000,  0x1C0000
+app1,     app,  ota_1,   0x1D0000, 0x1C0000
+nvs,      data, nvs,     0x390000, 0x70000

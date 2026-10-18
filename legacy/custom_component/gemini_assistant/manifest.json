@@ -1,0 +1,11 @@
+{
+  "domain": "gemini_assistant",
+  "name": "Gemini Assistant",
+  "codeowners": ["@you"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/you/gemini_assistant",
+  "iot_class": "cloud_polling",
+  "requirements": ["google-genai>=0.3.0", "google-api-python-client>=2.100.0", "google-auth-oauthlib>=1.2.0", "gkeepapi>=0.16.0"],
+  "version": "0.1.0"
+}
