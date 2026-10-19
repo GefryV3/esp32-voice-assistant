@@ -346,6 +346,7 @@ class Voice:
         self.now = now
         self._wake_factory = wake_factory
         self.brain = brain
+        self.presence = None      # Presence: пока человека нет на месте, разговор не начинаем
         if brain is not None:
             brain.on_message = self._history_changed
         self.voice_name = settings.voice_name     # меняются на лету командами tts и affect
@@ -481,15 +482,31 @@ class Voice:
             return
         score = det.process(pcm)
         self.scores.append((self.clock(), score))
-        if score >= self.settings.wake_threshold * WARM_FRACTION:
+        if score >= self.settings.wake_threshold * WARM_FRACTION and self._present(quiet=True):
             self._prewarm()
         if score >= self.settings.wake_threshold:
+            if not self._present():
+                self._quiet_until[dev.id] = self.clock() + WAKE_COOLDOWN_S
+                return
             log.info("%s: слово пробуждения (%.2f)", dev.id, score)
             self.start(dev)
 
+    def _present(self, quiet: bool = False) -> bool:
+        """Пользователь на месте? Если нет — одна строка в журнал (не чаще раза в минуту)."""
+        p = self.presence
+        if p is None:
+            return True
+        ok, why = p.check()
+        if not ok and not quiet and p.should_log():
+            log.info("нет на месте (%s) — запрос проигнорирован; «presence here» вернёт колонку", why)
+        return ok
+
     def start(self, dev: Device, text: str | None = None, service: bool = False) -> asyncio.Task | None:
-        """Начать разговор: по слову пробуждения или текстом (команда ask)."""
+        """Начать разговор: по слову пробуждения или текстом (команда ask). Служебные
+        (напоминания, фоновые задачи; service=True) присутствие не проверяют."""
         if dev.id in self._talks:
+            return None
+        if not service and not self._present():
             return None
         talk = self._talks[dev.id] = Conversation(self, dev)
         return self._spawn(self._run(talk, text, service))
@@ -576,6 +593,8 @@ class Voice:
             return "колонок нет"
         if "speaker" not in dev.hello.caps:
             return f"{dev.id}: прошивка без динамика"
+        if self.presence is not None and not self.presence.here():
+            return f"нет на месте ({self.presence.reason}) — разговор не начат; presence here, чтобы вернуть"
         task = self.start(dev, parts[1])
         if task is None:
             return "колонка уже разговаривает"

@@ -98,6 +98,7 @@ class Telegram:
         self.token, self.chat_ids, self.api_key, self.model = token, chat_ids, api_key, model
         self.brain, self.now, self.sarcasm, self.http = brain, now, sarcasm, http
         self.device_send = device_send
+        self.presence = None     # Presence: команда «presence here|away|auto» из чата
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
         self._offset = 0
         self._task: asyncio.Task | None = None
@@ -196,6 +197,9 @@ class Telegram:
                 log.info("telegram: чужой чат %s проигнорирован", chat_id)
             return
         if not text:
+            return
+        if text.split()[0].lower().lstrip("/") == "presence" and self.presence is not None:
+            await self.send(await self.presence.command("presence " + " ".join(text.split()[1:])) or "", chat_id)
             return
         try:
             reply = await self.ask(chat_id, text)

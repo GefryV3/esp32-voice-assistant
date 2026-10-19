@@ -617,3 +617,25 @@ async def test_telegram_message_refreshes_warm_session(hub, voice, live, tmp_pat
                 await asyncio.sleep(0.01)
     finally:
         await ws.close()
+
+
+# ── присутствие ──
+
+async def test_away_ignores_wake_and_ask_but_not_service(hub, voice, caplog):
+    import logging
+    from jarvis.presence import Presence
+    p = Presence("auto", clock=voice.clock)
+    p._decide = lambda: (False, "тест")
+    voice.presence = p
+    ws = await speaker(hub)
+    try:
+        dev = hub.get()
+        with caplog.at_level(logging.INFO, logger="jarvis.voice"):
+            voice._on_audio(dev, b"WAKE" + bytes(3196))
+        assert dev.id not in voice._talks
+        assert sum("нет на месте" in r.message for r in caplog.records) == 1
+        assert "нет на месте" in await voice.command("ask привет")
+        assert dev.id not in voice._talks
+        assert voice.start(dev, "напоминание", service=True) is not None   # служебное звучит
+    finally:
+        await ws.close()
