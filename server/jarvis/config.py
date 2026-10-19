@@ -26,6 +26,7 @@ class Settings:
     gemini_model: str = "gemini-3.8-live"
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
+    vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
 
@@ -64,6 +65,11 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     except ValueError as e:
         raise ConfigError(f"JARVIS_WAKE_THRESHOLD должен быть числом 0…1: {e}") from None
 
+    try:
+        vad_silence_ms = int(env.get("JARVIS_SILENCE_MS", "450"))
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_SILENCE_MS должен быть числом (миллисекунды): {e}") from None
+
     return Settings(
         device_token=token,
         host=env.get("JARVIS_HOST", "0.0.0.0"),
@@ -75,6 +81,7 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         gemini_model=env.get("JARVIS_GEMINI_MODEL", "gemini-3.8-live"),
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
+        vad_silence_ms=vad_silence_ms,
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

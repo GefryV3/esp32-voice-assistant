@@ -43,8 +43,12 @@ class Event:
     calls: tuple[tuple[str, str, dict], ...] = ()   # tool_call: (id, имя, аргументы)
 
 
+SILENCE_MS = 450   # сколько тишины Gemini считает концом фразы: меньше — быстрее ответ, но обрезает паузы
+
+
 def setup_message(model: str, voice: str, system: str,
-                  tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                  tools: list[dict[str, Any]] | None = None,
+                  silence_ms: int = SILENCE_MS) -> dict[str, Any]:
     setup: dict[str, Any] = {
         "model": model if model.startswith("models/") else f"models/{model}",
         "generationConfig": {
@@ -54,7 +58,11 @@ def setup_message(model: str, voice: str, system: str,
         "systemInstruction": {"parts": [{"text": system}]},
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
-        "realtimeInputConfig": {"automaticActivityDetection": {"silenceDurationMs": 700}},
+        "realtimeInputConfig": {"automaticActivityDetection": {
+            "silenceDurationMs": silence_ms,
+            "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+            "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
+        }},
     }
     if tools:
         setup["tools"] = [{"functionDeclarations": tools}]
@@ -94,10 +102,10 @@ class LiveSession:
     """async with LiveSession(...) as live: live.send_audio(...); async for ev in live.events()."""
 
     def __init__(self, api_key: str, model: str, voice: str, system: str, *,
-                 tools: list[dict[str, Any]] | None = None,
+                 tools: list[dict[str, Any]] | None = None, silence_ms: int = SILENCE_MS,
                  url: str = LIVE_URL, connect: Callable = ws_connect):
         self._key = api_key
-        self._setup = setup_message(model, voice, system, tools)
+        self._setup = setup_message(model, voice, system, tools, silence_ms)
         self._url = url
         self._connect = connect
         self._ws: Any = None

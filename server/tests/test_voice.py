@@ -402,3 +402,36 @@ def test_system_prompt_lists_facts():
     from datetime import datetime
     text = system_prompt(datetime(2026, 10, 19, 9, 0), facts=["любит чай"], tools=True)
     assert "любит чай" in text and "remember" in text
+
+
+def test_setup_message_silence_and_sensitivity():
+    vad = setup_message("m", "v", "s", silence_ms=300)["setup"]["realtimeInputConfig"]["automaticActivityDetection"]
+    assert vad["silenceDurationMs"] == 300
+    assert vad["endOfSpeechSensitivity"] == "END_SENSITIVITY_HIGH"
+    default = setup_message("m", "v", "s")["setup"]["realtimeInputConfig"]["automaticActivityDetection"]
+    assert default["silenceDurationMs"] < 700
+
+
+async def test_gemini_connects_before_wake_confirmed(hub, voice, live, monkeypatch):
+    """Звук, похожий на слово, открывает сессию заранее; не подтвердилось — она закрывается."""
+    opened = []
+    orig = live.__aenter__
+
+    async def counting():
+        opened.append(1)
+        return await orig()
+    live.__aenter__ = counting
+    monkeypatch.setattr(voice_mod, "WARM_TTL_S", 0.1)
+    ws = await speaker(hub)
+    try:
+        await asyncio.sleep(0.1)
+        dev = hub.get()
+        voice._detectors[dev.id].process = lambda pcm: 0.4   # «похоже», но ниже порога 0.5
+        voice._on_audio(dev, b"x" * 2560)
+        await asyncio.sleep(0.05)
+        assert len(opened) == 1 and voice._warm is not None
+        voice._on_audio(dev, b"x" * 2560)   # второй кадр не плодит соединения
+        await asyncio.sleep(0.2)
+        assert len(opened) == 1 and voice._warm is None
+    finally:
+        await ws.close()

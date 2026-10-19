@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from contextlib import AsyncExitStack
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -31,6 +32,8 @@ FOLLOW_UP_S = 6.0       # после ответа слушаем без слов
 MAX_TURN_S = 60.0       # один ответ дольше этого — что-то не так
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
+WARM_FRACTION = 0.6     # слово «похоже» (доля порога) — соединяемся с Gemini заранее
+WARM_TTL_S = 6.0        # заготовленное соединение не пригодилось — закрыть
 
 WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
@@ -148,9 +151,9 @@ class Conversation:
         heard = ""
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
-            facts = v.brain.facts() if v.brain else None
-            async with v.live_factory(system_prompt(v.now(), v.sarcasm(), facts, v.brain is not None,
-                                                 v.brain is not None and v.brain.ha is not None)) as live:
+            async with AsyncExitStack() as stack:
+                live = await v.take_live(text is None)
+                stack.push_async_exit(live)
                 pump = asyncio.create_task(self._pump_mic(live))
                 events: asyncio.Queue[Event | None] = asyncio.Queue()
                 reader = asyncio.create_task(self._read(live, events))
@@ -230,11 +233,12 @@ class Voice:
         self.brain = brain
         self.live_factory = live_factory or (lambda system: LiveSession(
             settings.gemini_api_key, settings.gemini_model, settings.voice_name, system,
-            tools=brain.tools() if brain else None))
+            tools=brain.tools() if brain else None, silence_ms=settings.vad_silence_ms))
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
         self._quiet_until: dict[str, float] = {}
+        self._warm: asyncio.Task | None = None   # уже открытая сессия Gemini на ближайший разговор
         self.scores: deque[tuple[float, float]] = deque(maxlen=600)   # (время, оценка) ~1 мин
         self.reply_text = ""
         self.transcript: list[tuple[str, str]] = []   # последний разговор: (кто, что)
@@ -245,6 +249,52 @@ class Voice:
     def sarcasm(self) -> int:
         bridge = self.hub.bridge
         return int(bridge.store.values.get("sarcasm", 60)) if bridge is not None else 60
+
+    def _new_live(self) -> LiveSession:
+        brain = self.brain
+        return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
+                                               brain is not None, brain is not None and brain.ha is not None))
+
+    async def _open_live(self) -> LiveSession:
+        live = self._new_live()
+        await live.__aenter__()
+        return live
+
+    def _prewarm(self) -> None:
+        """Подключиться к Gemini, пока слово ещё договаривают: к его концу сессия уже готова."""
+        if self._warm is not None or not self.settings.gemini_api_key:
+            return
+        task = self._warm = self._spawn(self._open_live())
+        self._spawn(self._expire_warm(task))
+
+    async def _expire_warm(self, task: asyncio.Task) -> None:
+        await asyncio.sleep(WARM_TTL_S)
+        if self._warm is task:
+            self._warm = None
+            await self._discard(task)
+
+    @staticmethod
+    async def _discard(task: asyncio.Task) -> None:
+        try:
+            live = await task
+            await live.__aexit__(None, None, None)
+        except BaseException:
+            pass
+
+    async def take_live(self, allow_warm: bool = True) -> LiveSession:
+        """Открытая сессия Gemini: заготовленная, если успела, иначе новая. Закрывать — на вызывающем."""
+        task, self._warm = self._warm, None
+        if task is not None:
+            if allow_warm:
+                try:
+                    return await task
+                except LiveError:
+                    pass   # заготовка не вышла — откроем заново и покажем настоящую ошибку
+            else:
+                await self._discard(task)
+        live = self._new_live()
+        await live.__aenter__()
+        return live
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
@@ -273,6 +323,8 @@ class Voice:
             return
         score = det.process(pcm)
         self.scores.append((self.clock(), score))
+        if score >= self.settings.wake_threshold * WARM_FRACTION:
+            self._prewarm()
         if score >= self.settings.wake_threshold:
             log.info("%s: слово пробуждения (%.2f)", dev.id, score)
             self.start(dev)
