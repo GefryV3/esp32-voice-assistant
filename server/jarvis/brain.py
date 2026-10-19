@@ -40,6 +40,8 @@ TOOLS: list[dict[str, Any]] = [
      "Сначала скажи короткое прощание словами, потом вызови: колонка уйдёт в ожидание и не будет "
      "ждать продолжения. Не вызывай, если пользователь явно собирается продолжать.",
      "parameters": {"type": "OBJECT", "properties": {}}},
+    {"name": "current_time", "description": "Точное текущее время и дата.",
+     "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "forget", "description": "Забыть факты, в тексте которых есть эта подстрока.",
      "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING"}}, "required": ["text"]}},
     {"name": "add_reminder", "description": "Поставить напоминание. Укажи либо minutes (через сколько "
@@ -142,6 +144,8 @@ class Brain:
             return await self.ha.call(name, args)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
+        if name == "current_time":
+            return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":

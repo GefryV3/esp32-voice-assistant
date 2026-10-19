@@ -90,3 +90,8 @@ def test_tool_declarations_and_parse():
     assert "tools" not in setup_message("m", "v", "s")["setup"]
     ev = parse({"toolCall": {"functionCalls": [{"id": "1", "name": "remember", "args": {"fact": "x"}}]}})[0]
     assert ev.kind == "tool_call" and ev.calls == (("1", "remember", {"fact": "x"}),)
+
+
+async def test_current_time(brain, sent):
+    out = await brain.call("current_time", {}, sent)
+    assert out["time"] == "09:00" and out["date"] == "19.10.2026"

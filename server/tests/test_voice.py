@@ -293,7 +293,7 @@ def test_tail_bytes_keeps_end():
 def test_system_prompt_has_date_and_tone():
     from datetime import datetime
     p = system_prompt(datetime(2026, 10, 18, 23, 5), sarcasm=80)
-    assert "воскресенье, 18 октября 2026, 23:05" in p
+    assert "воскресенье, 18 октября 2026, около 23:05" in p
     assert "едко" in p
     assert "едко" not in system_prompt(datetime(2026, 10, 18), sarcasm=10)
 
@@ -412,8 +412,8 @@ def test_setup_message_silence_and_sensitivity():
     assert default["silenceDurationMs"] < 700
 
 
-async def test_gemini_connects_before_wake_confirmed(hub, voice, live, monkeypatch):
-    """Звук, похожий на слово, открывает сессию заранее; не подтвердилось — она закрывается."""
+async def test_gemini_session_is_always_ready_and_refreshed(hub, voice, live, monkeypatch):
+    """Сессия Gemini открывается, как только колонка на связи, и обновляется, пока не пригодилась."""
     opened = []
     orig = live.__aenter__
 
@@ -421,18 +421,37 @@ async def test_gemini_connects_before_wake_confirmed(hub, voice, live, monkeypat
         opened.append(1)
         return await orig()
     live.__aenter__ = counting
-    monkeypatch.setattr(voice_mod, "WARM_TTL_S", 0.1)
+    monkeypatch.setattr(voice_mod, "WARM_TTL_S", 0.15)
     ws = await speaker(hub)
     try:
-        await asyncio.sleep(0.1)
-        dev = hub.get()
-        voice._detectors[dev.id].process = lambda pcm: 0.4   # «похоже», но ниже порога 0.5
-        voice._on_audio(dev, b"x" * 2560)
         await asyncio.sleep(0.05)
         assert len(opened) == 1 and voice._warm is not None
-        voice._on_audio(dev, b"x" * 2560)   # второй кадр не плодит соединения
-        await asyncio.sleep(0.2)
-        assert len(opened) == 1 and voice._warm is None
+        dev = hub.get()
+        voice._detectors[dev.id].process = lambda pcm: 0.4   # «похоже», но ниже порога 0.5
+        voice._on_audio(dev, b"x" * 2560)                    # готовая сессия есть — новую не открывать
+        await asyncio.sleep(0.05)
+        assert len(opened) == 1
+        await asyncio.sleep(0.3)                             # устарела — заменена свежей
+        assert len(opened) >= 2 and voice._warm is not None
+    finally:
+        await ws.close()
+
+
+async def test_dead_warm_session_is_replaced(hub, voice, live):
+    ws = await speaker(hub)
+    try:
+        await asyncio.sleep(0.05)
+        assert voice._warm is not None
+        live.alive = False                                   # соединение остыло и закрылось
+        opened = []
+        orig = live.__aenter__
+
+        async def counting():
+            opened.append(1)
+            return await orig()
+        live.__aenter__ = counting
+        got = await voice.take_live()
+        assert got is live and len(opened) == 1              # открыли новую вместо мёртвой
     finally:
         await ws.close()
 
