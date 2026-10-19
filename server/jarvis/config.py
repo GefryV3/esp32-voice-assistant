@@ -39,7 +39,7 @@ class Settings:
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
     telegram_chat_ids: str = ""              # через запятую; чужим chat_id бот не отвечает
-    telegram_model: str = "gemini-flash-latest"  # текстовая модель (не Live) для ответов в Telegram
+    telegram_model: str = "gemini-flash-lite-latest"  # текстовая модель (не Live) для ответов в Telegram
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -104,7 +104,7 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         vad_silence_ms=vad_silence_ms,
         telegram_token=env.get("TELEGRAM_TOKEN", ""),
         telegram_chat_ids=env.get("TELEGRAM_CHAT_IDS", ""),
-        telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-flash-latest"),
+        telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-flash-lite-latest"),
         agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-lite-latest"),
         agent_search=env.get("JARVIS_AGENT_SEARCH", "web").lower(),
         brave_key=env.get("BRAVE_API_KEY", ""),

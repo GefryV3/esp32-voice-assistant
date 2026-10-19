@@ -140,3 +140,17 @@ async def test_gemini_overload_is_retried(brain, monkeypatch):
             return await super().__call__(url, payload, headers, timeout)
 
     assert await make(Flaky(gemini=[text_reply("ок")]), brain).ask(1, "?") == "ок"
+
+
+async def test_daily_quota_switches_to_fallback_model():
+    from jarvis import telegram as tg
+    calls = []
+
+    async def http(url, body, headers, timeout):
+        calls.append(url)
+        if "flash-lite" not in url:
+            raise RuntimeError('HTTP 429: {"status": "RESOURCE_EXHAUSTED", "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}')
+        return {"candidates": [{"content": {"parts": [{"text": "ок"}]}}]}
+    bot = tg.Telegram("t", frozenset({1}), api_key="k", model="gemini-flash-latest", http=http)
+    assert (await bot._gemini({}))["candidates"][0]["content"]["parts"][0]["text"] == "ок"
+    assert len(calls) == 2 and "flash-latest" in calls[0] and "flash-lite" in calls[1]

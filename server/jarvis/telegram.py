@@ -25,6 +25,7 @@ from .voice import system_prompt
 log = logging.getLogger(__name__)
 
 API = "https://api.telegram.org/bot{token}/{method}"
+FALLBACK_MODELS = ("gemini-flash-lite-latest",)   # у «большой» модели на бесплатном ключе 20 запросов в сутки
 GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 POLL_S = 30            # сколько Telegram держит getUpdates открытым
 MAX_LEN = 4000         # лимит сообщения Telegram — 4096
@@ -125,15 +126,23 @@ class Telegram:
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
         """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
-        for attempt in range(5):
+        models = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+        attempt = 0
+        while True:
             try:
-                return await self.http(GEMINI.format(model=self.model), body,
+                return await self.http(GEMINI.format(model=models[0]), body,
                                        {"x-goog-api-key": self.api_key}, 60)
             except RuntimeError as e:
-                if attempt == 4 or not str(e).startswith(("HTTP 429", "HTTP 503")):
+                if not str(e).startswith(("HTTP 429", "HTTP 503")):
                     raise
-                await asyncio.sleep(RETRY_GEMINI_S * (attempt + 1))
-        raise AssertionError
+                if len(models) > 1 and ("PerDay" in str(e) or "RESOURCE_EXHAUSTED" in str(e)):
+                    log.warning("telegram: у модели %s кончилась квота, перехожу на %s", models[0], models[1])
+                    models.pop(0)       # суточная квота: ждать бессмысленно, берём запасную модель
+                    continue
+                attempt += 1
+                if attempt >= 5:
+                    raise
+                await asyncio.sleep(RETRY_GEMINI_S * attempt)
 
     async def ask(self, chat_id: int, text: str) -> str:
         """Текст пользователя → ответ Gemini (с вызовами функций). История хранится по чатам."""
