@@ -78,8 +78,10 @@ void send_hello() {
 
 bool send_mic(const uint8_t *data, size_t len) {
   if (!s_online || !esp_websocket_client_is_connected(s_client)) return false;
-  // короткое ожидание: пока клиент занят приёмом, audio повторит, а кадры подождут в буфере
-  return esp_websocket_client_send_bin(s_client, reinterpret_cast<const char *>(data), len, pdMS_TO_TICKS(200)) >= 0;
+  // Ждём до 1.5 с: на слабом Wi-Fi (−75 дБм и хуже) окно TCP иногда стоит дольше 200 мс, а
+  // таймаут записи клиент WebSocket считает обрывом и закрывает связь (она тогда рвалась раз
+  // в ~5 с). Отправка идёт в своей задаче, кадры пока ждут в буфере микрофона.
+  return esp_websocket_client_send_bin(s_client, reinterpret_cast<const char *>(data), len, pdMS_TO_TICKS(1500)) >= 0;
 }
 
 void send_played() {
