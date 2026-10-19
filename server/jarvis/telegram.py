@@ -31,7 +31,7 @@ MAX_LEN = 4000         # лимит сообщения Telegram — 4096
 MAX_ROUNDS = 5         # сколько раз подряд Gemini может звать функции
 HISTORY = 12           # реплик переписки в памяти на чат
 RETRY_S = 5.0
-RETRY_GEMINI_S = 3.0
+RETRY_GEMINI_S = 2.0
 
 CHAT_NOTE = """
 
@@ -124,15 +124,15 @@ class Telegram:
                              b is not None, b is not None and b.ha is not None) + CHAT_NOTE
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
-        """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё пару раз."""
-        for attempt in range(3):
+        """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
+        for attempt in range(5):
             try:
                 return await self.http(GEMINI.format(model=self.model), body,
                                        {"x-goog-api-key": self.api_key}, 60)
             except RuntimeError as e:
-                if attempt == 2 or not str(e).startswith(("HTTP 429", "HTTP 503")):
+                if attempt == 4 or not str(e).startswith(("HTTP 429", "HTTP 503")):
                     raise
-                await asyncio.sleep(RETRY_GEMINI_S)
+                await asyncio.sleep(RETRY_GEMINI_S * (attempt + 1))
         raise AssertionError
 
     async def ask(self, chat_id: int, text: str) -> str:
