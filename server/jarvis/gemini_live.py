@@ -126,6 +126,12 @@ class LiveSession:
             raise LiveError(f"Gemini не принял настройки: {str(reply)[:200]}")
         return self
 
+    @property
+    def alive(self) -> bool:
+        """Соединение ещё открыто (заготовленная сессия могла остыть и закрыться)."""
+        ws = self._ws
+        return ws is not None and getattr(getattr(ws, "state", None), "name", "OPEN") == "OPEN"
+
     async def __aexit__(self, *exc: object) -> None:
         if self._ws is not None:
             await self._ws.close()

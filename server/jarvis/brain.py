@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import protocol
+from .agents import TOOLS as AGENT_TOOLS, Agents
 from .ha import TOOLS as HOME_TOOLS, HomeAssistant
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,13 @@ TOOLS: list[dict[str, Any]] = [
     {"name": "remember", "description": "Запомнить факт о пользователе или его просьбу надолго "
      "(имя, привычки, предпочтения, люди, планы). Один короткий факт на вызов.",
      "parameters": {"type": "OBJECT", "properties": {"fact": {"type": "STRING"}}, "required": ["fact"]}},
+    {"name": "end_conversation", "description": "Вызови, когда по смыслу разговор закончен: "
+     "пользователь поблагодарил, попрощался, сказал «всё», «отбой», «хватит», «ничего не надо». "
+     "Сначала скажи короткое прощание словами, потом вызови: колонка уйдёт в ожидание и не будет "
+     "ждать продолжения. Не вызывай, если пользователь явно собирается продолжать.",
+     "parameters": {"type": "OBJECT", "properties": {}}},
+    {"name": "current_time", "description": "Точное текущее время и дата.",
+     "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "forget", "description": "Забыть факты, в тексте которых есть эта подстрока.",
      "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING"}}, "required": ["text"]}},
     {"name": "add_reminder", "description": "Поставить напоминание. Укажи либо minutes (через сколько "
@@ -62,9 +70,10 @@ def when_words(due: datetime, now: datetime) -> str:
 
 class Brain:
     def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now,
-                 ha: HomeAssistant | None = None):
+                 ha: HomeAssistant | None = None, agents: Agents | None = None):
         self.now = now
         self.ha = ha
+        self.agents = agents
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -119,7 +128,7 @@ class Brain:
     # ── инструменты Gemini ──
 
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + (HOME_TOOLS if self.ha else [])
+        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -133,6 +142,10 @@ class Brain:
         now = self.now().replace(tzinfo=None)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args)
+        if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
+            return await self.agents.call(name, args)
+        if name == "current_time":
+            return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":

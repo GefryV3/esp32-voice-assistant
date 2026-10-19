@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from .audio import Audio
 from .brain import Brain
+from .agents import Agents
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
@@ -68,6 +69,8 @@ async def main() -> None:
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
+        brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce)
+        brain.agents.start_delivery()
     else:
         voice = None
         logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
@@ -97,6 +100,8 @@ async def main() -> None:
         finally:
             if tg:
                 await tg.stop()
+            if brain.agents:
+                await brain.agents.stop()
             await brain.stop()
             if ha:
                 await ha.close()

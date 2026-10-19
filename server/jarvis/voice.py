@@ -33,7 +33,7 @@ MAX_TURN_S = 60.0       # один ответ дольше этого — что
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
 WARM_FRACTION = 0.6     # слово «похоже» (доля порога) — соединяемся с Gemini заранее
-WARM_TTL_S = 6.0        # заготовленное соединение не пригодилось — закрыть
+WARM_TTL_S = 150.0      # заготовленная сессия Gemini живёт столько, потом заменяется свежей (время, память)
 
 WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
@@ -48,6 +48,11 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
     abilities = (
         "Ты умеешь запоминать факты о пользователе (remember), ставить напоминания и таймеры. "
         "Делай это сразу функцией, а не обещай; после вызова коротко подтверди словами. "
+        "Когда разговор по смыслу закончен (спасибо, пока, всё, отбой) — попрощайся коротко и вызови "
+        "end_conversation: тогда колонка уйдёт в ожидание сразу, не ждёт продолжения. "
+        "Долгие задачи (поиск в интернете, новости, сравнения, подборки) отдавай в фон функцией "
+        "start_task и сразу говори, что взялась: результат ты озвучишь сама, когда он будет готов, "
+        "а пока можно говорить о другом. Быстрые вопросы отвечай сразу, без start_task. "
         + ("Ты полностью управляешь умным домом: свет (цвет, яркость, эффекты), розетки, климат, плееры, замки, сцены, датчики (home_set, home_service, home_state, home_list). "
            "Когда просят включить или выключить — делай сразу, не переспрашивай, если ясно что. Никогда не отказывай заранее, что устройство чего-то не умеет: вызови функцию и перескажи ответ — если она вернула ошибку, объясни её причину своими словами. "
            "Телефоном управлять пока не умеешь." if home else
@@ -55,11 +60,12 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         if tools else
         "Управлять светом, напоминаниями и телефоном ты пока не умеешь — "
         "если просят, честно скажи, что это скоро появится.")
+    exact_time = " (если спросят точное время — вызови current_time)" if tools else ""
     memory = ("\nТы помнишь о пользователе:\n" + "\n".join(f"- {f}" for f in facts)) if facts else ""
     return f"""\
 Ты голосовой ассистент в колонке с круглым экраном. Колонка стоит в спальне пользователя, у
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
-{now.year}, {now:%H:%M}.
+{now.year}, около {now:%H:%M}{exact_time}.
 
 Говори только по-русски, даже если тебе послышался другой язык (микрофон в колонке
 простой, речь иногда звучит неразборчиво). Коротко: обычно одно-два предложения, как в живом
@@ -88,6 +94,7 @@ class Conversation:
         self.dev = dev
         self.mic: asyncio.Queue[bytes] = asyncio.Queue()
         self.listening = True     # микрофон идёт в Gemini
+        self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
 
     def feed(self, pcm: bytes) -> None:
         if self.listening:
@@ -113,6 +120,10 @@ class Conversation:
         brain = self.voice.brain
         results = []
         for call_id, name, args in ev.calls:
+            if name == "end_conversation":
+                self.end_requested = True
+                results.append((call_id, name, {"ok": True}))
+                continue
             out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
             log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
             results.append((call_id, name, out))
@@ -152,7 +163,10 @@ class Conversation:
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
             async with AsyncExitStack() as stack:
+                t_run = v.clock()
                 live = await v.take_live(text is None)
+                t_live = v.clock() - t_run
+                t_heard = 0.0
                 stack.push_async_exit(live)
                 pump = asyncio.create_task(self._pump_mic(live))
                 events: asyncio.Queue[Event | None] = asyncio.Queue()
@@ -178,11 +192,17 @@ class Conversation:
                             await self._tools(live, ev)
                             deadline = v.clock() + NO_SPEECH_S
                         elif ev.kind == "heard":
+                            t_heard = v.clock()
                             heard += ev.text
                             deadline = v.clock() + NO_SPEECH_S
                             await dev.send(protocol.caption("heard", tail_bytes(heard.strip())))
                         elif ev.kind == "audio":
                             # Gemini отвечает: микрофон в сторону, иначе он услышит сам себя
+                            if t_run:
+                                log.info("%s: задержка — сессия Gemini %.2f с, первый звук ответа %.2f с после слова, "
+                                         "%.2f с после последних слов", dev.id, t_live, v.clock() - t_run,
+                                         (v.clock() - t_heard) if t_heard else 0.0)
+                                t_run = 0.0
                             self.listening = False
                             await live.audio_stream_end()
                             if heard.strip():
@@ -196,6 +216,9 @@ class Conversation:
                             v.transcript.append(("колонка", v.reply_text.strip()))
                             if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps:
                                 why = "ответ без продолжения"
+                                break
+                            if self.end_requested:
+                                why = "по смыслу разговор окончен"
                                 break
                             # продолжение разговора без слова пробуждения
                             heard = ""
@@ -268,10 +291,13 @@ class Voice:
         self._spawn(self._expire_warm(task))
 
     async def _expire_warm(self, task: asyncio.Task) -> None:
+        """Сессия всегда наготове: устарела (150 с) и не понадобилась — заменить свежей."""
         await asyncio.sleep(WARM_TTL_S)
         if self._warm is task:
             self._warm = None
             await self._discard(task)
+            if self._detectors and not self._talks:
+                self._prewarm()
 
     @staticmethod
     async def _discard(task: asyncio.Task) -> None:
@@ -287,7 +313,10 @@ class Voice:
         if task is not None:
             if allow_warm:
                 try:
-                    return await task
+                    live = await task
+                    if getattr(live, "alive", True):
+                        return live
+                    await self._discard(task)     # остыла и закрылась — откроем новую
                 except LiveError:
                     pass   # заготовка не вышла — откроем заново и покажем настоящую ошибку
             else:
@@ -312,6 +341,7 @@ class Voice:
         self.audio.keep_listening.add(dev.id)
         await dev.send(protocol.listen_start(self.audio.mic_gain))
         log.info("%s: слушаю слово пробуждения", dev.id)
+        self._prewarm()      # сессия Gemini готова заранее: слово → сразу слушаем, без 1.2 с подключения
 
     def _on_audio(self, dev: Device, pcm: bytes) -> None:
         talk = self._talks.get(dev.id)
@@ -336,14 +366,17 @@ class Voice:
         talk = self._talks[dev.id] = Conversation(self, dev)
         return self._spawn(self._run(talk, text))
 
-    async def remind(self, text: str) -> bool:
-        """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+    async def announce(self, prompt: str) -> bool:
+        """Колонка сама заговорит по этой подсказке. False — колонки нет или она занята."""
         dev = self.hub.get()
         if dev is None or "speaker" not in dev.hello.caps:
             return False
-        task = self.start(dev, f"Сработало напоминание: «{text}». Скажи пользователю об этом "
-                               "одной короткой фразой, как будто сам вспомнил.")
-        return task is not None
+        return self.start(dev, prompt) is not None
+
+    async def remind(self, text: str) -> bool:
+        """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+        return await self.announce(f"Сработало напоминание: «{text}». Скажи пользователю об этом "
+                                   "одной короткой фразой, как будто сам вспомнил.")
 
     async def _run(self, talk: Conversation, text: str | None) -> None:
         dev = talk.dev
@@ -357,6 +390,8 @@ class Voice:
             if dev.id in self._detectors:
                 self._detectors[dev.id].reset()
             self._spawn(self._clear_caption(dev))
+            if self._detectors:
+                self._prewarm()      # следующий разговор — на свежей сессии (память, время)
 
     async def _clear_caption(self, dev: Device) -> None:
         await asyncio.sleep(CAPTION_HOLD_S)
