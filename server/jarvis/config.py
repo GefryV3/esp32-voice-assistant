@@ -29,6 +29,9 @@ class Settings:
     vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
+    telegram_token: str = ""                 # пусто — Telegram-бота нет
+    telegram_chat_ids: str = ""              # через запятую; чужим chat_id бот не отвечает
+    telegram_model: str = "gemini-2.5-flash"  # текстовая модель (не Live) для ответов в Telegram
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -82,6 +85,9 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
         vad_silence_ms=vad_silence_ms,
+        telegram_token=env.get("TELEGRAM_TOKEN", ""),
+        telegram_chat_ids=env.get("TELEGRAM_CHAT_IDS", ""),
+        telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-2.5-flash"),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

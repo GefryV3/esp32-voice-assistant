@@ -44,6 +44,7 @@ HELP = """\
   beep [Гц] [мс]   play <wav>   тон / файл на динамике        stop — замолчать
   vol 0..100                    громкость        gain 0..30 — усиление микрофона, дБ
 Голос (Gemini Live):
+  tg <текст>                    спросить как через Telegram, ответ текстом здесь
   ask <вопрос>                  спросить без слова пробуждения, ответ голосом на колонке
   wake                          слушает ли слово пробуждения и как близко было за минуту
   last                          последний разговор: что расслышал и что ответил
@@ -154,7 +155,7 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
         reply = await hub.audio.command(line)
         if reply is not None:
             return reply
-    for module in (hub.voice, hub.ota):
+    for module in (hub.voice, hub.ota, hub.telegram):
         if module is not None:
             out = await module.command(line)
             if out is not None:

@@ -69,6 +69,7 @@ class DeviceHub:
         self.audio: Any = None   # звук колонок (jarvis.audio), если запущен
         self.voice: Any = None   # разговор через Gemini Live (jarvis.voice), если есть ключ
         self.ota: Any = None     # обновление прошивки по воздуху (jarvis.ota)
+        self.telegram: Any = None  # Telegram-бот (jarvis.telegram), если задан токен
 
     # ── жизненный цикл ──
 
