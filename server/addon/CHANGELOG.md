@@ -1,5 +1,12 @@
 # Изменения
 
+## 0.11.0
+- Google напрямую, без HA (`jarvis/google.py`, инструкция docs/google.md): календарь (все
+  календари), Gmail только чтение, Задачи. Функции `google_calendar_list/add`, `google_mail_unread`,
+  `google_tasks_list/add/done`. Работают в голосе и в Telegram. Вход один раз:
+  `tools/google_auth.py` (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN в .env).
+  Без этих ключей Google выключен.
+
 ## 0.10.5
 - Живее и реальнее: подсказка про манеру речи переписана (реакция сразу, смех, вздохи,
   «ага/хм/слушай», разная длина фраз, без «конечно» и пересказа вопроса).

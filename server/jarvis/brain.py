@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import protocol
+from .google import TOOLS as GOOGLE_TOOLS, Google
 from .agents import TOOLS as AGENT_TOOLS, Agents
 from .ha import TOOLS as HOME_TOOLS, HomeAssistant
 
@@ -85,8 +86,9 @@ def when_words(due: datetime, now: datetime) -> str:
 
 class Brain:
     def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now,
-                 ha: HomeAssistant | None = None, agents: Agents | None = None):
+                 ha: HomeAssistant | None = None, agents: Agents | None = None, google: Google | None = None):
         self.now = now
+        self.google = google
         self.ha = ha
         self.agents = agents
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +180,7 @@ class Brain:
         self.db.commit()
 
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
+        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else [])
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -192,6 +194,8 @@ class Brain:
         now = self.now().replace(tzinfo=None)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
+        if name.startswith("google_") and self.google:
+            return await self.google.call(name, args)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
         if name == "set_voice":

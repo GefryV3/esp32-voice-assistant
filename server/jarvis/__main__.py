@@ -14,6 +14,7 @@ from collections.abc import Callable
 from .audio import Audio
 from .brain import Brain
 from .agents import Agents, make_search
+from .google import Google
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
@@ -81,7 +82,12 @@ async def main() -> None:
     ha = HomeAssistant(settings.ha_url, settings.ha_token) if settings.ha_url and settings.ha_token else None
     if ha is None:
         logging.getLogger("jarvis").info("Home Assistant не настроен — умного дома нет")
-    brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha)
+    google = None
+    if settings.google_client_id and settings.google_client_secret and settings.google_refresh_token:
+        google = Google(settings.google_client_id, settings.google_client_secret,
+                        settings.google_refresh_token, settings.google_tz)
+        logging.getLogger("jarvis").info("Google: календарь, почта, задачи подключены")
+    brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha, google=google)
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
