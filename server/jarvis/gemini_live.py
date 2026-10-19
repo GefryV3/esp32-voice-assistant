@@ -43,7 +43,7 @@ class Event:
     calls: tuple[tuple[str, str, dict], ...] = ()   # tool_call: (id, имя, аргументы)
 
 
-SILENCE_MS = 450   # сколько тишины Gemini считает концом фразы: меньше — быстрее ответ, но обрезает паузы
+SILENCE_MS = 650   # сколько тишины Gemini считает концом фразы: меньше — быстрее ответ, но обрезает паузы
 
 
 def setup_message(model: str, voice: str, system: str,
@@ -61,7 +61,7 @@ def setup_message(model: str, voice: str, system: str,
         "realtimeInputConfig": {"automaticActivityDetection": {
             "silenceDurationMs": silence_ms,
             "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
-            "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
+            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",   # не обрывать на паузе посреди фразы
         }},
     }
     if affective:     # модель слышит интонацию и отвечает в тон (только v1alpha, не на каждой модели)

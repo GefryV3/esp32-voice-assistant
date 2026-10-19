@@ -85,7 +85,8 @@ async def main() -> None:
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
-        brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce)
+        brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
+                              search=settings.agent_search)
         brain.agents.start_delivery()
     else:
         voice = None

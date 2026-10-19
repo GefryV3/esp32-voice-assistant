@@ -407,7 +407,7 @@ def test_system_prompt_lists_facts():
 def test_setup_message_silence_and_sensitivity():
     vad = setup_message("m", "v", "s", silence_ms=300)["setup"]["realtimeInputConfig"]["automaticActivityDetection"]
     assert vad["silenceDurationMs"] == 300
-    assert vad["endOfSpeechSensitivity"] == "END_SENSITIVITY_HIGH"
+    assert vad["endOfSpeechSensitivity"] == "END_SENSITIVITY_LOW"   # паузу посреди фразы не считаем концом
     default = setup_message("m", "v", "s")["setup"]["realtimeInputConfig"]["automaticActivityDetection"]
     assert default["silenceDurationMs"] < 700
 
@@ -487,7 +487,7 @@ async def test_barge_in_stops_reply_and_drops_old_tail(hub, voice, live):
     try:
         await log.wait(lambda m: m["type"] == "barge")
         assert next(m for m in log.msgs if isinstance(m, dict) and m["type"] == "barge") == {
-            "type": "barge", "on": 1, "ratio_x10": 30}
+            "type": "barge", "on": 1, "ratio_x10": 40}
         task = voice.start(hub.get(), "расскажи длинно")
         await live.queue.put(Event("audio", data=b"\x02\x00" * 24000, rate=24000))   # 1 с ответа
         await log.wait(lambda m: m["type"] == "audio_start")

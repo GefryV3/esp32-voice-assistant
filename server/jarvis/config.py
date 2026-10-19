@@ -29,9 +29,10 @@ class Settings:
     affective: bool = False                  # эмоциональный диалог Gemini (v1alpha)
     wake_words: str = "мага,jarvis"          # через запятую: «мага» (Vosk) и «jarvis» (openWakeWord)
     barge_in: bool = True                    # можно перебить колонку голосом
-    barge_ratio: float = 3.0                 # во сколько раз голос должен быть громче эха ответа
-    vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
-    agent_model: str = "gemini-flash-latest"   # модель фоновых агентов (с поиском Google)
+    barge_ratio: float = 4.0                 # во сколько раз голос должен быть громче эха ответа
+    vad_silence_ms: int = 650                # пауза, после которой Gemini считает фразу законченной
+    agent_model: str = "gemini-flash-lite-latest"   # модель фоновых агентов (пересказ найденного)
+    agent_search: str = "web"                       # web (DuckDuckGo, без квоты) или google (поиск Gemini)
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
@@ -74,12 +75,12 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         raise ConfigError(f"JARVIS_WAKE_THRESHOLD должен быть числом 0…1: {e}") from None
 
     try:
-        vad_silence_ms = int(env.get("JARVIS_SILENCE_MS", "450"))
+        vad_silence_ms = int(env.get("JARVIS_SILENCE_MS", "650"))
     except ValueError as e:
         raise ConfigError(f"JARVIS_SILENCE_MS должен быть числом (миллисекунды): {e}") from None
 
     try:
-        barge_ratio = float(env.get("JARVIS_BARGE_RATIO", "3.0"))
+        barge_ratio = float(env.get("JARVIS_BARGE_RATIO", "4.0"))
     except ValueError as e:
         raise ConfigError(f"JARVIS_BARGE_RATIO должен быть числом (1.2…20): {e}") from None
 
@@ -102,7 +103,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         telegram_token=env.get("TELEGRAM_TOKEN", ""),
         telegram_chat_ids=env.get("TELEGRAM_CHAT_IDS", ""),
         telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-flash-latest"),
-        agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-latest"),
+        agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-lite-latest"),
+        agent_search=env.get("JARVIS_AGENT_SEARCH", "web").lower(),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

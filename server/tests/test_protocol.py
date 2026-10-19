@@ -100,5 +100,5 @@ def test_parse_command_errors(line):
 
 
 def test_barge_message():
-    assert protocol.barge(True, 3.0) == {"type": "barge", "on": 1, "ratio_x10": 30}
+    assert protocol.barge(True, 4.0) == {"type": "barge", "on": 1, "ratio_x10": 40}
     assert protocol.barge(False, 2.5)["ratio_x10"] == 25

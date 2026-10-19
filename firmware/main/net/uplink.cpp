@@ -240,7 +240,7 @@ void on_message(const cJSON *m) {
   } else if (eq(type, "volume")) {
     audio::set_volume(num(m, "level", 70));
   } else if (eq(type, "barge")) {
-    audio::set_barge_in(num(m, "on", 0) != 0, num(m, "ratio_x10", 30) / 10.0f);
+    audio::set_barge_in(num(m, "on", 0) != 0, num(m, "ratio_x10", 40) / 10.0f);
   } else if (eq(type, "ota")) {
     if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {

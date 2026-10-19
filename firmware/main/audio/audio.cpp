@@ -36,10 +36,12 @@ constexpr float SPK_HIGHPASS_HZ = 160.0f;
 constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкалы, с которой работает ограничитель
 constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 
-constexpr int BARGE_FRAMES = 8;               // 160 мс подряд громче эха — перебили
+constexpr int BARGE_FRAMES = 10;              // 200 мс подряд громче эха — перебили
 constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед
 constexpr int BARGE_GRACE_FRAMES = 12;        // первые 240 мс ответа не слушаем: ещё нет эха
-constexpr float BARGE_MIN_RMS = 1500.0f;      // тише не считается голосом (~−27 дБFS)
+constexpr float BARGE_MIN_RMS = 2500.0f;      // тише не считается голосом (~−22 дБFS)
+constexpr float BARGE_QUIET_RMS = 4500.0f;    // пауза в ответе: голос должен быть ярко слышен
+constexpr int BARGE_TAIL_FRAMES = 15;         // после звука 300 мс не слушаем: хвост эха и комната
 constexpr float BARGE_REF_MIN = 150.0f;       // эталон тише — пауза в речи, сравнивать не с чем
 
 SendFn s_send = nullptr;
@@ -61,6 +63,7 @@ std::atomic<int> s_vol_q15{2949};             // громкость 50 %, пок
 std::atomic<bool> s_accept{false};            // принимать кадры звука в буфер
 std::atomic<bool> s_speaking{false};          // динамик сейчас играет
 std::atomic<bool> s_barge_on{false};
+std::atomic<bool> s_barge_armed{false};       // звук реально звучит (после накопления), а не ждёт начала
 std::atomic<int> s_barge_ratio_x100{300};
 std::atomic<float> s_ref_rms{0};              // громкость того, что сейчас играет (с задержкой затухания)
 std::atomic<bool> s_ended{false};
@@ -138,10 +141,11 @@ struct Barge {
   int head = 0;
   int frames = 0;       // сколько кадров идёт этот ответ
   int hits = 0;         // подряд громче эха
+  int quiet = 0;        // подряд кадров, когда играющее молчит
   float k = 0;          // обычное отношение микрофон/эталон
   uint32_t log_tick = 0;
 
-  void idle() { frames = 0; hits = 0; }
+  void idle() { frames = 0; hits = 0; quiet = BARGE_TAIL_FRAMES; }
 
   bool step(const int16_t *pcm, int n) {
     memcpy(ring[head], pcm, n * sizeof(int16_t));
@@ -156,8 +160,10 @@ struct Barge {
     const float ratio = s_barge_ratio_x100 / 100.0f;
     bool loud;
     if (r < BARGE_REF_MIN) {
-      loud = m > BARGE_MIN_RMS * 2.0f;             // играющее молчит: голос должен быть ярко слышен
+      // играющее молчит (пауза между фразами): слушаем только после 300 мс тишины в эталоне
+      loud = ++quiet > BARGE_TAIL_FRAMES && m > BARGE_QUIET_RMS;
     } else {
+      quiet = 0;
       const float q = m / r;
       loud = m > BARGE_MIN_RMS && k > 0 && q > k * ratio;
       if (!loud) k = k > 0 ? k + (q - k) * 0.02f : q;   // эхо: уточняем «обычное» отношение
@@ -190,7 +196,8 @@ void mic_task(void *) {
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
     // трещит в такт отправкам. Слушаем только локально: не перебивает ли пользователь.
     if (s_speaking) {
-      if (s_barge_on && s_listening && barge.step(pcm, n)) {
+      if (!s_barge_armed) barge.idle();    // накопление в буфере: слушать пока нечего
+      else if (s_barge_on && s_listening && barge.step(pcm, n)) {
         audio_barge_in(barge);
       }
       continue;
@@ -286,6 +293,7 @@ void play_once() {
   static int16_t out[SPK_CHUNK];
   Highpass hpf(SPK_HIGHPASS_HZ, static_cast<float>(s_rate));
   ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
+  s_barge_armed = true;
   size_t carry = 0;
   uint32_t underruns = 0, samples_total = 0;
   for (;;) {
@@ -321,6 +329,7 @@ void play_once() {
     for (int i = 0; i <= SPK_DMA_DESC; ++i) i2s_channel_write(s_tx, zeros, sizeof zeros, &written, portMAX_DELAY);
   }
   i2s_channel_disable(s_tx);
+  s_barge_armed = false;
   s_ref_rms = 0;
   s_speaking = false;
   if (s_stop) xStreamBufferReset(s_spk_sb);  // писатель уже не пишет (s_accept снят)

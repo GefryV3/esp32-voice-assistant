@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import html
+import re
+import urllib.parse
 import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -51,6 +54,7 @@ class Task:
     status: str = "running"      # running, done, failed, cancelled
     result: str = ""
     spoken: bool = False
+    error: str = ""
     runner: asyncio.Task | None = field(default=None, repr=False)
 
 
@@ -67,12 +71,71 @@ def generate_sync(api_key: str, model: str, goal: str) -> str:
     return "".join(p.get("text", "") for p in parts).strip()
 
 
+SEARCH_URL = "https://html.duckduckgo.com/html/?"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+_RESULT = re.compile(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
+                     r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', re.S)
+
+
+def _text(raw: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", raw)).strip()
+
+
+def web_search(query: str, count: int = 6) -> list[tuple[str, str, str]]:
+    """Выдача DuckDuckGo без ключа и без квоты Google: (заголовок, адрес, отрывок)."""
+    req = urllib.request.Request(SEARCH_URL + urllib.parse.urlencode({"q": query, "kl": "ru-ru"}),
+                                 headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        page = r.read().decode("utf-8", "replace")
+    out = []
+    for url, title, snippet in _RESULT.findall(page):
+        url = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("uddg", [url])[0]
+        out.append((_text(title), url, _text(snippet)))
+        if len(out) >= count:
+            break
+    return out
+
+
+def ask_model(api_key: str, model: str, prompt: str, system: str = "") -> str:
+    """Обычный запрос к Gemini без инструментов (квота у lite-моделей заметно больше)."""
+    body: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+    req = urllib.request.Request(API_URL.format(model=model), data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+    with urllib.request.urlopen(req, timeout=TASK_TIMEOUT_S) as r:
+        data = json.load(r)
+    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+    return "".join(p.get("text", "") for p in parts).strip()
+
+
+def research_sync(api_key: str, model: str, goal: str, *,
+                  search=web_search, ask=ask_model) -> str:
+    """Исследование без поиска Google: модель формулирует запросы, берём выдачу DuckDuckGo,
+    модель пересказывает по отрывкам. Три коротких обращения, квота Google-поиска не тратится."""
+    queries = [q.strip(" -•*\t\"") for q in ask(
+        api_key, model, "Дай 1-2 коротких поисковых запроса для интернета (по одному в строке, без "
+        f"нумерации и пояснений) для задачи:\n{goal}").splitlines() if q.strip()][:2] or [goal[:100]]
+    seen, found = set(), []
+    for q in queries:
+        for title, url, snippet in search(q):
+            if url not in seen:
+                seen.add(url)
+                found.append(f"- {title}: {snippet} ({urllib.parse.urlparse(url).netloc})")
+    if not found:
+        raise RuntimeError("поиск ничего не вернул")
+    return ask(api_key, model, f"Задача: {goal}\n\nЧто нашлось в интернете:\n" + "\n".join(found[:12])
+               + "\n\nОтветь по этим данным; если данных не хватает, так и скажи.", SYSTEM)
+
+
 class Agents:
     def __init__(self, api_key: str, model: str, announce: Callable[[str], Awaitable[bool]], *,
-                 generate: Callable[[str], Awaitable[str]] | None = None, clock=None):
+                 generate: Callable[[str], Awaitable[str]] | None = None, clock=None,
+                 search: str = "web"):
         """announce(prompt) → True, если колонка взялась озвучить (иначе повторим позже)."""
         self.announce = announce
-        self.generate = generate or (lambda goal: asyncio.to_thread(generate_sync, api_key, model, goal))
+        run = generate_sync if search == "google" else research_sync
+        self.generate = generate or (lambda goal: asyncio.to_thread(run, api_key, model, goal))
         self.tasks: list[Task] = []
         self._next = 1
         self._loop_task: asyncio.Task | None = None
@@ -126,6 +189,7 @@ class Agents:
         except Exception as e:
             log.warning("задача «%s»: %r", task.title, e)
             task.status = "failed"
+            task.error = "квота Gemini исчерпана" if "429" in repr(e) else str(e)[:120]
         if task.status == "failed":
             task.result = ""
         log.info("задача «%s»: %s (%d симв.)", task.title, task.status, len(task.result))
@@ -145,8 +209,9 @@ class Agents:
 
     def prompt_for(self, task: Task) -> str:
         if task.status == "failed":
-            return (f"Фоновая задача «{task.title}» не получилась. Коротко скажи пользователю, "
-                    "что не вышло, и предложи попробовать ещё раз.")
+            why = f" Причина: {task.error}." if task.error else ""
+            return (f"Фоновая задача «{task.title}» не получилась.{why} Коротко и честно скажи "
+                    "пользователю, что не вышло и почему, и не придумывай результат.")
         return (f"Фоновая задача «{task.title}» готова. Результат:\n{task.result}\n"
                 "Перескажи пользователю суть своими словами, коротко и разговорно.")
 

@@ -115,3 +115,44 @@ def test_generate_sync_parses_response(monkeypatch):
     monkeypatch.setattr(agents_mod.urllib.request, "urlopen", fake_urlopen)
     assert agents_mod.generate_sync("KEY", "m", "цель") == "Привет, мир."
     assert sent["key"] == "KEY" and sent["body"]["tools"] == [{"google_search": {}}]
+
+
+def test_research_uses_web_results_and_reports_when_empty():
+    asked = []
+
+    def ask(key, model, prompt, system=""):
+        asked.append(prompt)
+        return "1. погода вена\n2. wien wetter" if len(asked) == 1 else "Сегодня в Вене около десяти градусов."
+
+    def search(q):
+        return [("Погода", "https://example.at/wetter", "10 °C, облачно")]
+    out = agents_mod.research_sync("k", "m", "погода в Вене", search=search, ask=ask)
+    assert out == "Сегодня в Вене около десяти градусов."
+    assert "10 °C, облачно" in asked[1] and "example.at" in asked[1] and "Дай 1-2" in asked[0]
+    with pytest.raises(RuntimeError):
+        agents_mod.research_sync("k", "m", "x", search=lambda q: [], ask=lambda *a, **k: "запрос")
+
+
+def test_web_search_parses_duckduckgo_html(monkeypatch):
+    import io
+    page = ('<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.at%2Fx">'
+            'Заголовок <b>1</b></a><a class="result__snippet" href="#">Отрывок &amp; текст</a>').encode()
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+    monkeypatch.setattr(agents_mod.urllib.request, "urlopen", lambda req, timeout: Resp(page))
+    assert agents_mod.web_search("q") == [("Заголовок 1", "https://a.at/x", "Отрывок & текст")]
+
+
+async def test_failure_prompt_carries_reason():
+    async def generate(goal):
+        raise RuntimeError("HTTP Error 429: Too Many Requests")
+    ag = Agents("k", "m", Speaker(), generate=generate)
+    ag.start("x", "Поиск")
+    await settle(lambda: ag.tasks[0].status == "failed")
+    assert "квота" in ag.prompt_for(ag.tasks[0])
+    await ag.stop()
