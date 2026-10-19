@@ -231,8 +231,8 @@ async def test_weather_text_and_screen(cha):
     async def send(msg):
         sent.append(msg)
     r = await ha.call("home_weather", {}, send)
-    assert r["now"]["condition"] == "дождь" and r["now"]["temperature"] == "11.4 °C"
-    assert r["forecast"] == ["завтра: облачно, 8…14 °C, осадки 30 %"]
+    assert r["now"]["condition"] == "дождь" and r["now"]["temperature"] == "11 °C"
+    assert r["forecast"] == ["завтра: облачно, от 8 до 14 °C, осадки 30 %"]
     assert sent == [{"type": "weather", "cond": 3, "temp": 11}]
 
 

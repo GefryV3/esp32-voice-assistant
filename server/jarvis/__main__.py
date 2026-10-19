@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 from .audio import Audio
 from .brain import Brain
-from .agents import Agents
+from .agents import Agents, make_search
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
@@ -86,7 +86,8 @@ async def main() -> None:
         voice = Voice(hub, audio, settings, brain=brain,
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
-                              search=settings.agent_search)
+                              search=settings.agent_search,
+                              search_fn=make_search(settings.agent_search, settings.brave_key, settings.searxng_url))
         brain.agents.start_delivery()
     else:
         voice = None

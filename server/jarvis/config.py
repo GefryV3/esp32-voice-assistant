@@ -32,7 +32,9 @@ class Settings:
     barge_ratio: float = 4.0                 # во сколько раз голос должен быть громче эха ответа
     vad_silence_ms: int = 650                # пауза, после которой Gemini считает фразу законченной
     agent_model: str = "gemini-flash-lite-latest"   # модель фоновых агентов (пересказ найденного)
-    agent_search: str = "web"                       # web (DuckDuckGo, без квоты) или google (поиск Gemini)
+    agent_search: str = "web"                       # web (DuckDuckGo), brave, searxng или google (поиск Gemini)
+    brave_key: str = ""                             # ключ Brave Search API для agent_search=brave
+    searxng_url: str = ""                           # адрес SearXNG для agent_search=searxng
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
@@ -105,6 +107,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-flash-latest"),
         agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-lite-latest"),
         agent_search=env.get("JARVIS_AGENT_SEARCH", "web").lower(),
+        brave_key=env.get("BRAVE_API_KEY", ""),
+        searxng_url=env.get("JARVIS_SEARXNG_URL", ""),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

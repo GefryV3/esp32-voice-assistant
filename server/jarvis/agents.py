@@ -96,6 +96,37 @@ def web_search(query: str, count: int = 6) -> list[tuple[str, str, str]]:
     return out
 
 
+def brave_search(api_key: str, query: str, count: int = 6) -> list[tuple[str, str, str]]:
+    """Brave Search API (бесплатно ~2000 запросов в месяц по ключу): надёжнее, чем разбор HTML."""
+    req = urllib.request.Request(
+        "https://api.search.brave.com/res/v1/web/search?" + urllib.parse.urlencode(
+            {"q": query, "count": count, "country": "AT", "search_lang": "ru"}),
+        headers={"Accept": "application/json", "X-Subscription-Token": api_key})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.load(r)
+    return [(_text(x.get("title", "")), x.get("url", ""), _text(x.get("description", "")))
+            for x in (data.get("web") or {}).get("results", [])[:count]]
+
+
+def searxng_search(base_url: str, query: str, count: int = 6) -> list[tuple[str, str, str]]:
+    """Свой SearXNG (аддон HA): собирает выдачу Google, Bing и других, без ключей и лимитов.
+    В его settings.yml должен быть включён формат json (search.formats: [html, json])."""
+    url = base_url.rstrip("/") + "/search?" + urllib.parse.urlencode({"q": query, "format": "json", "language": "ru"})
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=20) as r:
+        data = json.load(r)
+    return [(_text(x.get("title", "")), x.get("url", ""), _text(x.get("content", "")))
+            for x in data.get("results", [])[:count]]
+
+
+def make_search(kind: str, brave_key: str = "", searxng_url: str = ""):
+    """Выбрать источник выдачи: brave / searxng / иначе DuckDuckGo (его блокирует капча)."""
+    if kind == "brave" and brave_key:
+        return lambda q: brave_search(brave_key, q)
+    if kind == "searxng" and searxng_url:
+        return lambda q: searxng_search(searxng_url, q)
+    return web_search
+
+
 def ask_model(api_key: str, model: str, prompt: str, system: str = "") -> str:
     """Обычный запрос к Gemini без инструментов (квота у lite-моделей заметно больше)."""
     body: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
@@ -113,9 +144,14 @@ def research_sync(api_key: str, model: str, goal: str, *,
                   search=web_search, ask=ask_model) -> str:
     """Исследование без поиска Google: модель формулирует запросы, берём выдачу DuckDuckGo,
     модель пересказывает по отрывкам. Три коротких обращения, квота Google-поиска не тратится."""
-    queries = [q.strip(" -•*\t\"") for q in ask(
-        api_key, model, "Дай 1-2 коротких поисковых запроса для интернета (по одному в строке, без "
-        f"нумерации и пояснений) для задачи:\n{goal}").splitlines() if q.strip()][:2] or [goal[:100]]
+    raw = ask(api_key, model, "Дай 1-2 коротких поисковых запроса для интернета (по одному в строке, без "
+                              f"нумерации, пояснений и разметки) для задачи:\n{goal}")
+    queries = []
+    for line in raw.splitlines():
+        q = re.sub(r"^\s*(\d+[.)]|[-•*])\s*", "", line).strip(" *_`\"'«»")
+        if q and not q.endswith(":") and not q.lower().startswith(("вот ", "запрос")):
+            queries.append(q)
+    queries = queries[:2] or [goal[:100]]
     seen, found = set(), []
     for q in queries:
         for title, url, snippet in search(q):
@@ -131,11 +167,15 @@ def research_sync(api_key: str, model: str, goal: str, *,
 class Agents:
     def __init__(self, api_key: str, model: str, announce: Callable[[str], Awaitable[bool]], *,
                  generate: Callable[[str], Awaitable[str]] | None = None, clock=None,
-                 search: str = "web"):
+                 search: str = "web", search_fn=None):
         """announce(prompt) → True, если колонка взялась озвучить (иначе повторим позже)."""
         self.announce = announce
-        run = generate_sync if search == "google" else research_sync
-        self.generate = generate or (lambda goal: asyncio.to_thread(run, api_key, model, goal))
+        if search == "google":
+            self.generate = generate or (lambda goal: asyncio.to_thread(generate_sync, api_key, model, goal))
+        else:
+            finder = search_fn or web_search
+            self.generate = generate or (lambda goal: asyncio.to_thread(
+                research_sync, api_key, model, goal, search=finder))
         self.tasks: list[Task] = []
         self._next = 1
         self._loop_task: asyncio.Task | None = None

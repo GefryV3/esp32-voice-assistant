@@ -1,5 +1,12 @@
 # Изменения
 
+## 0.9.1
+- Поиск для фоновых задач: DuckDuckGo теперь показывает капчу (боты ему не нравятся), поэтому
+  добавлены Brave Search API (JARVIS_AGENT_SEARCH=brave, BRAVE_API_KEY) и свой SearXNG
+  (JARVIS_AGENT_SEARCH=searxng, JARVIS_SEARXNG_URL). Разбор запросов от модели чище.
+- Погода: целые градусы («от 6 до 18»), иначе Gemini при чтении вслух путал десятичные.
+- В выкладку теперь едут JARVIS_AGENT_*, BRAVE_API_KEY, JARVIS_SEARXNG_URL, JARVIS_BARGE_*.
+
 ## 0.9.0
 - Календарь и погода из Home Assistant: `home_calendar` («что у меня завтра?») собирает события
   из всех календарей, `home_weather` («какая погода, брать ли зонт?») отвечает по `weather.*`

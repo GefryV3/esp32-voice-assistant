@@ -156,3 +156,45 @@ async def test_failure_prompt_carries_reason():
     await settle(lambda: ag.tasks[0].status == "failed")
     assert "квота" in ag.prompt_for(ag.tasks[0])
     await ag.stop()
+
+
+def test_query_cleanup_and_providers(monkeypatch):
+    asked = []
+
+    def ask(key, model, prompt, system=""):
+        asked.append(prompt)
+        return "Вот 2 запроса:\n1. **главные новости мира**\n2. «world news today»" if len(asked) == 1 else "Готово."
+    seen = []
+
+    def search(q):
+        seen.append(q)
+        return [("T", "https://x.at/", "s")]
+    agents_mod.research_sync("k", "m", "новости", search=search, ask=ask)
+    assert seen == ["главные новости мира", "world news today"]
+    assert agents_mod.make_search("brave", "KEY") is not agents_mod.web_search
+    assert agents_mod.make_search("brave", "") is agents_mod.web_search       # нет ключа — запасной
+    assert agents_mod.make_search("searxng", "", "http://h:8080") is not agents_mod.web_search
+
+
+def test_brave_and_searxng_parse(monkeypatch):
+    import io
+    import json
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+    seen = []
+
+    def fake(req, timeout):
+        seen.append(req.full_url)
+        if "brave" in req.full_url:
+            assert req.headers["X-subscription-token"] == "KEY"
+            return Resp(json.dumps({"web": {"results": [{"title": "A <b>1</b>", "url": "https://a", "description": "d"}]}}).encode())
+        return Resp(json.dumps({"results": [{"title": "B", "url": "https://b", "content": "c"}]}).encode())
+    monkeypatch.setattr(agents_mod.urllib.request, "urlopen", fake)
+    assert agents_mod.brave_search("KEY", "q") == [("A 1", "https://a", "d")]
+    assert agents_mod.searxng_search("http://h:8080/", "q") == [("B", "https://b", "c")]
+    assert "format=json" in seen[1] and seen[1].startswith("http://h:8080/search?")

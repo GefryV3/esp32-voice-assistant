@@ -421,7 +421,7 @@ class HomeAssistant:
         unit = a.get("temperature_unit", "°C")
         out: dict[str, Any] = {"ok": True, "now": {
             "condition": WEATHER_RU.get(cond, cond),
-            "temperature": f"{a['temperature']} {unit}" if a.get("temperature") is not None else None}}
+            "temperature": f"{round(float(a['temperature']))} {unit}" if a.get("temperature") is not None else None}}
         if a.get("humidity") is not None:
             out["now"]["humidity"] = f"{a['humidity']} %"
         if a.get("wind_speed") is not None:
@@ -435,8 +435,9 @@ class HomeAssistant:
                 line = f"{day_words(day, today)}: {WEATHER_RU.get(f.get('condition'), f.get('condition'))}"
                 if f.get("temperature") is not None:
                     low = f.get("templow")
-                    line += (f", {low:g}…{f['temperature']:g} {unit}" if low is not None
-                             else f", {f['temperature']:g} {unit}")
+                    # целые градусы: с «17.8» Gemini при чтении вслух путает числа
+                    line += (f", от {round(low)} до {round(f['temperature'])} {unit}" if low is not None
+                             else f", {round(f['temperature'])} {unit}")
                 if f.get("precipitation_probability") is not None:
                     line += f", осадки {f['precipitation_probability']} %"
                 days.append(line)
