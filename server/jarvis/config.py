@@ -26,13 +26,15 @@ class Settings:
     gemini_model: str = "gemini-3.8-live"
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
+    barge_in: bool = True                    # можно перебить колонку голосом
+    barge_ratio: float = 3.0                 # во сколько раз голос должен быть громче эха ответа
     vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
     agent_model: str = "gemini-flash-latest"   # модель фоновых агентов (с поиском Google)
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
     telegram_chat_ids: str = ""              # через запятую; чужим chat_id бот не отвечает
-    telegram_model: str = "gemini-2.5-flash"  # текстовая модель (не Live) для ответов в Telegram
+    telegram_model: str = "gemini-flash-latest"  # текстовая модель (не Live) для ответов в Telegram
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -74,6 +76,11 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     except ValueError as e:
         raise ConfigError(f"JARVIS_SILENCE_MS должен быть числом (миллисекунды): {e}") from None
 
+    try:
+        barge_ratio = float(env.get("JARVIS_BARGE_RATIO", "3.0"))
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_BARGE_RATIO должен быть числом (1.2…20): {e}") from None
+
     return Settings(
         device_token=token,
         host=env.get("JARVIS_HOST", "0.0.0.0"),
@@ -85,10 +92,12 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         gemini_model=env.get("JARVIS_GEMINI_MODEL", "gemini-3.8-live"),
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
+        barge_in=env.get("JARVIS_BARGE_IN", "1").lower() not in ("0", "false", "no", "off"),
+        barge_ratio=barge_ratio,
         vad_silence_ms=vad_silence_ms,
         telegram_token=env.get("TELEGRAM_TOKEN", ""),
         telegram_chat_ids=env.get("TELEGRAM_CHAT_IDS", ""),
-        telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-2.5-flash"),
+        telegram_model=env.get("JARVIS_TELEGRAM_MODEL", "gemini-flash-latest"),
         agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-latest"),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),

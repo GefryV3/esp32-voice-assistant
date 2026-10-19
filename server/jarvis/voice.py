@@ -95,6 +95,12 @@ class Conversation:
         self.mic: asyncio.Queue[bytes] = asyncio.Queue()
         self.listening = True     # микрофон идёт в Gemini
         self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
+        self._barge = asyncio.Event()  # колонка сообщила: пользователь перебил ответ
+        self.speaking = False
+
+    def on_barge_in(self) -> None:
+        if self.speaking:
+            self._barge.set()
 
     def feed(self, pcm: bytes) -> None:
         if self.listening:
@@ -134,16 +140,37 @@ class Conversation:
         Возвращает событие, на котором ответ кончился (None — сессия закрылась)."""
         audio = self.voice.audio
         end: Event | None = None
+        self._barge.clear()
+        self.speaking = True
+        try:
+            return await self._speak_stream(first, events, live, audio)
+        finally:
+            self.speaking = False
+
+    async def _speak_stream(self, first: Event, events: asyncio.Queue, live: LiveSession, audio) -> Event | None:
+        end: Event | None = None
         async with audio.stream(self.dev, first.rate) as stream:
             await stream.write(first.data)
             deadline = self.voice.clock() + MAX_TURN_S
             while True:
+                getter = asyncio.ensure_future(events.get())
+                barged = asyncio.ensure_future(self._barge.wait())
                 try:
-                    ev = await asyncio.wait_for(events.get(), max(0.1, deadline - self.voice.clock()))
-                except TimeoutError:
+                    done, _ = await asyncio.wait({getter, barged}, return_when=asyncio.FIRST_COMPLETED,
+                                                 timeout=max(0.1, deadline - self.voice.clock()))
+                finally:
+                    barged.cancel()
+                if self._barge.is_set():
+                    if not getter.cancel() and getter.done() and not getter.cancelled():
+                        pass          # событие успело прийти — оно относится к старому ответу, выбрасываем
+                    await stream.stop()
+                    return Event("barge_in")
+                if getter not in done:
+                    getter.cancel()
                     log.warning("ответ Gemini затянулся — обрываю")
                     await stream.stop()
                     return None
+                ev = getter.result()
                 if ev is None or ev.kind in ("turn_complete", "interrupted", "go_away"):
                     end = ev
                     if ev is not None and ev.kind == "interrupted":
@@ -179,6 +206,7 @@ class Conversation:
                     log.info("%s: разговор начат (%s)", dev.id, "текстом" if text else "по слову")
                     deadline = v.clock() + NO_SPEECH_S
                     why = ""
+                    skip_old = False     # после перебивания хвост старого ответа Gemini не играем
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
@@ -188,6 +216,11 @@ class Conversation:
                         if ev is None or ev.kind == "go_away":
                             why = "Gemini закрыл сессию" if ev is None else "Gemini попросил переподключиться"
                             break
+                        if skip_old:
+                            if ev.kind in ("interrupted", "turn_complete"):
+                                skip_old = False       # старый ответ кончился, дальше — новый
+                            if ev.kind in ("audio", "said", "interrupted", "turn_complete"):
+                                continue
                         if ev.kind == "tool_call":
                             await self._tools(live, ev)
                             deadline = v.clock() + NO_SPEECH_S
@@ -214,6 +247,15 @@ class Conversation:
                             end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))
+                            if end is not None and end.kind == "barge_in":
+                                log.info("%s: перебили — слушаю", dev.id)
+                                skip_old = True
+                                self.end_requested = False
+                                heard = ""
+                                self.listening = True
+                                await dev.send(protocol.voice("listening"))
+                                deadline = v.clock() + NO_SPEECH_S
+                                continue
                             if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps:
                                 why = "ответ без продолжения"
                                 break
@@ -268,6 +310,7 @@ class Voice:
         hub.voice = self
         hub.on_connect(self._on_connect)
         hub.on_audio(self._on_audio)
+        hub.on_message(self._on_message)
 
     def sarcasm(self) -> int:
         bridge = self.hub.bridge
@@ -331,9 +374,15 @@ class Voice:
         task.add_done_callback(self._tasks.discard)
         return task
 
+    async def _on_message(self, dev: Device, msg: dict) -> None:
+        if msg.get("type") == "barge_in" and (talk := self._talks.get(dev.id)) is not None:
+            talk.on_barge_in()
+
     async def _on_connect(self, dev: Device) -> None:
         if self._wake_factory is None or "mic" not in dev.hello.caps:
             return
+        if "speaker" in dev.hello.caps:
+            await dev.send(protocol.barge(self.settings.barge_in, self.settings.barge_ratio))
         if dev.id not in self._detectors:
             self._detectors[dev.id] = await asyncio.to_thread(self._wake_factory)
         else:

@@ -200,6 +200,11 @@ def reminders(count: int) -> Message:
     return {"type": "reminders", "count": _int_in("count", count, 0, 99)}
 
 
+def barge(on: bool, ratio: float = 3.0) -> Message:
+    """Перебивание голосом: колонка сама слушает эхо и замолкает, когда её перебивают."""
+    return {"type": "barge", "on": int(on), "ratio_x10": _int_in("ratio_x10", round(ratio * 10), 12, 200)}
+
+
 def ping(ping_id: int) -> Message:
     return {"type": "ping", "id": ping_id}
 

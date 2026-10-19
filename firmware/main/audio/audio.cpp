@@ -36,8 +36,15 @@ constexpr float SPK_HIGHPASS_HZ = 160.0f;
 constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкалы, с которой работает ограничитель
 constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 
+constexpr int BARGE_FRAMES = 8;               // 160 мс подряд громче эха — перебили
+constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед
+constexpr int BARGE_GRACE_FRAMES = 12;        // первые 240 мс ответа не слушаем: ещё нет эха
+constexpr float BARGE_MIN_RMS = 1500.0f;      // тише не считается голосом (~−27 дБFS)
+constexpr float BARGE_REF_MIN = 150.0f;       // эталон тише — пауза в речи, сравнивать не с чем
+
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;
+BargeFn s_barge = nullptr;
 
 i2s_chan_handle_t s_rx = nullptr;
 i2s_chan_handle_t s_tx = nullptr;
@@ -53,6 +60,9 @@ std::atomic<int> s_gain_q8{1019};             // усиление ×256: 12 дБ
 std::atomic<int> s_vol_q15{2949};             // громкость 50 %, пока сервер не прислал свою
 std::atomic<bool> s_accept{false};            // принимать кадры звука в буфер
 std::atomic<bool> s_speaking{false};          // динамик сейчас играет
+std::atomic<bool> s_barge_on{false};
+std::atomic<int> s_barge_ratio_x100{300};
+std::atomic<float> s_ref_rms{0};              // громкость того, что сейчас играет (с задержкой затухания)
 std::atomic<bool> s_ended{false};
 std::atomic<bool> s_stop{false};
 std::atomic<int> s_rate_req{16000};
@@ -118,9 +128,54 @@ struct Highpass {
 
 // Читает микрофон всегда (фильтр не остывает), отдаёт — только пока слушаем. Отправка в
 // сеть — в отдельной задаче, чтобы задержка сети не рвала DMA.
+// Перебивание. Эхо собственного ответа в микрофоне пропорционально тому, что играет, поэтому
+// сравниваем микрофон не с порогом, а с громкостью воспроизведения: отношение «микрофон /
+// играющее» в норме почти постоянно (его и запоминаем, k), а голос поверх эха его резко
+// поднимает. Эталон — пик играющего звука с затуханием ~200 мс (микрофон слышит с задержкой).
+struct Barge {
+  static constexpr size_t RING = BARGE_PREROLL_FRAMES;
+  int16_t ring[RING][MIC_FRAME];
+  int head = 0;
+  int frames = 0;       // сколько кадров идёт этот ответ
+  int hits = 0;         // подряд громче эха
+  float k = 0;          // обычное отношение микрофон/эталон
+  uint32_t log_tick = 0;
+
+  void idle() { frames = 0; hits = 0; }
+
+  bool step(const int16_t *pcm, int n) {
+    memcpy(ring[head], pcm, n * sizeof(int16_t));
+    if (n < MIC_FRAME) memset(ring[head] + n, 0, (MIC_FRAME - n) * sizeof(int16_t));
+    head = (head + 1) % RING;
+    ++frames;
+    double acc = 0;
+    for (int i = 0; i < n; ++i) acc += static_cast<double>(pcm[i]) * pcm[i];
+    const float m = n ? static_cast<float>(std::sqrt(acc / n)) : 0.0f;
+    const float r = s_ref_rms.load();
+    if (frames <= BARGE_GRACE_FRAMES) return false;
+    const float ratio = s_barge_ratio_x100 / 100.0f;
+    bool loud;
+    if (r < BARGE_REF_MIN) {
+      loud = m > BARGE_MIN_RMS * 2.0f;             // играющее молчит: голос должен быть ярко слышен
+    } else {
+      const float q = m / r;
+      loud = m > BARGE_MIN_RMS && k > 0 && q > k * ratio;
+      if (!loud) k = k > 0 ? k + (q - k) * 0.02f : q;   // эхо: уточняем «обычное» отношение
+    }
+    if ((++log_tick % 25) == 0) {
+      ESP_LOGI(TAG, "перебивание: микрофон %.0f эталон %.0f k %.2f %s", m, r, k, loud ? "ГРОМКО" : "");
+    }
+    hits = loud ? hits + 1 : 0;
+    return hits >= BARGE_FRAMES;
+  }
+};
+
+void audio_barge_in(Barge &b);
+
 void mic_task(void *) {
   static int32_t raw[MIC_FRAME];
   static int16_t pcm[MIC_FRAME];
+  static Barge barge;
   Highpass hpf(MIC_HIGHPASS_HZ, MIC_RATE);
   uint32_t dropped = 0;
   for (;;) {
@@ -133,12 +188,32 @@ void mic_task(void *) {
       pcm[i] = static_cast<int16_t>(std::clamp(y * gain, -32768.0f, 32767.0f));
     }
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
-    // трещит в такт отправкам. Да и слушать во время своего ответа пока нечего.
-    if (!s_listening || s_speaking) continue;
+    // трещит в такт отправкам. Слушаем только локально: не перебивает ли пользователь.
+    if (s_speaking) {
+      if (s_barge_on && s_listening && barge.step(pcm, n)) {
+        audio_barge_in(barge);
+      }
+      continue;
+    }
+    barge.idle();
+    if (!s_listening) continue;
     if (xStreamBufferSend(s_mic_sb, pcm, n * sizeof(int16_t), 0) != n * sizeof(int16_t)) {
       if (dropped++ % 50 == 0) ESP_LOGW(TAG, "микрофон: сеть не успевает, теряю кадры (%lu)", (unsigned long)dropped);
     }
   }
+}
+
+// Перебили: замолчать сразу, не дожидаясь сервера, отдать ему начало фразы и сообщить.
+void audio_barge_in(Barge &b) {
+  ESP_LOGI(TAG, "перебили — замолкаю");
+  s_accept = false;
+  s_stop = true;
+  for (int i = 0; i < Barge::RING; ++i) {
+    const int16_t *frame = b.ring[(b.head + i) % Barge::RING];   // старые кадры первыми
+    xStreamBufferSend(s_mic_sb, frame, MIC_FRAME * sizeof(int16_t), 0);
+  }
+  b.idle();
+  if (s_barge) s_barge();
 }
 
 // Ждёт пачку в 100 мс, но забирает всё накопленное (до 200 мс) одним куском: пока
@@ -219,11 +294,15 @@ void play_once() {
     const size_t samples = n / 2;
     if (samples) {
       const float vol = s_vol_q15 / 32768.0f / 32768.0f;  // и в шкалу −1…1
+      double acc = 0;
       for (size_t i = 0; i < samples; ++i) {
         int16_t x;
         memcpy(&x, in + 2 * i, 2);
         out[i] = static_cast<int16_t>(limit(hpf(static_cast<float>(x)) * vol) * 32767.0f);
+        acc += static_cast<double>(out[i]) * out[i];
       }
+      const float rms = static_cast<float>(std::sqrt(acc / samples));
+      s_ref_rms = std::max(rms, s_ref_rms.load() * 0.85f);
       size_t written = 0;
       i2s_channel_write(s_tx, out, samples * 2, &written, portMAX_DELAY);
       samples_total += samples;
@@ -242,6 +321,7 @@ void play_once() {
     for (int i = 0; i <= SPK_DMA_DESC; ++i) i2s_channel_write(s_tx, zeros, sizeof zeros, &written, portMAX_DELAY);
   }
   i2s_channel_disable(s_tx);
+  s_ref_rms = 0;
   s_speaking = false;
   if (s_stop) xStreamBufferReset(s_spk_sb);  // писатель уже не пишет (s_accept снят)
   const uint32_t overflow = s_overflow.exchange(0);
@@ -259,9 +339,10 @@ void player_task(void *) {
 
 }  // namespace
 
-void start(SendFn send_mic, DoneFn on_played) {
+void start(SendFn send_mic, DoneFn on_played, BargeFn on_barge_in) {
   s_send = send_mic;
   s_done = on_played;
+  s_barge = on_barge_in;
   s_mic_sb = make_buffer(MIC_BUF, MIC_FRAME * sizeof(int16_t) * MIC_FRAMES_PER_SEND, &s_mic_sb_ctl);
   s_spk_sb = make_buffer(SPK_BUF, 1, &s_spk_sb_ctl);
   if (!s_mic_sb || !s_spk_sb) {
@@ -284,6 +365,12 @@ void listen(bool on, int gain_db) {
   if (on && !s_listening) ESP_LOGI(TAG, "слушаю (усиление %d дБ)", gain_db);
   if (!on && s_listening) ESP_LOGI(TAG, "микрофон выключен");
   s_listening = on;
+}
+
+void set_barge_in(bool on, float ratio) {
+  s_barge_ratio_x100 = static_cast<int>(std::clamp(ratio, 1.2f, 20.0f) * 100.0f);
+  if (on != s_barge_on) ESP_LOGI(TAG, "перебивание %s (порог ×%.1f)", on ? "включено" : "выключено", ratio);
+  s_barge_on = on;
 }
 
 void play_start(int rate) {
