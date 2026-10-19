@@ -454,8 +454,18 @@ class Voice:
 
     async def command(self, line: str) -> str | None:
         parts = line.split(maxsplit=1)
-        if not parts or parts[0].lower() not in ("ask", "wake", "last"):
+        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge"):
             return None
+        if parts[0].lower() == "barge":
+            args = parts[1].split() if len(parts) > 1 else []
+            dev = self.hub.get()
+            if dev is None:
+                return "колонок нет"
+            if not args or args[0] not in ("on", "off"):
+                return "barge on|off [порог 1.2…20] — перебивание голосом (по умолчанию порог 3)"
+            ratio = float(args[1]) if len(args) > 1 else self.settings.barge_ratio
+            await dev.send(protocol.barge(args[0] == "on", ratio))
+            return f"{dev.id}: перебивание {args[0]}, порог ×{ratio}"
         if parts[0].lower() == "last":
             return "\n".join(f"{who}: {what}" for who, what in self.transcript) or "разговоров ещё не было"
         if parts[0].lower() == "wake":

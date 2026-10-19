@@ -125,3 +125,18 @@ async def test_console_command(brain):
     assert await tg.command("tg привет") == "Тест пройден."
     assert http.sent() == []
 
+
+
+async def test_gemini_overload_is_retried(brain, monkeypatch):
+    monkeypatch.setattr("jarvis.telegram.RETRY_GEMINI_S", 0)
+
+    class Flaky(FakeHttp):
+        fails = 2
+
+        async def __call__(self, url, payload, headers, timeout):
+            if url.startswith("https://generativelanguage") and self.fails:
+                self.fails -= 1
+                raise RuntimeError("HTTP 503: busy")
+            return await super().__call__(url, payload, headers, timeout)
+
+    assert await make(Flaky(gemini=[text_reply("ок")]), brain).ask(1, "?") == "ок"

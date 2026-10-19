@@ -31,6 +31,7 @@ MAX_LEN = 4000         # лимит сообщения Telegram — 4096
 MAX_ROUNDS = 5         # сколько раз подряд Gemini может звать функции
 HISTORY = 12           # реплик переписки в памяти на чат
 RETRY_S = 5.0
+RETRY_GEMINI_S = 3.0
 
 CHAT_NOTE = """
 
@@ -122,6 +123,18 @@ class Telegram:
         return system_prompt(self.now(), self.sarcasm(), b.facts() if b else None,
                              b is not None, b is not None and b.ha is not None) + CHAT_NOTE
 
+    async def _gemini(self, body: dict[str, Any]) -> dict:
+        """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё пару раз."""
+        for attempt in range(3):
+            try:
+                return await self.http(GEMINI.format(model=self.model), body,
+                                       {"x-goog-api-key": self.api_key}, 60)
+            except RuntimeError as e:
+                if attempt == 2 or not str(e).startswith(("HTTP 429", "HTTP 503")):
+                    raise
+                await asyncio.sleep(RETRY_GEMINI_S)
+        raise AssertionError
+
     async def ask(self, chat_id: int, text: str) -> str:
         """Текст пользователя → ответ Gemini (с вызовами функций). История хранится по чатам."""
         hist = self._history[chat_id]
@@ -131,8 +144,7 @@ class Telegram:
             body["tools"] = [{"functionDeclarations": self.brain.tools()}]
         answer = ""
         for _ in range(MAX_ROUNDS):
-            r = await self.http(GEMINI.format(model=self.model), {**body, "contents": contents},
-                                {"x-goog-api-key": self.api_key}, 60)
+            r = await self._gemini({**body, "contents": contents})
             cands = r.get("candidates") or []
             parts = ((cands[0].get("content") or {}).get("parts") or []) if cands else []
             calls = [p["functionCall"] for p in parts if "functionCall" in p]

@@ -477,3 +477,50 @@ async def test_end_conversation_by_context_skips_follow_up(hub, live, tmp_path, 
         assert ("voice", "listening") not in log.types()[log.types().index(("voice", "speaking")):]
     finally:
         await ws.close()
+
+
+# ── перебивание ──
+
+async def test_barge_in_stops_reply_and_drops_old_tail(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "barge")
+        assert next(m for m in log.msgs if isinstance(m, dict) and m["type"] == "barge") == {
+            "type": "barge", "on": 1, "ratio_x10": 30}
+        task = voice.start(hub.get(), "расскажи длинно")
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 24000, rate=24000))   # 1 с ответа
+        await log.wait(lambda m: m["type"] == "audio_start")
+        await ws.send(json.dumps({"type": "barge_in"}))
+        await log.wait(lambda m: m["type"] == "audio_stop")
+        await log.wait(is_voice("listening"))
+        starts = [m for m in log.msgs if isinstance(m, dict) and m["type"] == "audio_start"]
+        # остаток старого ответа не играем, пока Gemini не скажет, что перебит
+        await live.queue.put(Event("audio", data=b"\x03\x00" * 4800, rate=24000))
+        await live.queue.put(Event("said", text="старый хвост"))
+        await live.queue.put(Event("interrupted"))
+        await asyncio.sleep(0.15)
+        assert len([m for m in log.msgs if isinstance(m, dict) and m["type"] == "audio_start"]) == len(starts)
+        assert "старый хвост" not in voice.reply_text
+        # новый ответ после перебивания играется
+        await live.queue.put(Event("audio", data=b"\x04\x00" * 4800, rate=24000))
+        async with asyncio.timeout(2):
+            while len([m for m in log.msgs if isinstance(m, dict) and m["type"] == "audio_start"]) < len(starts) + 1:
+                await asyncio.sleep(0.01)
+        await live.queue.put(Event("turn_complete"))
+        await live.queue.put(None)
+        await task
+    finally:
+        await ws.close()
+
+
+async def test_barge_in_ignored_when_not_speaking(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "barge")
+        await ws.send(json.dumps({"type": "barge_in"}))       # никто не говорит — просто игнор
+        await asyncio.sleep(0.1)
+        assert ("voice", "listening") not in log.types()
+    finally:
+        await ws.close()

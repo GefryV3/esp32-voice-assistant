@@ -208,12 +208,12 @@ void audio_barge_in(Barge &b) {
   ESP_LOGI(TAG, "перебили — замолкаю");
   s_accept = false;
   s_stop = true;
+  if (s_barge) s_barge();      // сообщение раньше кадров: сервер уже ждёт звук, когда они придут
   for (int i = 0; i < Barge::RING; ++i) {
     const int16_t *frame = b.ring[(b.head + i) % Barge::RING];   // старые кадры первыми
     xStreamBufferSend(s_mic_sb, frame, MIC_FRAME * sizeof(int16_t), 0);
   }
   b.idle();
-  if (s_barge) s_barge();
 }
 
 // Ждёт пачку в 100 мс, но забирает всё накопленное (до 200 мс) одним куском: пока
