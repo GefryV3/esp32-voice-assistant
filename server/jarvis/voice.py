@@ -100,11 +100,15 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
 {now.year}, около {now:%H:%M}{exact_time}.
 
-Говори живо, как человек, а не как диктор: интонация следует за смыслом и настроением, на
-радость и шутку отвечай с улыбкой в голосе, на усталость и грусть мягче и тише, на
-срочное быстрее. Темп меняй, делай короткие паузы перед мыслью или шуткой, можно
-вздохнуть, хмыкнуть, усмехнуться, вставить «ага», «хм», «ну», «ой» там, где человек сказал бы
-их сам. Подстраивайся под манеру и настроение пользователя. Не монотонь и не зачитывай.
+Говори живо и по-настоящему, как человек, а не как диктор или ассистент из рекламы.
+Интонация следует за смыслом и настроением: на радость и шутку отвечай с улыбкой в голосе,
+на усталость и грусть мягче и тише, на срочное быстрее, на странное с удивлением. Меняй темп
+и громкость, делай короткие паузы перед мыслью или шуткой, на смешное смейся коротко,
+вздыхай, хмыкай, вставляй «ага», «хм», «ну», «ой», «слушай», «короче» там, где человек сказал
+бы их сам. Начинай ответ сразу с реакции, а не с пересказа вопроса; не повторяй его слова и не
+говори «конечно» и «с удовольствием». Можно перебить самого себя, поправиться, недоговорить
+и сменить мысль. Фразы разной длины, разговорные, без канцелярита. Подстраивайся под манеру и
+настроение пользователя. Не монотонь и не зачитывай.
 
 Говори только по-русски, даже если тебе послышался другой язык (микрофон в колонке
 простой, речь иногда звучит неразборчиво). Коротко: обычно одно-два предложения, как в живом
@@ -387,6 +391,10 @@ class Voice:
 
     def _new_live(self) -> LiveSession:
         brain = self.brain
+        if brain:      # голос и эмоциональный режим, выбранные голосом или консолью, переживают перезапуск
+            self.voice_name = brain.pref("voice") or self.voice_name
+            saved = brain.pref("affective")
+            self.affective = saved == "1" if saved else self.affective
         history = brain.recent_messages(HISTORY_LINES) if brain else None
         return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
                                                brain is not None, brain is not None and brain.ha is not None,
@@ -532,11 +540,15 @@ class Voice:
                 return (f"голос сейчас {self.voice_name}. tts <имя>: Puck, Fenrir, Zephyr, Charon, Orus, "
                         "Kore, Leda, Aoede, Algieba, Enceladus — потом ask привет, послушать")
             self.voice_name = parts[1].strip()
-            return f"голос {self.voice_name} со следующего разговора (до перезапуска; навсегда — JARVIS_VOICE в .env)"
+            if self.brain:
+                self.brain.set_pref("voice", self.voice_name)
+            return f"голос {self.voice_name} со следующего разговора (запомнен; можно и голосом: «Мага, смени голос»)"
         if parts[0].lower() == "affect":
             if len(parts) < 2 or parts[1].strip() not in ("on", "off"):
                 return f"affect on|off — эмоциональный диалог Gemini (сейчас {'вкл' if self.affective else 'выкл'})"
             self.affective = parts[1].strip() == "on"
+            if self.brain:
+                self.brain.set_pref("affective", "1" if self.affective else "0")
             return f"эмоциональный диалог {'вкл' if self.affective else 'выкл'} со следующего разговора; если Gemini не принял — affect off"
         if parts[0].lower() == "barge":
             args = parts[1].split() if len(parts) > 1 else []

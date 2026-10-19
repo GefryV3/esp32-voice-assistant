@@ -113,3 +113,14 @@ def test_messages_limit_and_age(brain):
     assert [m[3] for m in brain.recent_messages(limit=3)] == ["м2", "м3", "м4"]     # старые первыми
     assert "старое" not in [m[3] for m in brain.recent_messages(limit=50)]          # старше суток
     assert "старое" in [m[3] for m in brain.recent_messages(limit=50, max_age_h=48)]
+
+
+async def test_voice_prefs_survive_reopen(brain, sent, tmp_path):
+    assert (await brain.call("set_voice", {"name": "puck"}, sent)) == {
+        "ok": True, "voice": "Puck", "note": "новый голос со следующего разговора"}
+    bad = await brain.call("set_voice", {"name": "Робот"}, sent)
+    assert bad["ok"] is False and "Puck" in bad["available"]
+    await brain.call("set_affective", {"enabled": "on"}, sent)
+    again = Brain(tmp_path / "b.db")
+    assert again.pref("voice") == "Puck" and again.pref("affective") == "1"
+    assert again.pref("нет", "запас") == "запас"

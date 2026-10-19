@@ -31,9 +31,22 @@ CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY, text TEXT NOT NULL, due TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY, ts TEXT NOT NULL, source TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
+VOICES = ('Zephyr Puck Charon Kore Fenrir Leda Orus Aoede Callirrhoe Autonoe Enceladus Iapetus Umbriel Algieba Despina Erinome Algenib Rasalgethi Laomedeia Achernar Alnilam Schedar Gacrux Pulcherrima Achird Zubenelgenubi Vindemiatrix Sadachbia Sadaltager Sulafat').split()     # встроенные голоса Gemini
+
+
 TOOLS: list[dict[str, Any]] = [
+    {"name": "set_voice", "description": "Сменить свой голос по просьбе пользователя («смени голос», "
+     "«говори живее/мягче/бодрее»). Голоса: Puck (бодрый), Fenrir (азартный), Zephyr (яркий), Orus "
+     "(уверенный), Charon (спокойный), Kore (чёткий), Leda (молодой), Aoede (лёгкий), Enceladus "
+     "(тихий), Algieba (плавный), Sulafat (тёплый) и другие. Новый голос с следующего разговора.",
+     "parameters": {"type": "OBJECT", "properties": {"name": {"type": "STRING"}}, "required": ["name"]}},
+    {"name": "set_affective", "description": "Включить или выключить эмоциональный режим голоса: "
+     "модель слышит интонацию пользователя и отвечает в тон. enabled: on или off. Действует со "
+     "следующего разговора; если после включения связь с Gemini пропала, выключи.",
+     "parameters": {"type": "OBJECT", "properties": {"enabled": {"type": "STRING"}}, "required": ["enabled"]}},
     {"name": "remember", "description": "Запомнить факт о пользователе или его просьбу надолго "
      "(имя, привычки, предпочтения, люди, планы). Один короткий факт на вызов.",
      "parameters": {"type": "OBJECT", "properties": {"fact": {"type": "STRING"}}, "required": ["fact"]}},
@@ -155,6 +168,15 @@ class Brain:
 
     # ── инструменты Gemini ──
 
+    def pref(self, key: str, default: str = "") -> str:
+        row = self.db.execute("SELECT value FROM prefs WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else default
+
+    def set_pref(self, key: str, value: str) -> None:
+        self.db.execute("INSERT INTO prefs (key, value) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+        self.db.commit()
+
     def tools(self) -> list[dict[str, Any]]:
         return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
 
@@ -172,6 +194,17 @@ class Brain:
             return await self.ha.call(name, args, send)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
+        if name == "set_voice":
+            wanted = str(args.get("name", "")).strip().casefold()
+            match = next((v for v in VOICES if v.casefold() == wanted), None)
+            if match is None:
+                return {"ok": False, "error": "такого голоса нет", "available": VOICES}
+            self.set_pref("voice", match)
+            return {"ok": True, "voice": match, "note": "новый голос со следующего разговора"}
+        if name == "set_affective":
+            on = str(args.get("enabled", "")).strip().casefold() in ("on", "true", "1", "да", "вкл")
+            self.set_pref("affective", "1" if on else "0")
+            return {"ok": True, "affective": on, "note": "со следующего разговора"}
         if name == "current_time":
             return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
