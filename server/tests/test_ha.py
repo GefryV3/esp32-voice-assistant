@@ -161,3 +161,92 @@ async def test_exact_name_beats_longer_and_other_domains(ha, ws):
     finally:
         del STATES[-4:]
         del REG[-4:]
+
+
+# ── календарь и погода ──
+
+from datetime import datetime  # noqa: E402
+
+NOW = datetime(2026, 10, 19, 12, 0)
+CAL_STATES = STATES + [
+    {"entity_id": "calendar.home", "state": "off", "attributes": {"friendly_name": "Дом"}},
+    {"entity_id": "calendar.work", "state": "off", "attributes": {"friendly_name": "Работа"}},
+    {"entity_id": "weather.home", "state": "rainy", "attributes": {
+        "friendly_name": "Дом", "temperature": 11.4, "temperature_unit": "°C", "humidity": 80,
+        "wind_speed": 12, "wind_speed_unit": "km/h"}},
+]
+RESPONSES = {
+    "get_events": {"calendar.home": {"events": [
+        {"start": "2026-10-20", "end": "2026-10-21", "summary": "День рождения"},
+        {"start": "2026-10-19T09:00:00+02:00", "end": "2026-10-19T10:00:00+02:00", "summary": "Утро"}]},
+        "calendar.work": {"events": [
+            {"start": "2026-10-19T18:30:00+02:00", "end": "2026-10-19T19:30:00+02:00",
+             "summary": "Врач", "location": "Клиника"}]}},
+    "get_forecasts": {"weather.home": {"forecast": [
+        {"datetime": "2026-10-20T00:00:00+02:00", "condition": "cloudy", "temperature": 14,
+         "templow": 8, "precipitation_probability": 30}]}},
+}
+
+
+class CalWs(FakeWs):
+    async def send(self, raw):
+        m = json.loads(raw)
+        if m["type"] == "call_service" and m["service"] in RESPONSES:
+            self.sent.append(m)
+            self.out.append({"id": m["id"], "type": "result", "success": True,
+                             "result": {"context": {}, "response": RESPONSES[m["service"]]}})
+            return
+        await super().send(raw)
+
+
+@pytest.fixture
+def cha(monkeypatch):
+    ws = CalWs()
+    monkeypatch.setitem(globals(), "STATES", CAL_STATES)     # FakeWs читает STATES из модуля
+
+    async def connect(url, **kw):
+        return ws
+    return HomeAssistant("ws://x", "tok", connect=connect, now=lambda: NOW), ws
+
+
+async def test_calendar_sorted_and_finished_dropped(cha):
+    ha, ws = cha
+    r = await ha.call("home_calendar", {"days": 3})
+    assert r["events"] == ["Врач — сегодня в 18:30, Клиника", "День рождения — завтра, весь день"]
+    sent = next(m for m in ws.sent if m.get("service") == "get_events")
+    assert sent["return_response"] and sent["domain"] == "calendar"
+    assert sent["target"]["entity_id"] == ["calendar.home", "calendar.work"]
+    assert sent["service_data"]["end_date_time"] == "2026-10-22 00:00:00"
+
+
+async def test_calendar_absent(ha):
+    r = await ha.call("home_calendar", {})
+    assert not r["ok"] and "календар" in r["error"]
+
+
+async def test_weather_text_and_screen(cha):
+    ha, _ = cha
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+    r = await ha.call("home_weather", {}, send)
+    assert r["now"]["condition"] == "дождь" and r["now"]["temperature"] == "11.4 °C"
+    assert r["forecast"] == ["завтра: облачно, 8…14 °C, осадки 30 %"]
+    assert sent == [{"type": "weather", "cond": 3, "temp": 11}]
+
+
+async def test_weather_absent(ha):
+    assert not (await ha.call("home_weather", {}))["ok"]
+
+
+async def test_brain_passes_send_for_weather(cha, tmp_path):
+    ha, _ = cha
+    brain = Brain(tmp_path / "w.db", ha=ha)
+    assert {"home_calendar", "home_weather"} <= {t["name"] for t in brain.tools()}
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+    await brain.call("home_weather", {}, send)
+    assert sent and sent[0]["type"] == "weather"

@@ -141,7 +141,7 @@ class Brain:
     async def _call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         now = self.now().replace(tzinfo=None)
         if name.startswith("home_") and self.ha:
-            return await self.ha.call(name, args)
+            return await self.ha.call(name, args, send)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
         if name == "current_time":
