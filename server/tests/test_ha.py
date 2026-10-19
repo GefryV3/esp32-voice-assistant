@@ -126,3 +126,17 @@ async def test_generic_service_and_bad_json(ha, ws):
     assert out == {"ok": True, "devices": ["Прихожая"], "service": "toggle"}
     assert services(ws)[-1] == ({"transition": 1}, "toggle", "light.hall")
     assert (await ha.call("home_service", {"name": "прихожая", "service": "x", "data": "{"}))["ok"] is False
+
+
+async def test_color_refused_for_dimmer_with_reason(ha, ws, monkeypatch):
+    STATES[2]["attributes"]["supported_color_modes"] = ["brightness"]
+    STATES[0]["attributes"]["supported_color_modes"] = ["rgb"]
+    ha._cache = None
+    out = await ha.call("home_set", {"name": "прихожая", "action": "on", "color": "синий"})
+    assert out["ok"] is False and "brightness" in out["error"]
+    assert not services(ws)
+    brief = (await ha.call("home_list", {"kind": "lights"}))["devices"]
+    assert any("Прихожая" in b and "только яркость" in b for b in brief)
+    assert any("Ночник слева" in b and "умеет цвет" in b for b in brief)
+    STATES[2]["attributes"].pop("supported_color_modes")
+    STATES[0]["attributes"].pop("supported_color_modes")

@@ -36,6 +36,7 @@ KIND_DOMAINS = {"lights": ("light",), "switches": ("switch", "fan", "input_boole
                 "covers": ("cover", "valve"), "climate": ("climate", "humidifier", "water_heater"),
                 "media": ("media_player",), "locks": ("lock", "alarm_control_panel"),
                 "scenes": ("scene", "script", "automation")}
+COLOR_MODES = {"hs", "xy", "rgb", "rgbw", "rgbww"}
 COLORS = {  # название → RGB; по-русски и по-английски
     "красный": (255, 0, 0), "red": (255, 0, 0), "оранжевый": (255, 120, 0), "orange": (255, 120, 0),
     "жёлтый": (255, 220, 0), "желтый": (255, 220, 0), "yellow": (255, 220, 0),
@@ -86,6 +87,8 @@ class Entity:
     area: str
     state: str
     unit: str = ""
+    modes: tuple[str, ...] = ()      # supported_color_modes света
+    effects: tuple[str, ...] = ()
 
     @property
     def domain(self) -> str:
@@ -93,7 +96,18 @@ class Entity:
 
     def brief(self) -> str:
         where = f" ({self.area})" if self.area else ""
-        return f"{self.name}{where}: {self.state}{(' ' + self.unit) if self.unit else ''}"
+        extra = ""
+        if self.domain == "light":
+            extra = (", умеет цвет" if self.can_color else
+                     ", только белый (теплота)" if "color_temp" in self.modes else
+                     ", только яркость" if self.modes else "")
+            if self.effects:
+                extra += f", эффекты: {', '.join(self.effects[:6])}"
+        return f"{self.name}{where}: {self.state}{(' ' + self.unit) if self.unit else ''}{extra}"
+
+    @property
+    def can_color(self) -> bool:
+        return bool(set(self.modes) & COLOR_MODES)
 
 
 def words(text: str) -> set[str]:
@@ -188,7 +202,9 @@ class HomeAssistant:
             area_id = r.get("area_id") or device_area.get(r.get("device_id"))
             attrs = s.get("attributes", {})
             out.append(Entity(eid, attrs.get("friendly_name") or eid, area_name.get(area_id, ""),
-                              s["state"], attrs.get("unit_of_measurement", "")))
+                              s["state"], attrs.get("unit_of_measurement", ""),
+                              tuple(attrs.get("supported_color_modes") or ()),
+                              tuple(attrs.get("effect_list") or ())))
         self._cache = (self._clock(), out)
         return out
 
@@ -234,6 +250,18 @@ class HomeAssistant:
         if len(found) > 1 and not (len(rooms) == 1 and "" not in rooms):
             return {"ok": False, "error": "подходит несколько, уточни",
                     "candidates": [e.name for e in found[:5]]}
+        if color and parse_color(color):
+            colorful = [e for e in found if e.domain == "light" and (e.can_color or not e.modes)]
+            if not colorful:
+                alt = [e.name for e in await self.entities() if e.domain == "light" and e.can_color
+                       and e.area in {f.area for f in found} and e.state != "unavailable"]
+                return {"ok": False, "error": "эта лампа не умеет менять цвет (по данным HA: "
+                        + (", ".join(found[0].modes) or "режимы неизвестны") + ")",
+                        "color_capable_in_same_room": alt[:5]}
+            found = colorful
+        if effect and all(e.effects and effect not in e.effects for e in found):
+            return {"ok": False, "error": "такого эффекта нет",
+                    "available_effects": sorted({x for e in found for x in e.effects})[:15]}
         done = []
         for e in found:
             domain, service, data = self._service(e, action, brightness, kelvin, color, effect, transition)
