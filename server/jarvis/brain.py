@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import protocol
+from .ha import TOOLS as HOME_TOOLS, HomeAssistant
 
 log = logging.getLogger(__name__)
 
@@ -60,8 +61,10 @@ def when_words(due: datetime, now: datetime) -> str:
 
 
 class Brain:
-    def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now):
+    def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now,
+                 ha: HomeAssistant | None = None):
         self.now = now
+        self.ha = ha
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -115,6 +118,9 @@ class Brain:
 
     # ── инструменты Gemini ──
 
+    def tools(self) -> list[dict[str, Any]]:
+        return TOOLS + (HOME_TOOLS if self.ha else [])
+
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
         try:
@@ -125,6 +131,8 @@ class Brain:
 
     async def _call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         now = self.now().replace(tzinfo=None)
+        if name.startswith("home_") and self.ha:
+            return await self.ha.call(name, args)
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":

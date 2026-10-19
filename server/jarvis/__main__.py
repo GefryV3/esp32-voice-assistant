@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from .audio import Audio
 from .brain import Brain
+from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
 from .voice import Voice
@@ -52,7 +53,10 @@ async def main() -> None:
     bridge = Bridge(hub, settings, SettingsStore(Path(settings.data_dir) / "settings.json"))
     audio = Audio(hub, settings.data_dir)
     Ota(hub, settings, os.environ.get("JARVIS_FIRMWARE", ""))
-    brain = Brain(Path(settings.data_dir) / "brain.db")
+    ha = HomeAssistant(settings.ha_url, settings.ha_token) if settings.ha_url and settings.ha_token else None
+    if ha is None:
+        logging.getLogger("jarvis").info("Home Assistant не настроен — умного дома нет")
+    brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha)
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
@@ -68,6 +72,8 @@ async def main() -> None:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
             await brain.stop()
+            if ha:
+                await ha.close()
             await bridge.stop()
 
 

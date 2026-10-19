@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+SUPERVISOR_URL = "ws://supervisor/core/websocket"   # так аддон HA ходит к ядру
 VIENNA_TZ = "CET-1CEST,M3.5.0,M10.5.0/3"
 
 
@@ -25,6 +26,8 @@ class Settings:
     gemini_model: str = "gemini-3.8-live"
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
+    ha_url: str = ""                         # пусто — умного дома нет
+    ha_token: str = ""
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -72,4 +75,6 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         gemini_model=env.get("JARVIS_GEMINI_MODEL", "gemini-3.8-live"),
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
+        ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
+        ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

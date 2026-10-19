@@ -19,7 +19,7 @@ from typing import Any
 
 from . import protocol
 from .audio import Audio
-from .brain import TOOLS, Brain
+from .brain import Brain
 from .config import Settings
 from .devices import Device, DeviceHub
 from .gemini_live import Event, LiveError, LiveSession
@@ -38,14 +38,17 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
 
 
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
-                  tools: bool = False) -> str:
+                  tools: bool = False, home: bool = False) -> str:
     tone = ("Характер сдержанный, но с острым умом: можешь едко пошутить или подколоть, "
             "особенно когда пользователь сам напрашивается." if sarcasm >= 45 else
             "Характер спокойный и доброжелательный, без подколов.")
     abilities = (
         "Ты умеешь запоминать факты о пользователе (remember), ставить напоминания и таймеры. "
         "Делай это сразу функцией, а не обещай; после вызова коротко подтверди словами. "
-        "Светом и телефоном управлять пока не умеешь — честно скажи, что это скоро появится."
+        + ("Ты управляешь умным домом: свет, розетки, датчики (home_set, home_state, home_list). "
+           "Когда просят включить или выключить — делай сразу, не переспрашивай, если ясно что. "
+           "Телефоном управлять пока не умеешь." if home else
+           "Светом и телефоном управлять пока не умеешь — честно скажи, что это скоро появится.")
         if tools else
         "Управлять светом, напоминаниями и телефоном ты пока не умеешь — "
         "если просят, честно скажи, что это скоро появится.")
@@ -146,7 +149,8 @@ class Conversation:
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
             facts = v.brain.facts() if v.brain else None
-            async with v.live_factory(system_prompt(v.now(), v.sarcasm(), facts, v.brain is not None)) as live:
+            async with v.live_factory(system_prompt(v.now(), v.sarcasm(), facts, v.brain is not None,
+                                                 v.brain is not None and v.brain.ha is not None)) as live:
                 pump = asyncio.create_task(self._pump_mic(live))
                 events: asyncio.Queue[Event | None] = asyncio.Queue()
                 reader = asyncio.create_task(self._read(live, events))
@@ -226,7 +230,7 @@ class Voice:
         self.brain = brain
         self.live_factory = live_factory or (lambda system: LiveSession(
             settings.gemini_api_key, settings.gemini_model, settings.voice_name, system,
-            tools=TOOLS if brain else None))
+            tools=brain.tools() if brain else None))
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()

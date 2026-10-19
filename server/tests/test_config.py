@@ -20,3 +20,12 @@ def test_missing_token_is_an_error(tmp_path):
 def test_bad_port_is_an_error(tmp_path):
     with pytest.raises(ConfigError, match="JARVIS_PORT"):
         load_settings(tmp_path / "nope.env", environ={"JARVIS_DEVICE_TOKEN": "t", "JARVIS_PORT": "abc"})
+
+
+def test_ha_settings_from_supervisor_or_env():
+    base = {"JARVIS_DEVICE_TOKEN": "t"}
+    assert load_settings(".nope", {**base}).ha_url == ""
+    s = load_settings(".nope", {**base, "SUPERVISOR_TOKEN": "sv"})
+    assert (s.ha_url, s.ha_token) == ("ws://supervisor/core/websocket", "sv")
+    s = load_settings(".nope", {**base, "JARVIS_HA_URL": "ws://h/api/websocket", "JARVIS_HA_TOKEN": "ll"})
+    assert (s.ha_url, s.ha_token) == ("ws://h/api/websocket", "ll")
