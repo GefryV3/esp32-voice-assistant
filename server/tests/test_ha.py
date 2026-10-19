@@ -107,3 +107,22 @@ async def test_brain_routes_home_tools(ha, tmp_path):
         pass
     assert (await brain.call("home_state", {"name": "прихожая"}, send))["ok"]
     assert "home_set" not in {t["name"] for t in Brain(tmp_path / "c.db").tools()}
+
+
+async def test_color_and_effect(ha, ws):
+    out = await ha.call("home_set", {"name": "прихожая", "action": "on", "color": "красный",
+                                     "effect": "pulse", "transition_s": 2})
+    assert out["ok"]
+    data, service, _ = services(ws)[-1]
+    assert service == "turn_on" and data["rgb_color"] == [255, 0, 0]
+    assert data["effect"] == "pulse" and data["transition"] == 2 and data["brightness_pct"] == 100
+    await ha.call("home_set", {"name": "прихожая", "action": "on", "color": "#00ff10"})
+    assert services(ws)[-1][0]["rgb_color"] == [0, 255, 16]
+
+
+async def test_generic_service_and_bad_json(ha, ws):
+    out = await ha.call("home_service", {"name": "прихожая", "service": "light.toggle",
+                                         "data": '{"transition": 1}'})
+    assert out == {"ok": True, "devices": ["Прихожая"], "service": "toggle"}
+    assert services(ws)[-1] == ({"transition": 1}, "toggle", "light.hall")
+    assert (await ha.call("home_service", {"name": "прихожая", "service": "x", "data": "{"}))["ok"] is False

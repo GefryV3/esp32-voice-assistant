@@ -24,11 +24,27 @@ log = logging.getLogger(__name__)
 SUPERVISOR_URL = "ws://supervisor/core/websocket"
 CACHE_S = 60.0
 TIMEOUT_S = 10.0
-CONTROLLABLE = ("light", "switch", "fan", "cover", "input_boolean", "scene", "script")
-READABLE = CONTROLLABLE + ("sensor", "binary_sensor", "climate", "person", "weather", "lock")
+CONTROLLABLE = ("light", "switch", "fan", "cover", "input_boolean", "scene", "script", "climate",
+                "media_player", "lock", "vacuum", "humidifier", "water_heater", "siren", "remote",
+                "button", "input_button", "number", "input_number", "select", "input_select",
+                "automation", "alarm_control_panel", "valve", "lawn_mower", "text", "input_text")
+READABLE = CONTROLLABLE + ("sensor", "binary_sensor", "person", "weather", "sun", "calendar",
+                           "device_tracker", "camera", "update", "zone")
 KIND_DOMAINS = {"lights": ("light",), "switches": ("switch", "fan", "input_boolean"),
-                "sensors": ("sensor", "binary_sensor", "climate", "weather"), "people": ("person",),
-                "covers": ("cover",)}
+                "sensors": ("sensor", "binary_sensor", "weather", "sun"),
+                "people": ("person", "device_tracker"),
+                "covers": ("cover", "valve"), "climate": ("climate", "humidifier", "water_heater"),
+                "media": ("media_player",), "locks": ("lock", "alarm_control_panel"),
+                "scenes": ("scene", "script", "automation")}
+COLORS = {  # название → RGB; по-русски и по-английски
+    "красный": (255, 0, 0), "red": (255, 0, 0), "оранжевый": (255, 120, 0), "orange": (255, 120, 0),
+    "жёлтый": (255, 220, 0), "желтый": (255, 220, 0), "yellow": (255, 220, 0),
+    "зелёный": (0, 220, 60), "зеленый": (0, 220, 60), "green": (0, 220, 60),
+    "голубой": (0, 190, 255), "cyan": (0, 190, 255), "бирюзовый": (0, 220, 200),
+    "синий": (0, 60, 255), "blue": (0, 60, 255), "фиолетовый": (140, 40, 255),
+    "purple": (140, 40, 255), "розовый": (255, 60, 150), "pink": (255, 60, 150),
+    "малиновый": (220, 20, 100), "белый": (255, 255, 255), "white": (255, 255, 255),
+}
 
 TOOLS: list[dict[str, Any]] = [
     {"name": "home_list", "description": "Список устройств умного дома с комнатой и состоянием. "
@@ -40,8 +56,19 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "OBJECT", "properties": {
          "name": {"type": "STRING"}, "action": {"type": "STRING"},
          "brightness_percent": {"type": "NUMBER", "description": "Яркость света 1-100"},
-         "color_temp_kelvin": {"type": "NUMBER", "description": "Теплота света, 2000 тёплый - 6500 холодный"}},
+         "color_temp_kelvin": {"type": "NUMBER", "description": "Теплота света, 2000 тёплый - 6500 холодный"},
+         "color": {"type": "STRING", "description": "Цвет света: название («красный», «blue») или #RRGGBB"},
+         "effect": {"type": "STRING", "description": "Эффект света, если лампа умеет"},
+         "transition_s": {"type": "NUMBER", "description": "Плавно за столько секунд"}},
          "required": ["name", "action"]}},
+    {"name": "home_service", "description": "Любое действие над любым устройством HA: климат "
+     "(set_temperature, set_hvac_mode), плеер (media_pause, volume_set, play_media), замок "
+     "(lock, unlock), пылесос (start, return_to_base), сцена, скрипт, number/select и т.д. "
+     "name — имя устройства; service — имя сервиса без домена; data — JSON-строка с параметрами "
+     "сервиса, например {\"temperature\": 22}.",
+     "parameters": {"type": "OBJECT", "properties": {
+         "name": {"type": "STRING"}, "service": {"type": "STRING"}, "data": {"type": "STRING"}},
+         "required": ["name", "service"]}},
     {"name": "home_state", "description": "Узнать состояние датчика или устройства: температура, "
      "влажность, кто дома, открыта ли дверь.",
      "parameters": {"type": "OBJECT", "properties": {"name": {"type": "STRING"}}, "required": ["name"]}},
@@ -72,6 +99,13 @@ class Entity:
 def words(text: str) -> set[str]:
     """Слова без окончаний: «спальне» и «спальня» → «спаль»."""
     return {w[:5] for w in re.findall(r"\w+", text.casefold()) if len(w) > 1}
+
+
+def parse_color(text: str) -> tuple[int, int, int] | None:
+    text = (text or "").strip().casefold()
+    if m := re.fullmatch(r"#?([0-9a-f]{6})", text):
+        return tuple(int(m[1][i:i + 2], 16) for i in (0, 2, 4))     # type: ignore[return-value]
+    return COLORS.get(text)
 
 
 def score(query: str, text: str) -> float:
@@ -172,8 +206,27 @@ class HomeAssistant:
             return top
         return top[:1] if len(top) == 1 else top
 
+    async def service(self, query: str, service: str, data: dict[str, Any] | None = None) -> dict:
+        """Любой сервис HA над найденным устройством (домен берётся у устройства)."""
+        found = await self.resolve(query, CONTROLLABLE)
+        if not found:
+            return {"ok": False, "error": f"не нашёл устройство «{query}»"}
+        rooms = {e.area for e in found}
+        if len(found) > 1 and not (len(rooms) == 1 and "" not in rooms):
+            return {"ok": False, "error": "подходит несколько, уточни",
+                    "candidates": [e.name for e in found[:5]]}
+        service = service.rpartition(".")[2]
+        done = []
+        for e in found:
+            await self.request("call_service", domain=e.domain, service=service,
+                               service_data=data or {}, target={"entity_id": e.entity_id})
+            done.append(e.name)
+        self._cache = None
+        return {"ok": True, "devices": done, "service": service}
+
     async def set(self, query: str, action: str, brightness: float | None = None,
-                  kelvin: float | None = None) -> dict:
+                  kelvin: float | None = None, color: str = "", effect: str = "",
+                  transition: float | None = None) -> dict:
         found = await self.resolve(query, CONTROLLABLE)
         if not found:
             return {"ok": False, "error": f"не нашёл устройство «{query}»"}
@@ -183,7 +236,7 @@ class HomeAssistant:
                     "candidates": [e.name for e in found[:5]]}
         done = []
         for e in found:
-            domain, service, data = self._service(e, action, brightness, kelvin)
+            domain, service, data = self._service(e, action, brightness, kelvin, color, effect, transition)
             await self.request("call_service", domain=domain, service=service,
                                service_data=data, target={"entity_id": e.entity_id})
             done.append(e.name)
@@ -191,13 +244,16 @@ class HomeAssistant:
         return {"ok": True, "devices": done, "action": action}
 
     @staticmethod
-    def _service(e: Entity, action: str, brightness: float | None, kelvin: float | None):
+    def _service(e: Entity, action: str, brightness: float | None, kelvin: float | None,
+                 color: str = "", effect: str = "", transition: float | None = None):
         action = action.casefold()
         if e.domain == "cover":
             return "cover", {"open": "open_cover", "on": "open_cover",
                              "close": "close_cover", "off": "close_cover"}.get(action, "toggle"), {}
-        if e.domain in ("scene", "script"):
-            return e.domain, "turn_on", {}
+        if e.domain in ("scene", "script", "automation", "button", "input_button"):
+            return e.domain, {"button": "press", "input_button": "press"}.get(e.domain, "turn_on"), {}
+        if e.domain == "lock":
+            return "lock", "unlock" if action in ("on", "open", "unlock") else "lock", {}
         service = {"on": "turn_on", "off": "turn_off", "open": "turn_on", "close": "turn_off"}.get(action, "toggle")
         data: dict[str, Any] = {}
         if e.domain == "light" and service == "turn_on":
@@ -205,6 +261,15 @@ class HomeAssistant:
                 data["brightness_pct"] = max(1, min(100, int(brightness)))
             if kelvin is not None:
                 data["color_temp_kelvin"] = max(1500, min(9000, int(kelvin)))
+            rgb = parse_color(color)
+            if rgb:
+                data["rgb_color"] = list(rgb)
+                data.pop("color_temp_kelvin", None)
+                data.setdefault("brightness_pct", 100)
+            if effect:
+                data["effect"] = effect
+            if transition is not None:
+                data["transition"] = max(0, min(300, float(transition)))
         return e.domain, service, data
 
     async def state(self, query: str) -> dict:
@@ -223,9 +288,17 @@ class HomeAssistant:
                 return await self.listing(str(args.get("kind", "all")))
             if name == "home_set":
                 return await self.set(str(args.get("name", "")), str(args.get("action", "toggle")),
-                                      args.get("brightness_percent"), args.get("color_temp_kelvin"))
+                                      args.get("brightness_percent"), args.get("color_temp_kelvin"),
+                                      str(args.get("color", "")), str(args.get("effect", "")),
+                                      args.get("transition_s"))
+            if name == "home_service":
+                raw = args.get("data") or "{}"
+                data = raw if isinstance(raw, dict) else json.loads(raw)
+                return await self.service(str(args.get("name", "")), str(args.get("service", "")), data)
             if name == "home_state":
                 return await self.state(str(args.get("name", "")))
+        except ValueError as e:
+            return {"ok": False, "error": f"неверные параметры: {e}"}
         except HAError as e:
             return {"ok": False, "error": str(e)}
         return {"ok": False, "error": f"нет такого инструмента: {name}"}
