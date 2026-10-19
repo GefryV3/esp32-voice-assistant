@@ -123,3 +123,26 @@ def test_bedtime_summary(env):
     title, text = bridge.bedtime_summary()
     assert title == "Перед сном"
     assert text == "будильник 07:30 · телефон 40 %, заряжается · Nothing Ear (a) 55 %"
+
+
+async def test_night_remark_only_late_and_once_per_night(env):
+    _, bridge, now = env
+    sent = []
+
+    async def speaker(msg):
+        sent.append(msg)
+    bridge.speaker = speaker
+    bridge.phone_state = {"next_alarm": (1_760_800_000.0 + 5 * 3600) * 1000}
+    for t in (datetime(2026, 10, 18, 23, 45), datetime(2026, 10, 19, 0, 40)):   # ночь, но ещё не поздно
+        now["t"] = t
+        await bridge._maybe_remark()
+    assert sent == []
+    now["t"] = datetime(2026, 10, 19, 3, 0)                   # реально сидит в 3 ночи
+    await bridge._maybe_remark()
+    assert len(sent) == 1 and sent[0]["kind"] == "remark"
+    now["t"] = datetime(2026, 10, 19, 3, 40)                   # через сорок минут — не повторяем
+    await bridge._maybe_remark()
+    assert len(sent) == 1
+    now["t"] = datetime(2026, 10, 20, 2, 0)                    # следующая ночь — можно снова
+    await bridge._maybe_remark()
+    assert len(sent) == 2

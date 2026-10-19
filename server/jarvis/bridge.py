@@ -14,7 +14,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -34,19 +34,18 @@ PC_PATH = "/pc"
 PC_ACTIVE_S = 120         # за компьютером, если мышь или клавиатуру трогали последние 2 минуты
 BATTERY_LOW = 20
 BATTERY_REPEAT_S = 3600   # про одну и ту же батарею — не чаще раза в час
-REMARK_REPEAT_S = 1800    # ночная колкость — не чаще раза в полчаса
 
 DEFAULTS: dict[str, Any] = {
     "sleep_after_min": 3, "sleep_clock": "top", "brightness": 100,
     "night_start": "23:30", "night_end": "07:00",
-    "bedtime_check": True, "bedtime_at": "23:00",
+    "bedtime_check": True, "bedtime_at": "23:00", "remark_from": "01:30",
     "sarcasm": 60, "mirror": True, "mirror_only_pc": True, "alarm_watchdog_min": 5,
     "volume": 50,
 }
 RANGES = {"sleep_after_min": (1, 60), "brightness": (5, 100), "sarcasm": (0, 100),
           "alarm_watchdog_min": (1, 30), "volume": (0, 100)}
 CHOICES = {"sleep_clock": ("top", "bottom")}
-TIMES = ("night_start", "night_end", "bedtime_at")
+TIMES = ("night_start", "night_end", "bedtime_at", "remark_from")
 
 
 def _valid_time(v: Any) -> bool:
@@ -140,7 +139,7 @@ class Bridge:
         self.notifs: dict[str, Message] = {}   # последние уведомления — чтобы было на что ответить
         self.bt: list[dict] = []
         self._last_warn: dict[str, float] = {}
-        self._remark_at = 0.0
+        self._remark_night = ""     # за какую ночь колкость уже была: раз за ночь
         self._screen_off_at = 0.0
         self._watchdog: asyncio.Task | None = None
         self._bedtime_day = ""
@@ -397,14 +396,20 @@ class Bridge:
         return self.store.values["sarcasm"] >= 45
 
     async def _maybe_remark(self) -> None:
-        """Ночью взял телефон, а будильник скоро — колкость на экране."""
+        """Сидит с телефоном глубокой ночью (с remark_from, по умолчанию 01:30), а будильник
+        скоро — одна колкость за ночь. Короткие подъёмы вечером и под утро не трогаем."""
         now = self._clock()
-        if not self.night() or now - self._remark_at < REMARK_REPEAT_S:
+        local = self._now()
+        v = self.store.values
+        if not in_window(local.hour * 60 + local.minute, v["remark_from"], v["night_end"]):
+            return
+        night = (local - timedelta(hours=12)).strftime("%Y-%m-%d")
+        if night == self._remark_night:
             return
         left = self.phone_state.get("next_alarm", 0) / 1000 - now
         if not 0 < left < 10 * 3600:
             return
-        self._remark_at = now
+        self._remark_night = night
         h, m = divmod(int(left // 60), 60)
         title = f"Подъём через {h} ч {m:02d} мин"
         text = "Просто к сведению." if self._sarcastic() else "Пора спать."
