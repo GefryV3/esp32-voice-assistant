@@ -11,6 +11,7 @@ dependencies = [
     "websockets>=14",
     "numpy>=1.26",          # слово пробуждения
     "onnxruntime>=1.20",    # модели openWakeWord
+    "vosk>=0.3.45",         # слово «Мага»: распознавание речи с грамматикой
 ]
 
 [project.optional-dependencies]

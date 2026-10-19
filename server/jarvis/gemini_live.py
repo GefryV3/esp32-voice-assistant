@@ -48,7 +48,7 @@ SILENCE_MS = 450   # сколько тишины Gemini считает конц�
 
 def setup_message(model: str, voice: str, system: str,
                   tools: list[dict[str, Any]] | None = None,
-                  silence_ms: int = SILENCE_MS) -> dict[str, Any]:
+                  silence_ms: int = SILENCE_MS, affective: bool = False) -> dict[str, Any]:
     setup: dict[str, Any] = {
         "model": model if model.startswith("models/") else f"models/{model}",
         "generationConfig": {
@@ -64,6 +64,8 @@ def setup_message(model: str, voice: str, system: str,
             "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
         }},
     }
+    if affective:     # модель слышит интонацию и отвечает в тон (только v1alpha, не на каждой модели)
+        setup["generationConfig"]["enableAffectiveDialog"] = True
     if tools:
         setup["tools"] = [{"functionDeclarations": tools}]
     return {"setup": setup}
@@ -103,10 +105,10 @@ class LiveSession:
 
     def __init__(self, api_key: str, model: str, voice: str, system: str, *,
                  tools: list[dict[str, Any]] | None = None, silence_ms: int = SILENCE_MS,
-                 url: str = LIVE_URL, connect: Callable = ws_connect):
+                 affective: bool = False, url: str = LIVE_URL, connect: Callable = ws_connect):
         self._key = api_key
-        self._setup = setup_message(model, voice, system, tools, silence_ms)
-        self._url = url
+        self._setup = setup_message(model, voice, system, tools, silence_ms, affective)
+        self._url = url.replace("/v1beta.", "/v1alpha.") if affective else url
         self._connect = connect
         self._ws: Any = None
 

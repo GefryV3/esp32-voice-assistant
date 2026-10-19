@@ -51,7 +51,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         "Когда разговор по смыслу закончен (спасибо, пока, всё, отбой) — попрощайся коротко и вызови "
         "end_conversation: тогда колонка уйдёт в ожидание сразу, не ждёт продолжения. "
         "Долгие задачи (поиск в интернете, новости, сравнения, подборки) отдавай в фон функцией "
-        "start_task и сразу говори, что взялась: результат ты озвучишь сама, когда он будет готов, "
+        "start_task и сразу говори, что взялся: результат ты озвучишь сам, когда он будет готов, "
         "а пока можно говорить о другом. Быстрые вопросы отвечай сразу, без start_task. "
         + ("Ты полностью управляешь умным домом: свет (цвет, яркость, эффекты), розетки, климат, плееры, замки, сцены, датчики (home_set, home_service, home_state, home_list). "
            "Когда просят включить или выключить — делай сразу, не переспрашивай, если ясно что. Никогда не отказывай заранее, что устройство чего-то не умеет: вызови функцию и перескажи ответ — если она вернула ошибку, объясни её причину своими словами. "
@@ -67,14 +67,20 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
 {now.year}, около {now:%H:%M}{exact_time}.
 
+Говори живо, как человек, а не как диктор: интонация следует за смыслом и настроением, на
+радость и шутку отвечай с улыбкой в голосе, на усталость и грусть мягче и тише, на
+срочное быстрее. Темп меняй, делай короткие паузы перед мыслью или шуткой, можно
+вздохнуть, хмыкнуть, усмехнуться, вставить «ага», «хм», «ну», «ой» там, где человек сказал бы
+их сам. Подстраивайся под манеру и настроение пользователя. Не монотонь и не зачитывай.
+
 Говори только по-русски, даже если тебе послышался другой язык (микрофон в колонке
 простой, речь иногда звучит неразборчиво). Коротко: обычно одно-два предложения, как в живом
 разговоре. Если не расслышал — так и скажи, не додумывай. Ответ звучит
 вслух — никаких списков, разметки, ссылок и смайлов; числа и время говори словами так, как
 их произносят. {tone}
 
-Имени у тебя пока нет. «Hey Jarvis» — просто временное слово, которым тебя зовут, ты не
-Джарвис и не изображаешь его. {abilities}
+Тебя зовут Мага (ты мужского рода, говори о себе «я сделал», «я взялся»). На «Hey Jarvis»
+ты тоже откликаешься, но ты не Джарвис и не изображаешь его. {abilities}
 {memory}"""
 
 
@@ -296,9 +302,12 @@ class Voice:
         self.now = now
         self._wake_factory = wake_factory
         self.brain = brain
+        self.voice_name = settings.voice_name     # меняются на лету командами tts и affect
+        self.affective = settings.affective
         self.live_factory = live_factory or (lambda system: LiveSession(
-            settings.gemini_api_key, settings.gemini_model, settings.voice_name, system,
-            tools=brain.tools() if brain else None, silence_ms=settings.vad_silence_ms))
+            settings.gemini_api_key, settings.gemini_model, self.voice_name, system,
+            tools=brain.tools() if brain else None, silence_ms=settings.vad_silence_ms,
+            affective=self.affective))
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -454,8 +463,19 @@ class Voice:
 
     async def command(self, line: str) -> str | None:
         parts = line.split(maxsplit=1)
-        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge"):
+        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect"):
             return None
+        if parts[0].lower() == "tts":
+            if len(parts) < 2:
+                return (f"голос сейчас {self.voice_name}. tts <имя>: Puck, Fenrir, Zephyr, Charon, Orus, "
+                        "Kore, Leda, Aoede, Algieba, Enceladus — потом ask привет, послушать")
+            self.voice_name = parts[1].strip()
+            return f"голос {self.voice_name} со следующего разговора (до перезапуска; навсегда — JARVIS_VOICE в .env)"
+        if parts[0].lower() == "affect":
+            if len(parts) < 2 or parts[1].strip() not in ("on", "off"):
+                return f"affect on|off — эмоциональный диалог Gemini (сейчас {'вкл' if self.affective else 'выкл'})"
+            self.affective = parts[1].strip() == "on"
+            return f"эмоциональный диалог {'вкл' if self.affective else 'выкл'} со следующего разговора; если Gemini не принял — affect off"
         if parts[0].lower() == "barge":
             args = parts[1].split() if len(parts) > 1 else []
             dev = self.hub.get()

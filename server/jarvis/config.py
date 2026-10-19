@@ -26,6 +26,8 @@ class Settings:
     gemini_model: str = "gemini-3.8-live"
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
+    affective: bool = False                  # эмоциональный диалог Gemini (v1alpha)
+    wake_words: str = "мага,jarvis"          # через запятую: «мага» (Vosk) и «jarvis» (openWakeWord)
     barge_in: bool = True                    # можно перебить колонку голосом
     barge_ratio: float = 3.0                 # во сколько раз голос должен быть громче эха ответа
     vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
@@ -92,6 +94,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         gemini_model=env.get("JARVIS_GEMINI_MODEL", "gemini-3.8-live"),
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
+        wake_words=env.get("JARVIS_WAKE_WORDS", "мага,jarvis"),
+        affective=env.get("JARVIS_AFFECTIVE", "0").strip() in ("1", "true", "on"),
         barge_in=env.get("JARVIS_BARGE_IN", "1").lower() not in ("0", "false", "no", "off"),
         barge_ratio=barge_ratio,
         vad_silence_ms=vad_silence_ms,

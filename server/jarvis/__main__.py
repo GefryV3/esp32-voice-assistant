@@ -20,19 +20,35 @@ from .ota import Ota
 from .telegram import Telegram, parse_chat_ids
 from .voice import Voice
 from .wake import WakeWord, ensure_models
+from .wake_vosk import MultiWake, VoskWake, ensure_model
 from .config import ConfigError, load_settings
 from .console import RecentLogHandler, add_admin_route, run_console
 from .devices import DeviceHub
 
 
-async def wake_factory(model_dir: Path) -> Callable[[], WakeWord] | None:
-    """Модели слова пробуждения (скачать при первом запуске). Не вышло — без слова, но ask работает."""
-    try:
-        await asyncio.to_thread(ensure_models, model_dir)
-        return lambda: WakeWord(model_dir)
-    except Exception as e:
-        logging.getLogger("jarvis").warning("слово пробуждения выключено: %s", e)
+async def wake_factory(model_dir: Path, words: str = "мага,jarvis") -> Callable[[], object] | None:
+    """Детекторы слов пробуждения (модели качаются при первом запуске). Каждый грузится сам:
+    не вышел один (нет сети, нет vosk) — работают остальные; ни одного — без слова, но ask работает."""
+    log = logging.getLogger("jarvis")
+    names = [w.strip().casefold() for w in words.split(",") if w.strip()]
+    makers: list[Callable[[], object]] = []
+    custom = tuple(n for n in names if n != "jarvis")
+    if custom:
+        try:
+            path = await asyncio.to_thread(ensure_model, model_dir)
+            makers.append(lambda: VoskWake(path, custom))
+        except Exception as e:
+            log.warning("слова %s (Vosk) выключены: %s", ", ".join(custom), e)
+    if "jarvis" in names:
+        try:
+            await asyncio.to_thread(ensure_models, model_dir)
+            makers.append(lambda: WakeWord(model_dir))
+        except Exception as e:
+            log.warning("слово Hey Jarvis выключено: %s", e)
+    if not makers:
         return None
+    log.info("слова пробуждения: %s", ", ".join(names))
+    return lambda: MultiWake([make() for make in makers])
 
 
 async def _device_send(hub: DeviceHub, msg) -> None:
@@ -68,7 +84,7 @@ async def main() -> None:
     brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha)
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
-                      wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
+                      wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce)
         brain.agents.start_delivery()
     else:
