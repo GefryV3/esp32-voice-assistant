@@ -435,3 +435,26 @@ async def test_gemini_connects_before_wake_confirmed(hub, voice, live, monkeypat
         assert len(opened) == 1 and voice._warm is None
     finally:
         await ws.close()
+
+
+async def test_end_conversation_by_context_skips_follow_up(hub, live, tmp_path, monkeypatch):
+    from jarvis.brain import Brain
+    monkeypatch.setattr(voice_mod, "FOLLOW_UP_S", 30.0)     # без end_conversation ждали бы 30 с
+    monkeypatch.setattr(voice_mod, "NO_SPEECH_S", 5.0)
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=Brain(tmp_path / "b.db"), live_factory=live)
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        task = v.start(hub.get(), "спасибо, всё")
+        await live.queue.put(Event("tool_call", calls=(("c1", "end_conversation", {}),)))
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 2400, rate=24000))
+        await live.queue.put(Event("said", text="Пожалуйста."))
+        await live.queue.put(Event("turn_complete"))
+        async with asyncio.timeout(3):                       # не 30 секунд
+            await task
+        assert live.tool_results[0] == [("c1", "end_conversation", {"ok": True})]
+        await log.wait(is_voice("idle"))
+        assert ("voice", "listening") not in log.types()[log.types().index(("voice", "speaking")):]
+    finally:
+        await ws.close()

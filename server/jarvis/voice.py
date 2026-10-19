@@ -48,6 +48,11 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
     abilities = (
         "Ты умеешь запоминать факты о пользователе (remember), ставить напоминания и таймеры. "
         "Делай это сразу функцией, а не обещай; после вызова коротко подтверди словами. "
+        "Когда разговор по смыслу закончен (спасибо, пока, всё, отбой) — попрощайся коротко и вызови "
+        "end_conversation: тогда колонка уйдёт в ожидание сразу, не ждёт продолжения. "
+        "Долгие задачи (поиск в интернете, новости, сравнения, подборки) отдавай в фон функцией "
+        "start_task и сразу говори, что взялась: результат ты озвучишь сама, когда он будет готов, "
+        "а пока можно говорить о другом. Быстрые вопросы отвечай сразу, без start_task. "
         + ("Ты полностью управляешь умным домом: свет (цвет, яркость, эффекты), розетки, климат, плееры, замки, сцены, датчики (home_set, home_service, home_state, home_list). "
            "Когда просят включить или выключить — делай сразу, не переспрашивай, если ясно что. Никогда не отказывай заранее, что устройство чего-то не умеет: вызови функцию и перескажи ответ — если она вернула ошибку, объясни её причину своими словами. "
            "Телефоном управлять пока не умеешь." if home else
@@ -88,6 +93,7 @@ class Conversation:
         self.dev = dev
         self.mic: asyncio.Queue[bytes] = asyncio.Queue()
         self.listening = True     # микрофон идёт в Gemini
+        self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
 
     def feed(self, pcm: bytes) -> None:
         if self.listening:
@@ -113,6 +119,10 @@ class Conversation:
         brain = self.voice.brain
         results = []
         for call_id, name, args in ev.calls:
+            if name == "end_conversation":
+                self.end_requested = True
+                results.append((call_id, name, {"ok": True}))
+                continue
             out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
             log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
             results.append((call_id, name, out))
@@ -196,6 +206,9 @@ class Conversation:
                             v.transcript.append(("колонка", v.reply_text.strip()))
                             if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps:
                                 why = "ответ без продолжения"
+                                break
+                            if self.end_requested:
+                                why = "по смыслу разговор окончен"
                                 break
                             # продолжение разговора без слова пробуждения
                             heard = ""
@@ -336,14 +349,17 @@ class Voice:
         talk = self._talks[dev.id] = Conversation(self, dev)
         return self._spawn(self._run(talk, text))
 
-    async def remind(self, text: str) -> bool:
-        """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+    async def announce(self, prompt: str) -> bool:
+        """Колонка сама заговорит по этой подсказке. False — колонки нет или она занята."""
         dev = self.hub.get()
         if dev is None or "speaker" not in dev.hello.caps:
             return False
-        task = self.start(dev, f"Сработало напоминание: «{text}». Скажи пользователю об этом "
-                               "одной короткой фразой, как будто сам вспомнил.")
-        return task is not None
+        return self.start(dev, prompt) is not None
+
+    async def remind(self, text: str) -> bool:
+        """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+        return await self.announce(f"Сработало напоминание: «{text}». Скажи пользователю об этом "
+                                   "одной короткой фразой, как будто сам вспомнил.")
 
     async def _run(self, talk: Conversation, text: str | None) -> None:
         dev = talk.dev

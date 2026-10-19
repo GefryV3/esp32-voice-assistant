@@ -76,6 +76,7 @@ class Agents:
         self.tasks: list[Task] = []
         self._next = 1
         self._loop_task: asyncio.Task | None = None
+        self._wake = asyncio.Event()      # задача закончилась — пора озвучивать
         self._clock = clock or asyncio.get_running_loop().time
 
     # ── инструменты Gemini ──
@@ -128,6 +129,7 @@ class Agents:
         if task.status == "failed":
             task.result = ""
         log.info("задача «%s»: %s (%d симв.)", task.title, task.status, len(task.result))
+        self._wake.set()
 
     def start_delivery(self) -> None:
         self._loop_task = asyncio.create_task(self._deliver_loop())
@@ -151,7 +153,8 @@ class Agents:
     async def _deliver_loop(self) -> None:
         waiting_since: dict[int, float] = {}
         while True:
-            delay = 2.0
+            delay = 60.0
+            self._wake.clear()
             for t in self.tasks:
                 if t.status in ("done", "failed") and not t.spoken:
                     waiting_since.setdefault(t.id, self._clock())
@@ -161,4 +164,7 @@ class Agents:
                         t.spoken = True
                     else:
                         delay = RETRY_S
-            await asyncio.sleep(delay)
+            try:
+                await asyncio.wait_for(self._wake.wait(), delay)
+            except TimeoutError:
+                pass

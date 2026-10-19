@@ -27,6 +27,7 @@ class Settings:
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
     vad_silence_ms: int = 450                # пауза, после которой Gemini считает фразу законченной
+    agent_model: str = "gemini-flash-latest"   # модель фоновых агентов (с поиском Google)
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
 
@@ -82,6 +83,7 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         voice_name=env.get("JARVIS_VOICE", "Charon"),
         wake_threshold=wake_threshold,
         vad_silence_ms=vad_silence_ms,
+        agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-latest"),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )
