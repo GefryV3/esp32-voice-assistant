@@ -33,3 +33,6 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 
 # Скорость отрисовки лица: больше кэша команд (меньше промахов при чтении кода из флеша).
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+
+# Обновление по воздуху с сервера в своей сети — по HTTP (net/ota; образ проверяет сам ESP-IDF).
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y

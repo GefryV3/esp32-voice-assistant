@@ -10,8 +10,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from urllib.parse import urlsplit
+
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Request, Response
 
 from . import __version__, protocol
 from .config import Settings
@@ -60,10 +63,12 @@ class DeviceHub:
         self._audio_handlers: list[AudioHandler] = []
         self._connect_handlers: list[Callable[[Device], Awaitable[None]]] = []
         self._routes: dict[str, RouteHandler] = {DEVICE_PATH: self._handle_device}
+        self._http: dict[str, Callable[[Request], Response]] = {}
         self._background: set[asyncio.Task] = set()
         self.bridge: Any = None  # мост с телефоном и компьютером (jarvis.bridge), если запущен
         self.audio: Any = None   # звук колонок (jarvis.audio), если запущен
         self.voice: Any = None   # разговор через Gemini Live (jarvis.voice), если есть ключ
+        self.ota: Any = None     # обновление прошивки по воздуху (jarvis.ota)
 
     # ── жизненный цикл ──
 
@@ -72,6 +77,7 @@ class DeviceHub:
             self._handle,
             self._settings.host if host is None else host,
             self._settings.port if port is None else port,
+            process_request=self._process_request,
         )
         log.info("жду колонки на ws://%s:%d%s", self._settings.host, self.port, DEVICE_PATH)
 
@@ -106,6 +112,14 @@ class DeviceHub:
     def on_connect(self, handler: Callable[[Device], Awaitable[None]]) -> None:
         """Подписка на подключение колонки (вызывается сразу после welcome)."""
         self._connect_handlers.append(handler)
+
+    def add_http(self, path: str, handler: Callable[[Request], Response]) -> None:
+        """Обычный HTTP GET на том же порту (например, прошивка для обновления по воздуху)."""
+        self._http[path] = handler
+
+    def _process_request(self, connection: ServerConnection, request: Request) -> Response | None:
+        handler = self._http.get(urlsplit(request.path).path)
+        return handler(request) if handler is not None else None   # None — дальше как WebSocket
 
     def screen_changed(self, dev: Device) -> None:
         """Экран колонки поменялся — сообщить мосту (он решит, слать ли телефону)."""

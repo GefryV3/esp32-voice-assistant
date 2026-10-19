@@ -17,6 +17,7 @@
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net/ota.h"
 #include "net/wifi.h"
 #include "secrets.h"
 #include "ui/ui.h"
@@ -87,6 +88,21 @@ void send_played() {
   send_json(m);
 }
 
+// ход обновления: серверу — сообщением, на экран — подписью
+void report_ota(const char *state, int pct, const char *text) {
+  cJSON *m = cJSON_CreateObject();
+  cJSON_AddStringToObject(m, "type", "ota_state");
+  cJSON_AddStringToObject(m, "state", state);
+  cJSON_AddNumberToObject(m, "pct", pct);
+  if (text && *text) cJSON_AddStringToObject(m, "error", text);
+  send_json(m);
+  char line[96];   // кириллица — по 2 байта на букву
+  if (eq(state, "progress")) snprintf(line, sizeof line, "Обновляюсь… %d %%", pct);
+  else if (eq(state, "done")) snprintf(line, sizeof line, "Обновился, перезагружаюсь");
+  else snprintf(line, sizeof line, "Обновиться не вышло");
+  ui::set_caption(face::Caption::Reply, line, face::Icon::None);
+}
+
 void send_status() {
   cJSON *m = cJSON_CreateObject();
   cJSON_AddStringToObject(m, "type", "status");
@@ -111,6 +127,7 @@ void on_welcome(const cJSON *m) {
   }
   s_online = true;
   ui::set_online(true);
+  ota::confirm();   // сервер ответил — новая прошивка рабочая, откат не нужен
   time_t now = time(nullptr);
   struct tm lt;
   localtime_r(&now, &lt);
@@ -214,6 +231,8 @@ void on_message(const cJSON *m) {
     audio::play_stop();
   } else if (eq(type, "volume")) {
     audio::set_volume(num(m, "level", 70));
+  } else if (eq(type, "ota")) {
+    if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {
     cJSON *pong = cJSON_CreateObject();
     cJSON_AddStringToObject(pong, "type", "pong");

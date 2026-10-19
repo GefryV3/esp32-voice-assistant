@@ -233,6 +233,15 @@ def volume(level: int) -> Message:
     return {"type": "volume", "level": _int_in("level", level, 0, 100)}
 
 
+# ── обновление прошивки ──────────────────────────────────────────────────────
+
+def ota(url: str, version: str, size: int) -> Message:
+    """Скачать прошивку с этого же сервера (url — путь с ?token=) и перезагрузиться в неё."""
+    if not url.startswith("/") or len(url.encode()) > 200:
+        raise ValueError(f"url — путь на сервере не длиннее 200 байт, получено {url!r}")
+    return {"type": "ota", "url": url, "version": version, "size": int(size)}
+
+
 def _clip(value: str, max_bytes: int) -> str:
     """Обрезать по границе символа, чтобы влезло в буфер колонки (байты UTF-8)."""
     data = value.encode()

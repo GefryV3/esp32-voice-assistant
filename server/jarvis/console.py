@@ -48,6 +48,8 @@ HELP = """\
   wake                          слушает ли слово пробуждения и как близко было за минуту
   last                          последний разговор: что расслышал и что ответил
   log [строк]                   последние строки журнала сервера (по умолчанию 40)
+Прошивка:
+  ota [info|force]              обновить колонку по воздуху образом с сервера / версии / залить ту же
 Телефон и компьютер:
   phone                         что известно о телефоне и компьютере
   ring [off]                    «где мой телефон»
@@ -152,10 +154,11 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
         reply = await hub.audio.command(line)
         if reply is not None:
             return reply
-    if hub.voice is not None:
-        out = await hub.voice.command(line)
-        if out is not None:
-            return out
+    for module in (hub.voice, hub.ota):
+        if module is not None:
+            out = await module.command(line)
+            if out is not None:
+                return out
     if hub.bridge is not None:
         out = await hub.bridge.command(line)
         if out is not None:

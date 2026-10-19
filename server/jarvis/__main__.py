@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 from pathlib import Path
@@ -12,6 +13,7 @@ from collections.abc import Callable
 
 from .audio import Audio
 from .bridge import Bridge, SettingsStore
+from .ota import Ota
 from .voice import Voice
 from .wake import WakeWord, ensure_models
 from .config import ConfigError, load_settings
@@ -48,6 +50,7 @@ async def main() -> None:
     add_admin_route(hub, settings.device_token)
     bridge = Bridge(hub, settings, SettingsStore(Path(settings.data_dir) / "settings.json"))
     audio = Audio(hub, settings.data_dir)
+    Ota(hub, settings, os.environ.get("JARVIS_FIRMWARE", ""))
     if settings.gemini_api_key:
         Voice(hub, audio, settings, wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
     else:

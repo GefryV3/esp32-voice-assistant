@@ -7,7 +7,6 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
-#include "esp_ota_ops.h"
 #include "esp_wifi.h"
 #include "secrets.h"
 
@@ -39,18 +38,6 @@ void use_network(int i) {
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
 }
 
-// Прошивка, залитая по воздуху, сначала «на испытании»: если до перезагрузки она не
-// подтвердит себя, загрузчик вернёт прежнюю. Подтверждаем, когда есть сеть — значит,
-// следующее обновление по воздуху точно дойдёт.
-void confirm_firmware() {
-  esp_ota_img_states_t state;
-  const esp_partition_t *running = esp_ota_get_running_partition();
-  if (esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
-    esp_ota_mark_app_valid_cancel_rollback();
-    ESP_LOGI(TAG, "новая прошивка подтверждена");
-  }
-}
-
 void on_event(void *, esp_event_base_t base, int32_t id, void *data) {
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
     esp_wifi_connect();
@@ -77,8 +64,7 @@ void on_event(void *, esp_event_base_t base, int32_t id, void *data) {
   } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
     auto *e = static_cast<ip_event_got_ip_t *>(data);
     ESP_LOGI(TAG, "подключён к «%s», IP " IPSTR, SSIDS[s_net], IP2STR(&e->ip_info.ip));
-    s_connected = true;
-    confirm_firmware();
+    s_connected = true;   // прошивку подтверждает uplink, когда ответит сервер (net/ota)
   }
 }
 

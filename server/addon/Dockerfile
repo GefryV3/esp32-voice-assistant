@@ -11,6 +11,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY jarvis ./jarvis
 RUN pip install --no-cache-dir --root-user-action=ignore .
+# образ прошивки колонки для обновления по воздуху (команда ota); папка бывает пустой
+COPY firmware ./firmware
 
 # токен, ключ Gemini и прочие JARVIS_* — из server/.env разработчика; /data переживает
 # перезапуск и обновление (настройки колонки, модели слова пробуждения, записи)

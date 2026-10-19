@@ -45,6 +45,13 @@ def build(dest: Path) -> list[str]:
         shutil.rmtree(pkg)          # чтобы удалённые модули не остались в аддоне
     shutil.copytree(SERVER / "jarvis", pkg, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
+    # прошивка для обновления колонки по воздуху (команда ota): последняя собранная
+    fw_dir = dest / "firmware"
+    fw_dir.mkdir(exist_ok=True)
+    built = SERVER.parent / "firmware" / "build" / "jarvis.bin"
+    if built.is_file():
+        shutil.copyfile(built, fw_dir / "jarvis.bin")
+
     lines = [f"{k}={env[k]}" for k in ENV_KEYS if env.get(k)]
     (dest / "jarvis.env").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return sorted(p.name for p in dest.iterdir())
@@ -53,7 +60,9 @@ def build(dest: Path) -> list[str]:
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dest", default=DEFAULT_DEST, help="папка аддона в общей папке addons")
+    host = read_env_file(SERVER / ".env").get("JARVIS_SERVER", "")
+    default = rf"\\{host}\addons\jarvis" if host and host not in ("127.0.0.1", "localhost") else DEFAULT_DEST
+    p.add_argument("--dest", default=default, help="папка аддона в общей папке addons (по умолчанию — на JARVIS_SERVER)")
     dest = Path(p.parse_args().dest)
     try:
         files = build(dest)
