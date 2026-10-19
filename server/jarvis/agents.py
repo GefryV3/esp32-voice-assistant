@@ -170,7 +170,8 @@ class Agents:
         self.tasks.append(task)
         task.runner = asyncio.create_task(self._work(task))
         self._trim()
-        return {"ok": True, "note": "работает в фоне, результат озвучу сам, когда будет готов"}
+        return {"ok": True, "note": "принято, работает в фоне. Больше ничего не говори про поиск и "
+                                    "не переспрашивай: колонка сама озвучит результат, когда он будет готов"}
 
     def _trim(self) -> None:
         done = [t for t in self.tasks if t.status != "running"]

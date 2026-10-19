@@ -524,3 +524,26 @@ async def test_barge_in_ignored_when_not_speaking(hub, voice, live):
         assert ("voice", "listening") not in log.types()
     finally:
         await ws.close()
+
+
+async def test_start_task_ends_conversation_after_ack(hub, live, tmp_path, monkeypatch):
+    from jarvis.agents import Agents
+    from jarvis.brain import Brain
+    monkeypatch.setattr(voice_mod, "FOLLOW_UP_S", 30.0)
+    monkeypatch.setattr(voice_mod, "NO_SPEECH_S", 5.0)
+    ag = Agents("k", "m", lambda p: asyncio.sleep(0, result=True), generate=lambda g: asyncio.sleep(10))
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=Brain(tmp_path / "b.db", agents=ag), live_factory=live)
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        task = v.start(hub.get(), "поищи погоду на завтра")
+        await live.queue.put(Event("tool_call", calls=(("c1", "start_task", {"goal": "погода завтра"}),)))
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 2400, rate=24000))
+        await live.queue.put(Event("turn_complete"))
+        async with asyncio.timeout(3):                        # без end_conversation ждали бы 30 с
+            await task
+        assert ("voice", "listening") not in log.types()[log.types().index(("voice", "speaking")):]
+        await ag.stop()
+    finally:
+        await ws.close()
