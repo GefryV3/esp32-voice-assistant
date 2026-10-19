@@ -12,6 +12,7 @@ from pathlib import Path
 from collections.abc import Callable
 
 from .audio import Audio
+from .brain import Brain
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
 from .voice import Voice
@@ -51,8 +52,11 @@ async def main() -> None:
     bridge = Bridge(hub, settings, SettingsStore(Path(settings.data_dir) / "settings.json"))
     audio = Audio(hub, settings.data_dir)
     Ota(hub, settings, os.environ.get("JARVIS_FIRMWARE", ""))
+    brain = Brain(Path(settings.data_dir) / "brain.db")
     if settings.gemini_api_key:
-        Voice(hub, audio, settings, wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
+        voice = Voice(hub, audio, settings, brain=brain,
+                      wake_factory=await wake_factory(Path(settings.data_dir) / "models"))
+        brain.start(voice.remind)
     else:
         logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
     async with hub:
@@ -63,6 +67,7 @@ async def main() -> None:
             else:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
+            await brain.stop()
             await bridge.stop()
 
 

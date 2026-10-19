@@ -30,6 +30,7 @@ class FakeLive:
         self.audio: list[bytes] = []
         self.texts: list[str] = []
         self.stream_ends = 0
+        self.tool_results: list = []
         self.system = ""
         self.queue: asyncio.Queue = asyncio.Queue()
 
@@ -53,6 +54,9 @@ class FakeLive:
 
     async def send_text(self, text):
         self.texts.append(text)
+
+    async def send_tool_results(self, results):
+        self.tool_results.append(results)
 
     async def events(self):
         while True:
@@ -367,3 +371,34 @@ def test_wake_word_models():
     ww.reset()
     pcm = read_pcm(DATA / "privet.wav")
     assert max(ww.process(pcm[i:i + 3200]) for i in range(0, len(pcm), 3200)) < 0.1
+
+
+# ── инструменты ──
+
+async def test_tool_call_runs_and_answers(hub, live, tmp_path, monkeypatch):
+    from jarvis.brain import Brain
+    monkeypatch.setattr(voice_mod, "NO_SPEECH_S", 0.5)
+    brain = Brain(tmp_path / "b.db")
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=brain, live_factory=live)
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        dev = hub.get()
+        task = v.start(dev, "запомни, что я люблю чай")
+        await live.queue.put(Event("tool_call", calls=(("c1", "remember", {"fact": "любит чай"}),)))
+        async with asyncio.timeout(2):
+            while not live.tool_results:
+                await asyncio.sleep(0.01)
+        assert live.tool_results[0] == [("c1", "remember", {"ok": True, "new": True})]
+        assert brain.facts() == ["любит чай"]
+        await live.queue.put(None)
+        await task
+    finally:
+        await ws.close()
+
+
+def test_system_prompt_lists_facts():
+    from datetime import datetime
+    text = system_prompt(datetime(2026, 10, 19, 9, 0), facts=["любит чай"], tools=True)
+    assert "любит чай" in text and "remember" in text

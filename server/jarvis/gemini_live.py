@@ -35,15 +35,17 @@ class LiveError(Exception):
 @dataclass(frozen=True)
 class Event:
     """Что пришло от Gemini. kind: audio (data — PCM, rate), heard (кусок расшифровки
-    пользователя), said (кусок расшифровки ответа), turn_complete, interrupted, go_away."""
+    пользователя), said (кусок расшифровки ответа), tool_call (calls), turn_complete, interrupted, go_away."""
     kind: str
     data: bytes = b""
     text: str = ""
     rate: int = DEFAULT_OUT_RATE
+    calls: tuple[tuple[str, str, dict], ...] = ()   # tool_call: (id, имя, аргументы)
 
 
-def setup_message(model: str, voice: str, system: str) -> dict[str, Any]:
-    return {"setup": {
+def setup_message(model: str, voice: str, system: str,
+                  tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    setup: dict[str, Any] = {
         "model": model if model.startswith("models/") else f"models/{model}",
         "generationConfig": {
             "responseModalities": ["AUDIO"],
@@ -53,7 +55,10 @@ def setup_message(model: str, voice: str, system: str) -> dict[str, Any]:
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "realtimeInputConfig": {"automaticActivityDetection": {"silenceDurationMs": 700}},
-    }}
+    }
+    if tools:
+        setup["tools"] = [{"functionDeclarations": tools}]
+    return {"setup": setup}
 
 
 def parse(msg: dict[str, Any]) -> list[Event]:
@@ -61,6 +66,10 @@ def parse(msg: dict[str, Any]) -> list[Event]:
     events: list[Event] = []
     if "goAway" in msg:
         events.append(Event("go_away"))
+    calls = (msg.get("toolCall") or {}).get("functionCalls")
+    if calls:
+        events.append(Event("tool_call", calls=tuple(
+            (str(c.get("id", "")), str(c.get("name", "")), c.get("args") or {}) for c in calls)))
     content = msg.get("serverContent")
     if not isinstance(content, dict):
         return events
@@ -85,9 +94,10 @@ class LiveSession:
     """async with LiveSession(...) as live: live.send_audio(...); async for ev in live.events()."""
 
     def __init__(self, api_key: str, model: str, voice: str, system: str, *,
+                 tools: list[dict[str, Any]] | None = None,
                  url: str = LIVE_URL, connect: Callable = ws_connect):
         self._key = api_key
-        self._setup = setup_message(model, voice, system)
+        self._setup = setup_message(model, voice, system, tools)
         self._url = url
         self._connect = connect
         self._ws: Any = None
@@ -123,6 +133,11 @@ class LiveSession:
     async def send_text(self, text: str) -> None:
         await self._ws.send(json.dumps({"clientContent": {
             "turns": [{"role": "user", "parts": [{"text": text}]}], "turnComplete": True}}))
+
+    async def send_tool_results(self, results: list[tuple[str, str, dict]]) -> None:
+        """Ответы на tool_call: (id, имя, результат)."""
+        await self._ws.send(json.dumps({"toolResponse": {"functionResponses": [
+            {"id": i, "name": n, "response": r} for i, n, r in results]}}))
 
     async def events(self) -> AsyncIterator[Event]:
         try:

@@ -19,6 +19,7 @@ from typing import Any
 
 from . import protocol
 from .audio import Audio
+from .brain import TOOLS, Brain
 from .config import Settings
 from .devices import Device, DeviceHub
 from .gemini_live import Event, LiveError, LiveSession
@@ -36,10 +37,19 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
           "сентября", "октября", "ноября", "декабря")
 
 
-def system_prompt(now: datetime, sarcasm: int = 60) -> str:
+def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
+                  tools: bool = False) -> str:
     tone = ("Характер сдержанный, но с острым умом: можешь едко пошутить или подколоть, "
             "особенно когда пользователь сам напрашивается." if sarcasm >= 45 else
             "Характер спокойный и доброжелательный, без подколов.")
+    abilities = (
+        "Ты умеешь запоминать факты о пользователе (remember), ставить напоминания и таймеры. "
+        "Делай это сразу функцией, а не обещай; после вызова коротко подтверди словами. "
+        "Светом и телефоном управлять пока не умеешь — честно скажи, что это скоро появится."
+        if tools else
+        "Управлять светом, напоминаниями и телефоном ты пока не умеешь — "
+        "если просят, честно скажи, что это скоро появится.")
+    memory = ("\nТы помнишь о пользователе:\n" + "\n".join(f"- {f}" for f in facts)) if facts else ""
     return f"""\
 Ты голосовой ассистент в колонке с круглым экраном. Колонка стоит в спальне пользователя, у
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
@@ -52,9 +62,8 @@ def system_prompt(now: datetime, sarcasm: int = 60) -> str:
 их произносят. {tone}
 
 Имени у тебя пока нет. «Hey Jarvis» — просто временное слово, которым тебя зовут, ты не
-Джарвис и не изображаешь его. Управлять светом, напоминаниями и телефоном ты пока не умеешь —
-если просят, честно скажи, что это скоро появится.
-"""
+Джарвис и не изображаешь его. {abilities}
+{memory}"""
 
 
 def tail_bytes(text: str, max_bytes: int = 120) -> str:
@@ -93,7 +102,17 @@ class Conversation:
         finally:
             await events.put(None)
 
-    async def _speak(self, first: Event, events: asyncio.Queue) -> Event | None:
+    async def _tools(self, live: LiveSession, ev: Event) -> None:
+        """Выполнить функции, которые позвал Gemini, и вернуть ему результаты."""
+        brain = self.voice.brain
+        results = []
+        for call_id, name, args in ev.calls:
+            out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
+            log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
+            results.append((call_id, name, out))
+        await live.send_tool_results(results)
+
+    async def _speak(self, first: Event, events: asyncio.Queue, live: LiveSession) -> Event | None:
         """Проиграть ответ: первый кусок уже пришёл, остальные — до turn_complete.
         Возвращает событие, на котором ответ кончился (None — сессия закрылась)."""
         audio = self.voice.audio
@@ -115,6 +134,8 @@ class Conversation:
                     break
                 if ev.kind == "audio":
                     await stream.write(ev.data)
+                elif ev.kind == "tool_call":
+                    await self._tools(live, ev)
                 elif ev.kind == "said":
                     self.voice.reply_text += ev.text
         return end
@@ -124,7 +145,8 @@ class Conversation:
         heard = ""
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
-            async with v.live_factory(system_prompt(v.now(), v.sarcasm())) as live:
+            facts = v.brain.facts() if v.brain else None
+            async with v.live_factory(system_prompt(v.now(), v.sarcasm(), facts, v.brain is not None)) as live:
                 pump = asyncio.create_task(self._pump_mic(live))
                 events: asyncio.Queue[Event | None] = asyncio.Queue()
                 reader = asyncio.create_task(self._read(live, events))
@@ -145,7 +167,10 @@ class Conversation:
                         if ev is None or ev.kind == "go_away":
                             why = "Gemini закрыл сессию" if ev is None else "Gemini попросил переподключиться"
                             break
-                        if ev.kind == "heard":
+                        if ev.kind == "tool_call":
+                            await self._tools(live, ev)
+                            deadline = v.clock() + NO_SPEECH_S
+                        elif ev.kind == "heard":
                             heard += ev.text
                             deadline = v.clock() + NO_SPEECH_S
                             await dev.send(protocol.caption("heard", tail_bytes(heard.strip())))
@@ -159,7 +184,7 @@ class Conversation:
                                 v.transcript.append(("я", heard.strip()))
                             await dev.send(protocol.voice("speaking"))
                             v.reply_text = ""
-                            end = await self._speak(ev, events)
+                            end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))
                             if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps:
@@ -188,6 +213,7 @@ class Conversation:
 class Voice:
     def __init__(self, hub: DeviceHub, audio: Audio, settings: Settings, *,
                  wake_factory: Callable[[], Any] | None = None,
+                 brain: Brain | None = None,
                  live_factory: Callable[[str], LiveSession] | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  now: Callable[[], datetime] = datetime.now):
@@ -197,8 +223,10 @@ class Voice:
         self.clock = clock
         self.now = now
         self._wake_factory = wake_factory
+        self.brain = brain
         self.live_factory = live_factory or (lambda system: LiveSession(
-            settings.gemini_api_key, settings.gemini_model, settings.voice_name, system))
+            settings.gemini_api_key, settings.gemini_model, settings.voice_name, system,
+            tools=TOOLS if brain else None))
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -251,6 +279,15 @@ class Voice:
             return None
         talk = self._talks[dev.id] = Conversation(self, dev)
         return self._spawn(self._run(talk, text))
+
+    async def remind(self, text: str) -> bool:
+        """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+        dev = self.hub.get()
+        if dev is None or "speaker" not in dev.hello.caps:
+            return False
+        task = self.start(dev, f"Сработало напоминание: «{text}». Скажи пользователю об этом "
+                               "одной короткой фразой, как будто сам вспомнил.")
+        return task is not None
 
     async def _run(self, talk: Conversation, text: str | None) -> None:
         dev = talk.dev
