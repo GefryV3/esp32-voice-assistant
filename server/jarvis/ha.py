@@ -15,9 +15,12 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from websockets.asyncio.client import connect as ws_connect
+
+from . import protocol
 
 log = logging.getLogger(__name__)
 
@@ -72,10 +75,51 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "OBJECT", "properties": {
          "name": {"type": "STRING"}, "service": {"type": "STRING"}, "data": {"type": "STRING"}},
          "required": ["name", "service"]}},
+    {"name": "home_calendar", "description": "События календаря на ближайшие дни из всех календарей "
+     "дома: «что у меня сегодня / завтра / на неделе», «когда встреча». days — на сколько дней "
+     "вперёд смотреть (1 = только сегодня, по умолчанию 2, максимум 31).",
+     "parameters": {"type": "OBJECT", "properties": {"days": {"type": "NUMBER"}}}},
+    {"name": "home_weather", "description": "Погода: сейчас (температура, условия, ветер, влажность) "
+     "и прогноз на ближайшие дни. Зови на «какая погода», «брать ли зонт», «что на улице», "
+     "«что завтра». Заодно обновляет значок погоды на экране колонки.",
+     "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "home_state", "description": "Узнать состояние датчика или устройства: температура, "
      "влажность, кто дома, открыта ли дверь.",
      "parameters": {"type": "OBJECT", "properties": {"name": {"type": "STRING"}}, "required": ["name"]}},
 ]
+
+WEATHER_RU = {
+    "clear-night": "ясная ночь", "cloudy": "облачно", "exceptional": "необычная погода",
+    "fog": "туман", "hail": "град", "lightning": "гроза", "lightning-rainy": "гроза с дождём",
+    "partlycloudy": "переменная облачность", "pouring": "ливень", "rainy": "дождь",
+    "snowy": "снег", "snowy-rainy": "снег с дождём", "sunny": "солнечно",
+    "windy": "ветрено", "windy-variant": "облачно и ветрено",
+}
+# Условие HA → значок на экране колонки (0 ясно, 1 переменная облачность, 2 облачно, 3 дождь,
+# 4 снег, 5 гроза, 6 туман, 7 ясная ночь; см. draw_weather в firmware/main/face/render.cpp).
+# Град и ливень рисуем дождём, ветрено и «необычная» — просто облаком.
+WEATHER_ICON = {
+    "sunny": 0, "partlycloudy": 1, "cloudy": 2, "windy": 2, "windy-variant": 2, "exceptional": 2,
+    "rainy": 3, "pouring": 3, "hail": 3, "snowy": 4, "snowy-rainy": 4, "lightning": 5,
+    "lightning-rainy": 5, "fog": 6, "clear-night": 7,
+}
+WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+MAX_EVENTS = 15
+
+
+def day_words(d: date, today: date) -> str:
+    delta = (d - today).days
+    if delta in (0, 1, 2):
+        return ("сегодня", "завтра", "послезавтра")[delta]
+    return f"{d.day:02d}.{d.month:02d} ({WEEKDAYS[d.weekday()]})"
+
+
+def event_when(start: str, today: date) -> tuple[str, str]:
+    """Ключ сортировки и человеческое «когда» из start события (дата или дата-время ISO)."""
+    if "T" not in start:
+        return start, f"{day_words(date.fromisoformat(start), today)}, весь день"
+    dt = datetime.fromisoformat(start)
+    return dt.replace(tzinfo=None).isoformat(), f"{day_words(dt.date(), today)} в {dt:%H:%M}"
 
 
 class HAError(Exception):
@@ -130,7 +174,9 @@ def score(query: str, text: str) -> float:
 
 
 class HomeAssistant:
-    def __init__(self, url: str, token: str, *, connect: Callable = ws_connect, clock=time.monotonic):
+    def __init__(self, url: str, token: str, *, connect: Callable = ws_connect, clock=time.monotonic,
+                 now: Callable[[], datetime] = datetime.now):
+        self.now = now
         self.url, self.token, self._connect, self._clock = url, token, connect, clock
         self._ws: Any = None
         self._id = 0
@@ -322,8 +368,92 @@ class HomeAssistant:
         domains = KIND_DOMAINS.get(kind.casefold(), READABLE)
         return {"devices": [e.brief() for e in await self.entities() if e.domain in domains][:40]}
 
-    async def call(self, name: str, args: dict[str, Any]) -> dict:
+    async def _response(self, domain: str, service: str, entity_ids: list[str],
+                        data: dict[str, Any]) -> dict[str, Any]:
+        """Сервис HA, который возвращает данные (return_response): {entity_id: ответ}."""
+        result = await self.request("call_service", domain=domain, service=service,
+                                    service_data=data, target={"entity_id": entity_ids},
+                                    return_response=True)
+        return (result or {}).get("response") or {}
+
+    async def calendar(self, days: Any = 2) -> dict:
+        """События ближайших `days` дней (с начала сегодняшнего дня) из всех календарей."""
         try:
+            days = max(1, min(31, int(float(days))))
+        except (TypeError, ValueError):
+            days = 2
+        cals = [e for e in await self.entities() if e.domain == "calendar" and e.state != "unavailable"]
+        if not cals:
+            return {"ok": False, "error": "в Home Assistant нет календарей"}
+        now = self.now().replace(tzinfo=None)
+        today = now.date()
+        start = datetime.combine(today, datetime.min.time())
+        resp = await self._response(
+            "calendar", "get_events", [e.entity_id for e in cals],
+            {"start_date_time": start.isoformat(sep=" "),
+             "end_date_time": (start + timedelta(days=days)).isoformat(sep=" ")})
+        found = []
+        for e in cals:
+            for ev in (resp.get(e.entity_id) or {}).get("events") or []:
+                begin = str(ev.get("start") or "")
+                if not begin:
+                    continue
+                end = str(ev.get("end") or "")
+                if "T" in begin and "T" in end and datetime.fromisoformat(end).replace(tzinfo=None) < now:
+                    continue        # сегодняшнее событие уже закончилось
+                key, when = event_when(begin, today)
+                text = f"{ev.get('summary') or 'без названия'} — {when}"
+                if ev.get("location"):
+                    text += f", {ev['location']}"
+                found.append((key, text))
+        events = [t for _, t in sorted(found)][:MAX_EVENTS]
+        return {"ok": True, "days": days, "events": events, "note": "" if events else "событий нет"}
+
+    async def weather(self, send: Callable[[dict], Any] | None = None) -> dict:
+        """Погода из weather.*: сейчас и прогноз по дням. Значок и температуру шлёт на экран."""
+        states = [s for s in await self.request("get_states")
+                  if s["entity_id"].startswith("weather.") and s["state"] != "unavailable"]
+        if not states:
+            return {"ok": False, "error": "в Home Assistant нет погоды"}
+        st = states[0]
+        a = st.get("attributes", {})
+        cond = st["state"]
+        unit = a.get("temperature_unit", "°C")
+        out: dict[str, Any] = {"ok": True, "now": {
+            "condition": WEATHER_RU.get(cond, cond),
+            "temperature": f"{a['temperature']} {unit}" if a.get("temperature") is not None else None}}
+        if a.get("humidity") is not None:
+            out["now"]["humidity"] = f"{a['humidity']} %"
+        if a.get("wind_speed") is not None:
+            out["now"]["wind"] = f"{a['wind_speed']} {a.get('wind_speed_unit', 'км/ч')}"
+        try:
+            resp = await self._response("weather", "get_forecasts", [st["entity_id"]], {"type": "daily"})
+            today = self.now().date()
+            days = []
+            for f in ((resp.get(st["entity_id"]) or {}).get("forecast") or [])[:5]:
+                day = datetime.fromisoformat(str(f["datetime"])).date()
+                line = f"{day_words(day, today)}: {WEATHER_RU.get(f.get('condition'), f.get('condition'))}"
+                if f.get("temperature") is not None:
+                    low = f.get("templow")
+                    line += (f", {low:g}…{f['temperature']:g} {unit}" if low is not None
+                             else f", {f['temperature']:g} {unit}")
+                if f.get("precipitation_probability") is not None:
+                    line += f", осадки {f['precipitation_probability']} %"
+                days.append(line)
+            out["forecast"] = days
+        except (HAError, ValueError, KeyError):
+            out["forecast"] = []       # прогноз не получился — текущей погоды достаточно
+        icon = WEATHER_ICON.get(cond)
+        if send and icon is not None and a.get("temperature") is not None:
+            await send(protocol.weather(icon, round(float(a["temperature"]))))
+        return out
+
+    async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Any] | None = None) -> dict:
+        try:
+            if name == "home_calendar":
+                return await self.calendar(args.get("days", 2))
+            if name == "home_weather":
+                return await self.weather(send)
             if name == "home_list":
                 return await self.listing(str(args.get("kind", "all")))
             if name == "home_set":

@@ -132,7 +132,7 @@ class Brain:
     async def _call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         now = self.now().replace(tzinfo=None)
         if name.startswith("home_") and self.ha:
-            return await self.ha.call(name, args)
+            return await self.ha.call(name, args, send)
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":
