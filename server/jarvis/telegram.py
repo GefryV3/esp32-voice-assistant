@@ -5,6 +5,12 @@
 generateContent (не Live): текстовый запрос проще, чем держать голосовую сессию без звука, а
 цикл «функция → результат → ответ» занимает десяток строк. Инструменты те же, что у голоса:
 Brain.tools() и Brain.call(). Чужим chat_id не отвечаем вообще, даже «нельзя».
+
+История общая с голосом (Brain.log_message / recent_messages, таблица messages): каждое сообщение и
+ответ пишем туда, а контекст берём оттуда же блоком «Недавний разговор» в подсказке — с пометкой
+источника и времени, поэтому бот знает, что говорили колонке, а колонка — что писали сюда. Внутри
+одного запроса цепочка «функция → результат» остаётся настоящими ходами Gemini. Без Brain (тесты,
+консоль без базы) работает прежняя история в памяти.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/{model}:genera
 POLL_S = 30            # сколько Telegram держит getUpdates открытым
 MAX_LEN = 4000         # лимит сообщения Telegram — 4096
 MAX_ROUNDS = 5         # сколько раз подряд Gemini может звать функции
-HISTORY = 12           # реплик переписки в памяти на чат
+HISTORY = 12           # реплик общей истории в подсказке (и в памяти, если нет Brain)
 RETRY_S = 5.0
 RETRY_GEMINI_S = 2.0
 
@@ -121,8 +127,10 @@ class Telegram:
 
     def _system(self) -> str:
         b = self.brain
+        history = b.recent_messages(HISTORY) if b else None
         return system_prompt(self.now(), self.sarcasm(), b.facts() if b else None,
-                             b is not None, b is not None and b.ha is not None) + CHAT_NOTE
+                             b is not None, b is not None and b.ha is not None, history,
+                             history_lines=HISTORY) + CHAT_NOTE
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
         """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
@@ -147,8 +155,10 @@ class Telegram:
     async def ask(self, chat_id: int, text: str) -> str:
         """Текст пользователя → ответ Gemini (с вызовами функций). История хранится по чатам."""
         hist = self._history[chat_id]
-        contents = list(hist) + [{"role": "user", "parts": [{"text": text}]}]
+        contents = ([] if self.brain is not None else list(hist)) + [{"role": "user", "parts": [{"text": text}]}]
         body: dict[str, Any] = {"systemInstruction": {"parts": [{"text": self._system()}]}}
+        if self.brain is not None:
+            self.brain.log_message("telegram", "user", text)    # после сборки подсказки: сама реплика в ней не нужна
         if self.brain is not None:
             body["tools"] = [{"functionDeclarations": self.brain.tools()}]
         answer = ""
@@ -168,8 +178,11 @@ class Telegram:
                 results.append({"functionResponse": {"name": c.get("name", ""), "response": out}})
             contents.append({"role": "user", "parts": results})
         answer = answer or "Не смог ничего ответить, попробуй ещё раз."
-        hist.append({"role": "user", "parts": [{"text": text}]})
-        hist.append({"role": "model", "parts": [{"text": answer}]})
+        if self.brain is not None:
+            self.brain.log_message("telegram", "assistant", answer)
+        else:
+            hist.append({"role": "user", "parts": [{"text": text}]})
+            hist.append({"role": "model", "parts": [{"text": answer}]})
         return answer
 
     # ── входящие ──

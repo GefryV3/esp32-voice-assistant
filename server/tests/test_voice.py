@@ -1,3 +1,4 @@
+from datetime import datetime
 import asyncio
 import base64
 import json
@@ -545,5 +546,74 @@ async def test_start_task_ends_conversation_after_ack(hub, live, tmp_path, monke
             await task
         assert ("voice", "listening") not in log.types()[log.types().index(("voice", "speaking")):]
         await ag.stop()
+    finally:
+        await ws.close()
+
+
+def test_system_prompt_history_block_is_short_and_marked():
+    now = datetime(2026, 10, 19, 12, 0)
+    msgs = [(datetime(2026, 10, 18, 22, 10), "голос", "user", "старое"),
+            (datetime(2026, 10, 19, 11, 30), "telegram", "user", "x" * 500),
+            (datetime(2026, 10, 19, 11, 31), "telegram", "assistant", "ответ")]
+    p = system_prompt(now, history=msgs)
+    assert "Недавний разговор" in p
+    assert "- вчера 22:10, голос, пользователь: старое" in p
+    assert "- 11:31, telegram, ты: ответ" in p
+    assert "x" * 181 not in p and "…" in p
+    assert "Недавний разговор" not in system_prompt(now)
+
+
+async def _talk(hub, live, tmp_path, monkeypatch, start):
+    from jarvis.brain import Brain
+    monkeypatch.setattr(voice_mod, "NO_SPEECH_S", 0.3)
+    brain = Brain(tmp_path / "b.db")
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=brain, live_factory=live)
+    ws = await speaker(hub)
+    Log(ws)
+    try:
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 240, rate=24000))
+        await live.queue.put(Event("said", text="Ответ."))
+        await live.queue.put(Event("turn_complete"))
+        await live.queue.put(None)
+        await start(v, hub.get())
+        async with asyncio.timeout(3):
+            while v._talks:
+                await asyncio.sleep(0.01)
+    finally:
+        await ws.close()
+    return [(m[1], m[2], m[3]) for m in brain.recent_messages()]
+
+
+async def test_voice_text_conversation_is_logged(hub, live, tmp_path, monkeypatch):
+    async def start(v, dev):
+        v.start(dev, "сколько будет два плюс два")
+    assert await _talk(hub, live, tmp_path, monkeypatch, start) == [
+        ("голос", "user", "сколько будет два плюс два"), ("голос", "assistant", "Ответ.")]
+
+
+async def test_service_prompt_not_logged_as_user(hub, live, tmp_path, monkeypatch):
+    async def start(v, dev):
+        assert await v.remind("позвонить маме")
+    assert await _talk(hub, live, tmp_path, monkeypatch, start) == [("голос", "assistant", "Ответ.")]
+
+
+async def test_telegram_message_refreshes_warm_session(hub, voice, live, tmp_path):
+    from jarvis.brain import Brain
+    brain = Brain(tmp_path / "b.db")
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=brain, wake_factory=FakeWake, live_factory=live)
+    ws = await speaker(hub)
+    try:
+        async with asyncio.timeout(2):
+            while v._warm is None:
+                await asyncio.sleep(0.01)
+        assert "Недавний разговор" not in live.system
+        old = v._warm
+        brain.log_message("telegram", "user", "купить молоко")
+        assert v._warm is not old
+        async with asyncio.timeout(2):
+            while "купить молоко" not in live.system:
+                await asyncio.sleep(0.01)
     finally:
         await ws.close()

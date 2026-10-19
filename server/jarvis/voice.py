@@ -40,8 +40,32 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
           "сентября", "октября", "ноября", "декабря")
 
 
+HISTORY_LINES = 10      # реплик в блоке «Недавний разговор»
+HISTORY_CHARS = 180     # длиннее реплику обрезаем: подсказка не должна пухнуть
+
+
+def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
+                  lines: int = HISTORY_LINES) -> str:
+    """Короткий блок подсказки: последние реплики обоих каналов с пометкой «когда» и «где»."""
+    out = []
+    for ts, source, role, text in msgs[-lines:]:
+        day = "" if ts.date() == now.date() else ("вчера " if (now.date() - ts.date()).days == 1 else f"{ts:%d.%m} ")
+        text = " ".join(text.split())
+        if len(text) > HISTORY_CHARS:
+            text = text[:HISTORY_CHARS].rstrip() + "…"
+        who = "пользователь" if role == "user" else "ты"
+        out.append(f"- {day}{ts:%H:%M}, {source}, {who}: {text}")
+    if not out:
+        return ""
+    return ("\nНедавний разговор (в том числе из Telegram, от старых к новым). Если спросят «о чём мы "
+            "говорили» или «что я спрашивал», отвечай по нему; это ваш общий разговор:\n"
+            + "\n".join(out))
+
+
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
-                  tools: bool = False, home: bool = False) -> str:
+                  tools: bool = False, home: bool = False,
+                  history: list[tuple[datetime, str, str, str]] | None = None,
+                  history_lines: int = HISTORY_LINES) -> str:
     tone = ("Характер сдержанный, но с острым умом: можешь едко пошутить или подколоть, "
             "особенно когда пользователь сам напрашивается." if sarcasm >= 45 else
             "Характер спокойный и доброжелательный, без подколов.")
@@ -63,6 +87,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         "если просят, честно скажи, что это скоро появится.")
     exact_time = " (если спросят точное время — вызови current_time)" if tools else ""
     memory = ("\nТы помнишь о пользователе:\n" + "\n".join(f"- {f}" for f in facts)) if facts else ""
+    recent = history_block(history, now, history_lines) if history else ""
     return f"""\
 Ты голосовой ассистент в колонке с круглым экраном. Колонка стоит в спальне пользователя, у
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
@@ -82,7 +107,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 
 Тебя зовут Мага (ты мужского рода, говори о себе «я сделал», «я взялся»). На «Hey Jarvis»
 ты тоже откликаешься, но ты не Джарвис и не изображаешь его. {abilities}
-{memory}"""
+{memory}{recent}"""
 
 
 def tail_bytes(text: str, max_bytes: int = 120) -> str:
@@ -193,7 +218,8 @@ class Conversation:
                     self.voice.reply_text += ev.text
         return end
 
-    async def run(self, text: str | None = None) -> None:
+    async def run(self, text: str | None = None, service: bool = False) -> None:
+        """service=True: text — служебная подсказка (напоминание, фоновая задача), в историю не пишем."""
         dev, v = self.dev, self.voice
         heard = ""
         await dev.send(protocol.voice("thinking" if text else "listening"))
@@ -209,6 +235,8 @@ class Conversation:
                 reader = asyncio.create_task(self._read(live, events))
                 try:
                     v.transcript = [("текстом", text)] if text else []
+                    if text and not service:
+                        v.log("user", text)
                     if text:
                         self.listening = False
                         await live.send_text(text)
@@ -251,11 +279,13 @@ class Conversation:
                                 await dev.send(protocol.caption("said", tail_bytes(heard.strip())))
                                 log.info("%s: «%s»", dev.id, heard.strip())
                                 v.transcript.append(("я", heard.strip()))
+                                v.log("user", heard)
                             await dev.send(protocol.voice("speaking"))
                             v.reply_text = ""
                             end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))
+                            v.log("assistant", v.reply_text)
                             if end is not None and end.kind == "barge_in":
                                 log.info("%s: перебили — слушаю", dev.id)
                                 skip_old = True
@@ -305,6 +335,8 @@ class Voice:
         self.now = now
         self._wake_factory = wake_factory
         self.brain = brain
+        if brain is not None:
+            brain.on_message = self._history_changed
         self.voice_name = settings.voice_name     # меняются на лету командами tts и affect
         self.affective = settings.affective
         self.live_factory = live_factory or (lambda system: LiveSession(
@@ -328,10 +360,30 @@ class Voice:
         bridge = self.hub.bridge
         return int(bridge.store.values.get("sarcasm", 60)) if bridge is not None else 60
 
+    def log(self, role: str, text: str) -> None:
+        if self.brain is not None:
+            self.brain.log_message("голос", role, text)
+
+    def _history_changed(self) -> None:
+        """В общую историю дописали реплику: заготовленная сессия Gemini устарела — заменить свежей.
+
+        Выбор: подсказку Gemini Live после открытия не поменять, поэтому историю в открытую сессию
+        не дописываем, а пересоздаём заготовку. На время разговора заготовки нет — после него
+        _run откроет новую."""
+        if self._talks:
+            return
+        task, self._warm = self._warm, None
+        if task is not None:
+            self._spawn(self._discard(task))
+        if self._detectors:
+            self._prewarm()
+
     def _new_live(self) -> LiveSession:
         brain = self.brain
+        history = brain.recent_messages(HISTORY_LINES) if brain else None
         return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
-                                               brain is not None, brain is not None and brain.ha is not None))
+                                               brain is not None, brain is not None and brain.ha is not None,
+                                               history))
 
     async def _open_live(self) -> LiveSession:
         live = self._new_live()
@@ -420,29 +472,29 @@ class Voice:
             log.info("%s: слово пробуждения (%.2f)", dev.id, score)
             self.start(dev)
 
-    def start(self, dev: Device, text: str | None = None) -> asyncio.Task | None:
+    def start(self, dev: Device, text: str | None = None, service: bool = False) -> asyncio.Task | None:
         """Начать разговор: по слову пробуждения или текстом (команда ask)."""
         if dev.id in self._talks:
             return None
         talk = self._talks[dev.id] = Conversation(self, dev)
-        return self._spawn(self._run(talk, text))
+        return self._spawn(self._run(talk, text, service))
 
     async def announce(self, prompt: str) -> bool:
         """Колонка сама заговорит по этой подсказке. False — колонки нет или она занята."""
         dev = self.hub.get()
         if dev is None or "speaker" not in dev.hello.caps:
             return False
-        return self.start(dev, prompt) is not None
+        return self.start(dev, prompt, service=True) is not None
 
     async def remind(self, text: str) -> bool:
         """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
         return await self.announce(f"Сработало напоминание: «{text}». Скажи пользователю об этом "
                                    "одной короткой фразой, как будто сам вспомнил.")
 
-    async def _run(self, talk: Conversation, text: str | None) -> None:
+    async def _run(self, talk: Conversation, text: str | None, service: bool = False) -> None:
         dev = talk.dev
         try:
-            await talk.run(text)
+            await talk.run(text, service)
         except Exception:
             log.exception("разговор с %s упал", dev.id)
         finally:

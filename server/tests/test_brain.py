@@ -95,3 +95,21 @@ def test_tool_declarations_and_parse():
 async def test_current_time(brain, sent):
     out = await brain.call("current_time", {}, sent)
     assert out["time"] == "09:00" and out["date"] == "19.10.2026"
+
+
+def test_messages_log_and_recent(brain):
+    brain.log_message("голос", "user", "  привет  ")
+    brain.log_message("telegram", "assistant", "здравствуй")
+    brain.log_message("telegram", "user", "   ")      # пустое не пишем
+    assert brain.recent_messages() == [(NOW, "голос", "user", "привет"),
+                                       (NOW, "telegram", "assistant", "здравствуй")]
+
+
+def test_messages_limit_and_age(brain):
+    brain.log_message("голос", "user", "старое")
+    brain.clock["now"] = NOW + timedelta(hours=30)
+    for i in range(5):
+        brain.log_message("telegram", "user", f"м{i}")
+    assert [m[3] for m in brain.recent_messages(limit=3)] == ["м2", "м3", "м4"]     # старые первыми
+    assert "старое" not in [m[3] for m in brain.recent_messages(limit=50)]          # старше суток
+    assert "старое" in [m[3] for m in brain.recent_messages(limit=50, max_age_h=48)]

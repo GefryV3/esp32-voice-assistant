@@ -29,6 +29,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (id INTEGER PRIMARY KEY, text TEXT NOT NULL, added TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY, text TEXT NOT NULL, due TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY, ts TEXT NOT NULL, source TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL);
 """
 
 TOOLS: list[dict[str, Any]] = [
@@ -79,6 +81,32 @@ class Brain:
         self.db.executescript(SCHEMA)
         self.db.commit()
         self._task: asyncio.Task | None = None
+        self.on_message: Callable[[], None] | None = None   # зовётся после каждой записи в общую историю
+
+    # ── общая история разговоров (голос и Telegram) ──
+    #
+    # Выбор: одна таблица на оба канала, а не по истории на канал. Реплики пишем сразу по ходу
+    # (пара «вопрос — ответ» не теряется при обрыве). В подсказки обеих сторон попадает короткий
+    # блок «Недавний разговор» (jarvis.voice.history_block), а не настоящие ходы сессии: Gemini Live
+    # нельзя задним числом подложить историю, а блок в подсказке работает одинаково везде.
+
+    def log_message(self, source: str, role: str, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        self.db.execute("INSERT INTO messages (ts, source, role, text) VALUES (?, ?, ?, ?)",
+                        (self.now().isoformat(timespec="seconds"), source, role, text))
+        self.db.commit()
+        if self.on_message is not None:
+            self.on_message()
+
+    def recent_messages(self, limit: int = 12, max_age_h: float = 24) -> list[tuple[datetime, str, str, str]]:
+        """Последние реплики, старые первыми: (время, источник, роль, текст). Старше max_age_h не берём."""
+        since = (self.now() - timedelta(hours=max_age_h)).isoformat(timespec="seconds")
+        rows = self.db.execute(
+            "SELECT ts, source, role, text FROM messages WHERE ts >= ? ORDER BY id DESC LIMIT ?",
+            (since, limit)).fetchall()
+        return [(datetime.fromisoformat(ts), src, role, text) for ts, src, role, text in reversed(rows)]
 
     # ── факты ──
 

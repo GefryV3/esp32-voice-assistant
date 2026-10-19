@@ -154,3 +154,28 @@ async def test_daily_quota_switches_to_fallback_model():
     bot = tg.Telegram("t", frozenset({1}), api_key="k", model="gemini-flash-latest", http=http)
     assert (await bot._gemini({}))["candidates"][0]["content"]["parts"][0]["text"] == "ок"
     assert len(calls) == 2 and "flash-latest" in calls[0] and "flash-lite" in calls[1]
+
+
+async def test_telegram_shares_history_with_voice(brain):
+    brain.log_message("голос", "user", "какая завтра погода")
+    brain.log_message("голос", "assistant", "Дождь, возьми зонт.")
+    http = FakeHttp([update(1, 42, "что я спрашивал у колонки?")], [text_reply("Про погоду.")])
+    tg = make(http, brain)
+    await tg.poll_once()
+    payload = next(c[1] for c in http.calls if c[0].startswith("https://generativelanguage"))
+    system = payload["systemInstruction"]["parts"][0]["text"]
+    assert "Недавний разговор" in system and "голос, пользователь: какая завтра погода" in system
+    assert payload["contents"] == [{"role": "user", "parts": [{"text": "что я спрашивал у колонки?"}]}]
+    assert "что я спрашивал у колонки?" not in system      # текущая реплика в блок не попадает
+    got = [(m[1], m[2], m[3]) for m in brain.recent_messages()][-2:]
+    assert got == [("telegram", "user", "что я спрашивал у колонки?"), ("telegram", "assistant", "Про погоду.")]
+
+
+async def test_second_telegram_message_sees_first(brain):
+    http = FakeHttp([update(1, 42, "первое")], [text_reply("Ок."), text_reply("Да.")])
+    tg = make(http, brain)
+    await tg.poll_once()
+    http.updates = [update(2, 42, "второе")]
+    await tg.poll_once()
+    payload = [c[1] for c in http.calls if c[0].startswith("https://generativelanguage")][-1]
+    assert "telegram, пользователь: первое" in payload["systemInstruction"]["parts"][0]["text"]
