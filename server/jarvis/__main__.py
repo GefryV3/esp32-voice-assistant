@@ -18,6 +18,7 @@ from .google import Google
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
+from .routines import Routines
 from .telegram import Telegram, parse_chat_ids
 from .voice import Voice
 from .wake import WakeWord, ensure_models
@@ -99,6 +100,12 @@ async def main() -> None:
     else:
         voice = None
         logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
+    routines = None
+    if voice and settings.routines:
+        routines = hub.routines = Routines(voice.announce, settings=lambda: bridge.store.values, brain=brain,
+                                           ha=ha, briefing_at=settings.briefing_at)
+        bridge.on_wake = routines.wake_signal
+        routines.start()
     chat_ids = parse_chat_ids(settings.telegram_chat_ids)
     tg = None
     if settings.telegram_token and chat_ids and settings.gemini_api_key:
@@ -123,6 +130,8 @@ async def main() -> None:
             else:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
+            if routines:
+                await routines.stop()
             if tg:
                 await tg.stop()
             if brain.agents:
