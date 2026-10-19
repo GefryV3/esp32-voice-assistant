@@ -1,5 +1,9 @@
 # Изменения
 
+## 0.10.1
+- Поиск без карты: добавлены Tavily (TAVILY_API_KEY) и Serper (SERPER_API_KEY); выбор —
+  JARVIS_AGENT_SEARCH=tavily|serper|brave|searxng|web|google.
+
 ## 0.10.0
 - Общая история разговоров: Мага (голос) и Telegram-бот теперь знают, о чём говорили друг с
   другом. Реплики обоих каналов пишутся в таблицу messages (brain.db) сразу по ходу разговора;

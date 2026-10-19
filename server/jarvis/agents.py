@@ -108,6 +108,30 @@ def brave_search(api_key: str, query: str, count: int = 6) -> list[tuple[str, st
             for x in (data.get("web") or {}).get("results", [])[:count]]
 
 
+def _post_json(url: str, body: dict, headers: dict) -> dict:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", **headers})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r)
+
+
+def tavily_search(api_key: str, query: str, count: int = 6) -> list[tuple[str, str, str]]:
+    """Tavily: поиск для нейросетей, бесплатно ~1000 запросов в месяц, карта не нужна."""
+    data = _post_json("https://api.tavily.com/search",
+                      {"query": query, "max_results": count, "search_depth": "basic"},
+                      {"Authorization": f"Bearer {api_key}"})
+    return [(_text(x.get("title", "")), x.get("url", ""), _text(x.get("content", ""))[:400])
+            for x in data.get("results", [])[:count]]
+
+
+def serper_search(api_key: str, query: str, count: int = 6) -> list[tuple[str, str, str]]:
+    """Serper: выдача Google, при регистрации 2500 бесплатных запросов, карта не нужна."""
+    data = _post_json("https://google.serper.dev/search", {"q": query, "num": count, "hl": "ru"},
+                      {"X-API-KEY": api_key})
+    return [(_text(x.get("title", "")), x.get("link", ""), _text(x.get("snippet", "")))
+            for x in data.get("organic", [])[:count]]
+
+
 def searxng_search(base_url: str, query: str, count: int = 6) -> list[tuple[str, str, str]]:
     """Свой SearXNG (аддон HA): собирает выдачу Google, Bing и других, без ключей и лимитов.
     В его settings.yml должен быть включён формат json (search.formats: [html, json])."""
@@ -118,8 +142,13 @@ def searxng_search(base_url: str, query: str, count: int = 6) -> list[tuple[str,
             for x in data.get("results", [])[:count]]
 
 
-def make_search(kind: str, brave_key: str = "", searxng_url: str = ""):
-    """Выбрать источник выдачи: brave / searxng / иначе DuckDuckGo (его блокирует капча)."""
+def make_search(kind: str, brave_key: str = "", searxng_url: str = "", tavily_key: str = "",
+                serper_key: str = ""):
+    """Выбрать источник выдачи: tavily / serper / brave / searxng / иначе DuckDuckGo (его блокирует капча)."""
+    if kind == "tavily" and tavily_key:
+        return lambda q: tavily_search(tavily_key, q)
+    if kind == "serper" and serper_key:
+        return lambda q: serper_search(serper_key, q)
     if kind == "brave" and brave_key:
         return lambda q: brave_search(brave_key, q)
     if kind == "searxng" and searxng_url:

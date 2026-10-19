@@ -198,3 +198,30 @@ def test_brave_and_searxng_parse(monkeypatch):
     assert agents_mod.brave_search("KEY", "q") == [("A 1", "https://a", "d")]
     assert agents_mod.searxng_search("http://h:8080/", "q") == [("B", "https://b", "c")]
     assert "format=json" in seen[1] and seen[1].startswith("http://h:8080/search?")
+
+
+def test_tavily_and_serper_parse(monkeypatch):
+    import io
+    import json
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+    sent = []
+
+    def fake(req, timeout):
+        sent.append((req.full_url, json.loads(req.data), dict(req.headers)))
+        if "tavily" in req.full_url:
+            return Resp(json.dumps({"results": [{"title": "T", "url": "https://t", "content": "c" * 500}]}).encode())
+        return Resp(json.dumps({"organic": [{"title": "S", "link": "https://s", "snippet": "sn"}]}).encode())
+    monkeypatch.setattr(agents_mod.urllib.request, "urlopen", fake)
+    t = agents_mod.tavily_search("TK", "q")
+    assert t[0][:2] == ("T", "https://t") and len(t[0][2]) == 400
+    assert sent[0][2]["Authorization"] == "Bearer TK" and sent[0][1]["query"] == "q"
+    assert agents_mod.serper_search("SK", "q") == [("S", "https://s", "sn")]
+    assert sent[1][2]["X-api-key"] == "SK"
+    assert agents_mod.make_search("tavily", tavily_key="K") is not agents_mod.web_search
+    assert agents_mod.make_search("serper", serper_key="") is agents_mod.web_search

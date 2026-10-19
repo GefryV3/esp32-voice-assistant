@@ -33,6 +33,8 @@ class Settings:
     vad_silence_ms: int = 650                # пауза, после которой Gemini считает фразу законченной
     agent_model: str = "gemini-flash-lite-latest"   # модель фоновых агентов (пересказ найденного)
     agent_search: str = "web"                       # web (DuckDuckGo), brave, searxng или google (поиск Gemini)
+    tavily_key: str = ""                            # ключ Tavily для agent_search=tavily
+    serper_key: str = ""                            # ключ Serper для agent_search=serper
     brave_key: str = ""                             # ключ Brave Search API для agent_search=brave
     searxng_url: str = ""                           # адрес SearXNG для agent_search=searxng
     ha_url: str = ""                         # пусто — умного дома нет
@@ -108,6 +110,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         agent_model=env.get("JARVIS_AGENT_MODEL", "gemini-flash-lite-latest"),
         agent_search=env.get("JARVIS_AGENT_SEARCH", "web").lower(),
         brave_key=env.get("BRAVE_API_KEY", ""),
+        tavily_key=env.get("TAVILY_API_KEY", ""),
+        serper_key=env.get("SERPER_API_KEY", ""),
         searxng_url=env.get("JARVIS_SEARXNG_URL", ""),
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),

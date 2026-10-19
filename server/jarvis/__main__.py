@@ -87,7 +87,8 @@ async def main() -> None:
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
                               search=settings.agent_search,
-                              search_fn=make_search(settings.agent_search, settings.brave_key, settings.searxng_url))
+                              search_fn=make_search(settings.agent_search, settings.brave_key, settings.searxng_url,
+                                                    settings.tavily_key, settings.serper_key))
         brain.agents.start_delivery()
     else:
         voice = None
