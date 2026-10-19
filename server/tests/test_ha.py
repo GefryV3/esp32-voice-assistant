@@ -140,3 +140,24 @@ async def test_color_refused_for_dimmer_with_reason(ha, ws, monkeypatch):
     assert any("Ночник слева" in b and "умеет цвет" in b for b in brief)
     STATES[2]["attributes"].pop("supported_color_modes")
     STATES[0]["attributes"].pop("supported_color_modes")
+
+
+async def test_exact_name_beats_longer_and_other_domains(ha, ws):
+    STATES.extend([
+        {"entity_id": "light.desk", "state": "on", "attributes": {"friendly_name": "Подсветка стола"}},
+        {"entity_id": "number.desk_speed", "state": "5", "attributes": {"friendly_name": "Подсветка стола Скорость"}},
+        {"entity_id": "scene.bed", "state": "unknown", "attributes": {"friendly_name": "Спальня"}},
+        {"entity_id": "light.bed_group", "state": "on", "attributes": {"friendly_name": "Спальня"}},
+    ])
+    REG.extend([{"entity_id": e, "area_id": "bed"} for e in
+                ("light.desk", "number.desk_speed", "scene.bed", "light.bed_group")])
+    ha._cache = None
+    try:
+        out = await ha.call("home_set", {"name": "Подсветка стола", "action": "on", "color": "purple"})
+        assert out == {"ok": True, "devices": ["Подсветка стола"], "action": "on"}
+        assert services(ws)[-1][2] == "light.desk"
+        out = await ha.call("home_set", {"name": "Спальня", "action": "on"})
+        assert out["devices"] == ["Спальня"] and services(ws)[-1][2] == "light.bed_group"
+    finally:
+        del STATES[-4:]
+        del REG[-4:]

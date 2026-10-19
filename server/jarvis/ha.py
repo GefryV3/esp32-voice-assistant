@@ -36,6 +36,8 @@ KIND_DOMAINS = {"lights": ("light",), "switches": ("switch", "fan", "input_boole
                 "covers": ("cover", "valve"), "climate": ("climate", "humidifier", "water_heater"),
                 "media": ("media_player",), "locks": ("lock", "alarm_control_panel"),
                 "scenes": ("scene", "script", "automation")}
+DOMAIN_PRIO = {"light": 0, "switch": 1, "fan": 2, "cover": 3, "climate": 4, "media_player": 5,
+               "lock": 6, "vacuum": 6, "scene": 8, "script": 8, "automation": 8}
 COLOR_MODES = {"hs", "xy", "rgb", "rgbw", "rgbww"}
 COLORS = {  # название → RGB; по-русски и по-английски
     "красный": (255, 0, 0), "red": (255, 0, 0), "оранжевый": (255, 120, 0), "orange": (255, 120, 0),
@@ -209,18 +211,28 @@ class HomeAssistant:
         return out
 
     async def resolve(self, query: str, domains: tuple[str, ...]) -> list[Entity]:
-        """Устройства, подходящие под запрос: комната целиком или лучшее совпадение по имени."""
+        """Устройства под запрос: точное имя важнее частичного, light важнее number/select,
+        недоступные — в последнюю очередь; совпала комната, а не устройство — вся комната."""
         ents = [e for e in await self.entities() if e.domain in domains]
-        by_name = sorted(((score(query, f"{e.name} {e.area}"), e) for e in ents), key=lambda x: -x[0])
-        if not by_name or by_name[0][0] < 0.5:
+        alive = [e for e in ents if e.state != "unavailable"]
+        ents = alive or ents
+        norm = " ".join(sorted(words(query)))
+
+        def key(e: Entity) -> tuple[float, bool]:
+            return score(query, f"{e.name} {e.area}"), norm == " ".join(sorted(words(e.name)))
+
+        ranked = sorted(((key(e), e) for e in ents), key=lambda x: (-x[0][0], not x[0][1]))
+        if not ranked or ranked[0][0][0] < 0.5:
             return []
-        best = by_name[0][0]
-        top = [e for s, e in by_name if s == best]
-        rooms = {e.area for e in top}
-        # «свет в спальне»: совпала комната, а не конкретное устройство
-        if len(top) > 1 and len(rooms) == 1 and "" not in rooms and score(query, top[0].area) >= 0.5:
-            return top
-        return top[:1] if len(top) == 1 else top
+        top = [e for k, e in ranked if k == ranked[0][0]]
+        best_prio = min(DOMAIN_PRIO.get(e.domain, 9) for e in top)
+        top = [e for e in top if DOMAIN_PRIO.get(e.domain, 9) == best_prio]
+        if len(top) > 1:
+            shortest = min(len(e.name) for e in top)
+            if not ranked[0][0][1]:      # не точное имя — «Подсветка стола» лучше, чем «… Скорость»
+                top = [e for e in top if len(e.name) == shortest] if \
+                    len({e.area for e in top}) > 1 or score(query, top[0].area) < 0.5 else top
+        return top
 
     async def service(self, query: str, service: str, data: dict[str, Any] | None = None) -> dict:
         """Любой сервис HA над найденным устройством (домен берётся у устройства)."""
@@ -243,7 +255,7 @@ class HomeAssistant:
     async def set(self, query: str, action: str, brightness: float | None = None,
                   kelvin: float | None = None, color: str = "", effect: str = "",
                   transition: float | None = None) -> dict:
-        found = await self.resolve(query, CONTROLLABLE)
+        found = await self.resolve(query, ("light",) if parse_color(color) else CONTROLLABLE)
         if not found:
             return {"ok": False, "error": f"не нашёл устройство «{query}»"}
         rooms = {e.area for e in found}
