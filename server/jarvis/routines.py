@@ -33,6 +33,10 @@ BRIEFING_PROMPT = (
     "есть), события календаря на сегодня и задачи, если такие инструменты есть, и напоминания, "
     "если они ещё не сработали. Только то, что реально получилось узнать, ничего не выдумывай. "
     "Коротко и живо, по-русски, в твоей обычной манере, без длинных списков.")
+SOFT_PROMPT = (
+    "Человек только что выключил будильник. Заговори с ним тихо и мягко, вполголоса, коротко: "
+    "«доброе утро», который час, погода на сегодня (home_weather, если есть) и первый урок. "
+    "Только то, что реально получилось узнать, ничего не выдумывай. Без длинных списков.")
 HOME_PROMPT = (
     "Пользователь только что вернулся домой после долгого отсутствия. Тепло и коротко встреть его, "
     "в твоей обычной манере, одной-двумя фразами. Если есть смысл, добавь одну полезную мелочь: "
@@ -42,8 +46,15 @@ HOME_PROMPT = (
 class Routines:
     def __init__(self, announce: Callable[[str], Awaitable[bool]], *, settings: Callable[[], dict[str, Any]],
                  brain=None, ha=None, briefing_at: str = "08:00",
-                 now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] | None = None):
-        """settings() → настройки моста (нужны night_start и night_end)."""
+                 now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] | None = None,
+                 soft_wake_s: float | None = None,
+                 wake_context: Callable[[], Awaitable[str]] | None = None,
+                 on_leave: Callable[[], Awaitable[Any]] | None = None):
+        """settings() → настройки моста (нужны night_start и night_end).
+
+        soft_wake_s — через сколько секунд после будильника тихо поздороваться (None: брифинг как раньше,
+        когда кончится ночь); wake_context() даёт факты (урок, автобус) в эту же реплику;
+        on_leave() зовём, когда человек ушёл из дома (person.* → not_home)."""
         self.announce = announce
         self.settings = settings
         self.brain = brain
@@ -52,6 +63,9 @@ class Routines:
         self.now = now
         self._clock = clock or asyncio.get_running_loop().time
         self._woke_day = ""                   # день, когда выключили будильник
+        self._woke_at = 0.0
+        self.soft_wake_s, self.wake_context, self.on_leave = soft_wake_s, wake_context, on_leave
+        self._left = False
         self._due_since: float | None = None  # когда брифинг стал нужен (для отсчёта «до часа»)
         self._briefed = brain.pref("routine_briefing_day") if brain else ""
         self._away_since: dict[str, float] = {}
@@ -64,7 +78,16 @@ class Routines:
     def wake_signal(self) -> None:
         """Будильник на телефоне выключен (зовёт мост): человек проснулся."""
         self._woke_day = self.now().strftime("%Y-%m-%d")
+        self._woke_at = self._clock()
         log.info("рутины: будильник выключен, брифинг когда не ночь")
+
+    def awake(self) -> bool:
+        """Человек уже встал: выключил будильник сегодня или ночь кончилась."""
+        return self._woke_day == self.now().strftime("%Y-%m-%d") or not self.night()
+
+    def _soft_due(self) -> bool:
+        return (self.soft_wake_s is not None and self._woke_day == self.now().strftime("%Y-%m-%d")
+                and self._clock() - self._woke_at >= self.soft_wake_s)
 
     def night(self) -> bool:
         local = self.now()
@@ -77,7 +100,11 @@ class Routines:
         """Пора ли говорить брифинг: раз в день, не ночью; по будильнику или по времени."""
         local = self.now()
         day = local.strftime("%Y-%m-%d")
-        if self._briefed == day or self.night():
+        if self._briefed == day:
+            return False
+        if self._soft_due():          # мягкое пробуждение: говорим и в «ночные» часы, человек уже проснулся
+            return True
+        if self.night():
             return False
         minutes = local.hour * 60 + local.minute
         if minutes < _minutes(self.settings()["night_end"]):
@@ -99,10 +126,22 @@ class Routines:
         if now - self._due_since > GIVE_UP_S:
             self._finish_briefing(day, "не вышло в течение часа, отказываюсь")
             return TICK_S
-        if await self.announce(BRIEFING_PROMPT):
+        if await self.announce(await self._briefing_prompt()):
             self._finish_briefing(day, "сказан")
             return TICK_S
         return RETRY_S
+
+    async def _briefing_prompt(self) -> str:
+        """После будильника (soft_wake_s) тихое приветствие вместо обычного брифинга: одно событие."""
+        if not self._soft_due():
+            return BRIEFING_PROMPT
+        extra = ""
+        if self.wake_context is not None:
+            try:
+                extra = await self.wake_context()
+            except Exception as e:
+                log.warning("рутины: факты для пробуждения не получены: %r", e)
+        return SOFT_PROMPT + (" " + extra if extra else "")
 
     def _finish_briefing(self, day: str, why: str) -> None:
         log.info("рутины: брифинг %s", why)
@@ -127,6 +166,7 @@ class Routines:
             was = self._was_home.get(eid)
             if was is True and not home:
                 self._away_since[eid] = now
+                self._left = True
             if was is False and home and now - self._away_since.get(eid, now) >= HOME_AWAY_MIN_S:
                 arrived = True
             self._was_home[eid] = home
@@ -155,6 +195,10 @@ class Routines:
             try:
                 if await self.poll_home():
                     self._tasks.append(asyncio.create_task(self.greet()))
+                if self._left:
+                    self._left = False
+                    if self.on_leave is not None:
+                        self._tasks.append(asyncio.create_task(self._leave()))
                 failed = False
             except asyncio.CancelledError:
                 raise
@@ -163,6 +207,12 @@ class Routines:
                     log.warning("рутины: HA не отвечает, приветствие ждёт: %r", e)
                 failed = True
             await asyncio.sleep(HOME_POLL_S)
+
+    async def _leave(self) -> None:
+        try:
+            await self.on_leave()
+        except Exception:
+            log.exception("рутины: действие при уходе")
 
     async def _briefing_loop(self) -> None:
         while True:
@@ -197,6 +247,10 @@ class Routines:
             return None
         which = parts[1].lower() if len(parts) > 1 else ""
         prompt = {"briefing": BRIEFING_PROMPT, "home": HOME_PROMPT}.get(which)
+        if which == "wake":
+            self.wake_signal()
+            self._woke_at = self._clock() - (self.soft_wake_s or 0)
+            prompt = await self._briefing_prompt()
         if prompt is None:
             return "routine briefing|home — запустить рутину сразу, не дожидаясь срока"
         ok = await self.announce(prompt)

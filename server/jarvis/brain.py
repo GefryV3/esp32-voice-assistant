@@ -22,6 +22,7 @@ from .ha import TOOLS as HOME_TOOLS, HomeAssistant
 from .lights import TOOLS as LIGHT_TOOLS
 from .games import TOOLS as GAME_TOOLS, Games
 from .german import TOOLS as GERMAN_TOOLS, German
+from .morning import TOOL_NAMES as MORNING_TOOL_NAMES
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ class Brain:
         self.presence = None     # Presence, ставит __main__
         self.lights = None       # Lights (jarvis.lights), ставит __main__
         self.mute_hook: Callable[[Any], Awaitable[dict]] | None = None   # Voice: режим тишины
+        self.morning = None      # Morning (будильник по расписанию, автобус), ставит __main__
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -222,7 +224,9 @@ class Brain:
         self.db.commit()
 
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + GERMAN_TOOLS + GAME_TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
+        return (TOOLS + GERMAN_TOOLS + GAME_TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
+                + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
+                + (self.morning.tools() if self.morning else []))
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -238,6 +242,8 @@ class Brain:
             return await self.lights.call(name, args)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
+        if name in MORNING_TOOL_NAMES and self.morning:
+            return await self.morning.call(name, args)
         if name.startswith("google_") and self.google:
             return await self.google.call(name, args)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:

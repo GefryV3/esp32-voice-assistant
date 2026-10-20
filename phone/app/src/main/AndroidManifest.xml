@@ -22,6 +22,8 @@
     <!-- «где мой телефон»: громко даже в беззвучном -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- «Мага» ставит будильник по расписанию школы -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <application
         android:name=".App"
