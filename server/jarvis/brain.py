@@ -112,6 +112,7 @@ class Brain:
         self.morning = None      # Morning (будильник по расписанию, автобус), ставит __main__
         self.extensions: list[Any] = []   # модули со своими функциями Gemini: .TOOLS, .tool_names, async .call(name, args)
         self.learning = None     # Learning (jarvis.learning), ставит __main__
+        self.translator = None   # Translator (jarvis.translate): переводчик, ставит __main__
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -276,6 +277,8 @@ class Brain:
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
         if name in self.german.names:
+            if self.translator and name == "set_language_mode":
+                self.translator.stop()           # немецкий и переводчик не работают вместе
             return await self.german.call(name, args)
         if name in self.games.names:
             return await self.games.call(name, args, send)
@@ -343,11 +346,13 @@ class Brain:
         """Разговор кончился: режим немецкого и игра живут только на один разговор."""
         self.german.reset()
         self.games.reset()
+        if self.translator:
+            self.translator.end_conversation()
 
     @property
     def long_talk(self) -> bool:
         """Идёт немецкий или игра: паузы между репликами длиннее (человек думает над ответом)."""
-        return self.german.active or self.games.active
+        return self.german.active or self.games.active or bool(self.translator and self.translator.active)
 
     async def command(self, line: str) -> str | None:
         cmd, _, rest = line.strip().partition(" ")

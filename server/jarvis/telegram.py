@@ -40,6 +40,7 @@ GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/{model}:genera
 POLL_S = 30            # сколько Telegram держит getUpdates открытым
 MAX_LEN = 4000         # лимит сообщения Telegram — 4096
 MAX_ROUNDS = 5         # сколько раз подряд Gemini может звать функции
+MAX_FILE = 4_000_000   # больше голосовое сообщение для колонки не скачиваем
 HISTORY = 12           # реплик общей истории в подсказке (и в памяти, если нет Brain)
 RETRY_S = 5.0
 RETRY_GEMINI_S = 2.0
@@ -93,6 +94,19 @@ async def urllib_upload(url: str, fields: dict[str, str], filename: str, data: b
     return await asyncio.to_thread(run)
 
 
+async def urllib_get(url: str, timeout: float) -> bytes:
+    """GET → байты (скачивание файла Bot API)."""
+    def run() -> bytes:
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                return r.read(MAX_FILE + 1)
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"HTTP {e.code}") from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"нет связи: {e.reason}") from None
+    return await asyncio.to_thread(run)
+
+
 def parse_chat_ids(raw: str) -> frozenset[int]:
     """«123, 456» → {123, 456}; мусор пропускаем."""
     ids = set()
@@ -124,7 +138,7 @@ class Telegram:
                  sarcasm: Callable[[], int] = lambda: 60,
                  device_send: Callable[[dict], Awaitable[None]] = _no_device,
                  http: Http = urllib_post, fallback_model: str = "", clock: Callable[[], float] = time.monotonic,
-                 upload=urllib_upload):
+                 upload=urllib_upload, download=urllib_get):
         self.token, self.chat_ids, self.api_key, self.model = token, chat_ids, api_key, model
         self.brain, self.now, self.sarcasm, self.http = brain, now, sarcasm, http
         self.device_send = device_send
@@ -133,6 +147,8 @@ class Telegram:
         self._notice = Notice()
         self._fell_back = False                   # в этом запросе пришлось уйти на запасную модель
         self.upload = upload
+        self.download = download
+        self.tgvoice = None      # TgVoice: голосовые сообщения и /say звучат на колонке
         self.presence = None     # Presence: команда «presence here|away|auto» из чата
         self.skills = None       # SkillRequests: /skills, /approve, /reject, /enable, /diff
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
@@ -258,7 +274,14 @@ class Telegram:
             if chat_id is not None:
                 log.info("telegram: чужой чат %s проигнорирован", chat_id)
             return
+        media = msg.get("voice") or msg.get("audio")
+        if media and not text and self.tgvoice is not None:
+            await self._on_media(chat_id, media)
+            return
         if not text:
+            return
+        if text.split()[0].lower().lstrip("/") == "say" and self.tgvoice is not None:
+            await self.send(await self.tgvoice.say(chat_id, text.partition(" ")[2]), chat_id)
             return
         if text.split()[0].lower().lstrip("/") == "presence" and self.presence is not None:
             await self.send(await self.presence.command("presence " + " ".join(text.split()[1:])) or "", chat_id)
@@ -284,6 +307,26 @@ class Telegram:
             log.warning("telegram: Gemini не ответил: %s", e)
             GEMINI_ERRORS.add("telegram")
             reply = "Не получилось спросить Gemini, попробуй ещё раз позже."
+        await self.send(reply, chat_id)
+
+    async def _on_media(self, chat_id: int, media: dict[str, Any]) -> None:
+        """Голосовое или аудио → на колонку; ответ боту — «озвучено» или причина."""
+        tv = self.tgvoice
+        if not tv.enabled:
+            return                                  # выключено: как раньше, молча
+        if media.get("duration", 0) > 60:
+            reply = "Длиннее 60 секунд не озвучиваю."
+        elif media.get("file_size", 0) > MAX_FILE:
+            reply = "Файл слишком большой."
+        else:
+            try:
+                info = await self._api("getFile", {"file_id": media.get("file_id", "")})
+                data = await self.download(
+                    f"https://api.telegram.org/file/bot{self.token}/{info['file_path']}", 30)
+                reply = await tv.handle_voice(chat_id, data, float(media.get("duration", 0)))
+            except Exception as e:
+                log.warning("telegram: файл не скачался: %s", type(e).__name__)
+                reply = "Не получилось скачать сообщение."
         await self.send(reply, chat_id)
 
     async def poll_once(self) -> None:

@@ -112,7 +112,9 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         abilities += (" Тренировка немецкого: на «давай по-немецки», «тренируем немецкий» вызови "
                       "set_language_mode (mode=german) и дальше строго следуй rules из ответа; «хватит "
                       "немецкого» — mode=off, это не конец разговора. Игры («города», «20 вопросов», "
-                      "«викторина»): вызови game_start и следуй rules; счёт ведёт сервер (game_stop, game_scores).")
+                      "«викторина»): вызови game_start и следуй rules; счёт ведёт сервер (game_stop, game_scores). "
+                      "Переводчик на любой язык: «переведи фразу на X» — translate_mode (mode=phrase), «переводи с "
+                      "русского на X» — mode=interpret, «хватит переводить» — mode=off; следуй rules из ответа.")
     exact_time = " (если спросят точное время — вызови current_time)" if tools else ""
     memory = ("\nТы помнишь о пользователе:\n" + "\n".join(f"- {f}" for f in facts)) if facts else ""
     recent = history_block(history, now, history_lines) if history else ""
@@ -487,7 +489,8 @@ class Voice:
         system = system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
                                brain is not None, brain is not None and brain.ha is not None,
                                history, night=self.is_night(),
-                               language=brain.german.prompt_paragraph() if brain else "",
+                               language=(brain.german.prompt_paragraph() or (brain.translator.prompt_paragraph() if brain.translator else ""))
+                               if brain else "",
                                learned=brain.learning.prompt_section() if brain and brain.learning else "")
         if self._overload_note and self._use_model != self.settings.gemini_model:
             self._overload_note = False         # сказать один раз: в этой сессии

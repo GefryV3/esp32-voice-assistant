@@ -36,6 +36,10 @@ from .school import School, SchoolConfig
 from .school_inbox import SchoolInbox
 from .untis import Untis, UntisConfig, FixedSchedule, WithFallback
 from .telegram import Telegram, parse_chat_ids
+from .breaks import Breaks
+from .news import News
+from .tg_voice import TgVoice
+from .translate import Translator
 from .quiet import make_mute_factory
 from .voice import Voice
 from .wake import WakeWord, ensure_models
@@ -120,8 +124,9 @@ async def main() -> None:
         logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
     routines = None
     morning = None
+    env = {**read_env_file(Path(".env")), **os.environ}
+    news = News.from_env(brain, lambda: brain.agents.generate if brain.agents else None, env) if voice else None
     if voice and settings.routines:
-        env = {**read_env_file(Path(".env")), **os.environ}
         mcfg = MorningConfig.from_env(env)
         morning = hub.morning = brain.morning = Morning(
             mcfg, voice.announce, untis=WithFallback(Untis(UntisConfig.from_env(env)), FixedSchedule(mcfg.school_start)), transit=Transit(TransitConfig.from_env(env)),
@@ -130,7 +135,7 @@ async def main() -> None:
         routines = hub.routines = Routines(
             voice.announce, settings=lambda: bridge.store.values, brain=brain, ha=ha, briefing_at=settings.briefing_at,
             soft_wake_s=mcfg.soft_wake_s if mcfg.soft_wake else None, wake_context=morning.wake_context,
-            on_leave=umbrella.on_leave)
+            on_leave=umbrella.on_leave, briefing_extra=news.briefing_extra)
         morning.routines = routines
         bridge.on_wake = routines.wake_signal
         routines.start()
@@ -190,6 +195,23 @@ async def main() -> None:
     brain.extensions += [school, memo]
     extras += [school, memo]
     school.start()
+    translator = brain.translator = Translator(brain.german)
+    brain.extensions.append(translator)
+    extras.append(translator)
+    breaks = None
+    if news:
+        brain.extensions.append(news)
+        extras.append(news)
+    if voice:
+        breaks = Breaks.from_env(voice.announce, bridge=bridge, brain=brain, env=env,
+                                 muted=lambda: (d := hub.get()) is not None and voice.quiet.active(d.id))
+        brain.extensions.append(breaks)
+        extras.append(breaks)
+        breaks.start()
+    tgvoice = None
+    if voice and tg:
+        tgvoice = tg.tgvoice = TgVoice.from_env(voice, tg.send, env)
+        extras.append(tgvoice)
     habits = None
     if voice and google and settings.habits:
         habits = Habits(voice.announce, google=google, brain=brain, settings=lambda: bridge.store.values,
@@ -240,7 +262,7 @@ async def main() -> None:
         finally:
             if lights:
                 await lights.state.stop()
-            for module in (habits, digest, school):
+            for module in (habits, digest, school, breaks, tgvoice):
                 if module:
                     await module.stop()
             if learning:

@@ -49,7 +49,8 @@ class Routines:
                  now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] | None = None,
                  soft_wake_s: float | None = None,
                  wake_context: Callable[[], Awaitable[str]] | None = None,
-                 on_leave: Callable[[], Awaitable[Any]] | None = None):
+                 on_leave: Callable[[], Awaitable[Any]] | None = None,
+                 briefing_extra: Callable[[], Awaitable[str]] | None = None):
         """settings() → настройки моста (нужны night_start и night_end).
 
         soft_wake_s — через сколько секунд после будильника тихо поздороваться (None: брифинг как раньше,
@@ -65,6 +66,7 @@ class Routines:
         self._woke_day = ""                   # день, когда выключили будильник
         self._woke_at = 0.0
         self.soft_wake_s, self.wake_context, self.on_leave = soft_wake_s, wake_context, on_leave
+        self.briefing_extra = briefing_extra   # добавка к обычному брифингу (новости по темам), '' — нечего
         self._left = False
         self._due_since: float | None = None  # когда брифинг стал нужен (для отсчёта «до часа»)
         self._briefed = brain.pref("routine_briefing_day") if brain else ""
@@ -134,7 +136,13 @@ class Routines:
     async def _briefing_prompt(self) -> str:
         """После будильника (soft_wake_s) тихое приветствие вместо обычного брифинга: одно событие."""
         if not self._soft_due():
-            return BRIEFING_PROMPT
+            extra = ""
+            if self.briefing_extra is not None:
+                try:
+                    extra = await self.briefing_extra()
+                except Exception as e:
+                    log.warning("рутины: добавка к брифингу не получена: %r", e)
+            return BRIEFING_PROMPT + extra
         extra = ""
         if self.wake_context is not None:
             try:

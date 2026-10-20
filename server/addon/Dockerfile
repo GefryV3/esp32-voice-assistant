@@ -2,9 +2,10 @@
 # Debian, а не Alpine: onnxruntime (слово пробуждения) есть готовым только под glibc.
 FROM python:3.13-slim
 
+# ffmpeg — декодер голосовых сообщений Telegram (jarvis/tg_voice.py).
 # tzdata — чтобы datetime.now() знал летнее время по переменной TZ от Home Assistant
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
+    && apt-get install -y --no-install-recommends tzdata ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
