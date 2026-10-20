@@ -72,6 +72,47 @@ std::atomic<int> s_rate_req{16000};
 std::atomic<uint32_t> s_overflow{0};
 int s_rate = 16000;
 
+// ── слух для экрана: уровень голоса, резкие звуки, ритм ──
+std::atomic<float> s_level{0};
+std::atomic<uint32_t> s_bangs{0}, s_beats{0};
+
+struct Ear {
+  float floor = 60;      // фон комнаты (rms, единицы int16), медленно подстраивается
+  float fast = 0;        // быстрая огибающая
+  float slow = 0;        // медленная (~300 мс)
+  float lvl = 0;
+  int bang_cool = 0, beat_cool = 0;
+
+  void step(const int16_t *pcm, int n, bool speaking) {
+    double acc = 0;
+    for (int i = 0; i < n; ++i) acc += static_cast<double>(pcm[i]) * pcm[i];
+    const float m = n ? static_cast<float>(std::sqrt(acc / n)) : 0.0f;
+    if (m < floor * 1.6f) floor += (m - floor) * 0.01f;
+    else floor += (m - floor) * 0.0006f;
+    floor = std::clamp(floor, 20.0f, 3000.0f);
+    fast += (m - fast) * 0.6f;
+    const float before = slow;
+    slow += (m - slow) * 0.07f;
+    // уровень для формы глаз: над фоном, с запасом громкости голоса ~ 4000
+    const float v = std::clamp((m - floor * 1.4f) / 3500.0f, 0.0f, 1.0f);
+    lvl += (v - lvl) * (v > lvl ? 0.6f : 0.12f);
+    s_level.store(lvl, std::memory_order_relaxed);
+    if (bang_cool > 0) --bang_cool;
+    if (beat_cool > 0) --beat_cool;
+    if (speaking) return;  // эхо своего ответа за хлопок не считаем
+    // хлопок/стук: резко выше фона и намного выше недавнего среднего
+    if (bang_cool == 0 && m > std::max(floor * 6.0f, 2200.0f) && m > before * 4.0f) {
+      s_bangs.fetch_add(1);
+      bang_cool = 15;  // 300 мс
+    }
+    // удар ритма: заметный всплеск над медленной огибающей, не реже чем 250 мс
+    if (beat_cool == 0 && m > floor * 2.5f && m > 500 && m > before * 1.7f) {
+      s_beats.fetch_add(1);
+      beat_cool = 12;
+    }
+  }
+};
+
 StreamBufferHandle_t make_buffer(size_t size, size_t trigger, StaticStreamBuffer_t *ctl) {
   auto *mem = static_cast<uint8_t *>(heap_caps_malloc(size + 1, MALLOC_CAP_SPIRAM));
   if (!mem) mem = static_cast<uint8_t *>(heap_caps_malloc(size + 1, MALLOC_CAP_8BIT));
@@ -182,6 +223,7 @@ void mic_task(void *) {
   static int32_t raw[MIC_FRAME];
   static int16_t pcm[MIC_FRAME];
   static Barge barge;
+  static Ear ear;
   Highpass hpf(MIC_HIGHPASS_HZ, MIC_RATE);
   uint32_t dropped = 0;
   for (;;) {
@@ -193,6 +235,7 @@ void mic_task(void *) {
       const float y = hpf(static_cast<float>(raw[i] >> 8));
       pcm[i] = static_cast<int16_t>(std::clamp(y * gain, -32768.0f, 32767.0f));
     }
+    ear.step(pcm, n, s_speaking);
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
     // трещит в такт отправкам. Слушаем только локально: не перебивает ли пользователь.
     if (s_speaking) {
@@ -409,6 +452,10 @@ void play_stop() {
 
 // Квадратичная шкала с потолком: выше ~−9 дБ полной шкалы динамик и питание усилителя от USB
 // начинают хрипеть, поэтому 100 % — это ×0.36, а 50 % (×0.09) — громко и ещё чисто.
+float mic_level() { return s_level.load(std::memory_order_relaxed); }
+uint32_t bang_count() { return s_bangs.load(); }
+uint32_t beat_count() { return s_beats.load(); }
+
 void set_volume(int level) {
   const float v = std::clamp(level, 0, 100) / 100.0f;
   s_vol_q15 = static_cast<int>(v * v * MAX_GAIN * 32768.0f);

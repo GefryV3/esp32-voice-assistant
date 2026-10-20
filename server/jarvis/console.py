@@ -34,6 +34,7 @@ HELP = """\
   emotion happy|skeptic|roll|side|surprise|sorry [мс]
   say heard|said <текст>        say reply [light] <текст>        say none
   timer <сек> [название]        timer 0 — снять
+  task idle|working|needs_input|needs_permission|done|failed [pct|-1] [название]
   agenda <цветом> | <дальше>    agenda — убрать
   sleep <сек> [top|bottom]      через сколько засыпать и где часы во сне
   weather <cond -1..7> <темп>   night on|off        bright 0..255
@@ -110,6 +111,10 @@ def parse_command(line: str) -> Message:
                 return protocol.caption(args[0], tail(2))
             case "timer" if args:
                 return protocol.timer(number(args[0]), tail(2))
+            case "task" if args:  # task <state> [pct] [название]
+                has_pct = len(args) > 1 and args[1].lstrip("-").isdigit()
+                return protocol.task_status(args[0], tail(3 if has_pct else 2),
+                                            int(args[1]) if has_pct else -1)
             case "agenda":
                 accent, _, text = tail(1).partition("|")
                 return protocol.agenda(accent.strip(), text.strip())

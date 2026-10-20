@@ -153,6 +153,8 @@ face::Expr expr_by_name(const char *n) {
   if (eq(n, "side")) return face::Expr::Side;
   if (eq(n, "surprise") || eq(n, "alarm")) return face::Expr::Surprise;
   if (eq(n, "sorry")) return face::Expr::Sorry;
+  if (eq(n, "tired")) return face::Expr::Tired;
+  if (eq(n, "bored")) return face::Expr::Bored;
   return face::Expr::None;
 }
 
@@ -183,6 +185,29 @@ void on_player(const cJSON *m) {
   const char *state = str(m, "state");
   const bool on = eq(state, "playing") || eq(state, "paused");
   ui::set_player(on, eq(state, "playing"), str(m, "title"), str(m, "artist"), num(m, "pos", 0), num(m, "dur", 0));
+}
+
+void on_task_status(const cJSON *m) {
+  const char *s = str(m, "state");
+  const face::Task t = eq(s, "working")            ? face::Task::Working
+                       : eq(s, "needs_input")      ? face::Task::NeedsInput
+                       : eq(s, "needs_permission") ? face::Task::NeedsPermission
+                       : eq(s, "done")             ? face::Task::Done
+                       : eq(s, "failed")           ? face::Task::Failed
+                                                   : face::Task::Idle;
+  ui::set_task(t, str(m, "label"), num(m, "pct", -1));
+}
+
+// Игры: время показа берём из таблицы протокола, если сервер не прислал своё
+void on_game(const cJSON *m) {
+  const char *n = str(m, "name");
+  if (eq(n, "coin")) ui::set_game(face::Game::Coin, num(m, "result", 0), 0, nullptr, 3200);
+  else if (eq(n, "dice")) ui::set_game(face::Game::Dice, num(m, "result", 1), 0, nullptr, 2400);
+  else if (eq(n, "wheel")) ui::set_game(face::Game::Wheel, num(m, "count", 2), num(m, "result", 0), nullptr, 3400);
+  else if (eq(n, "rps")) ui::set_game(face::Game::Rps, num(m, "mine", 0), num(m, "result", 0), nullptr, 3600);
+  else if (eq(n, "magic8")) ui::set_game(face::Game::Magic8, num(m, "answer", 6), 0, nullptr, 3600);
+  else if (eq(n, "ttt")) ui::set_game(face::Game::Ttt, 0, 0, str(m, "board"), 45000);
+  else ESP_LOGW(TAG, "неизвестная игра %s", n ? n : "?");
 }
 
 void on_config(const cJSON *m) {
@@ -219,8 +244,12 @@ void on_message(const cJSON *m) {
     ui::hide_card();
   } else if (eq(type, "player")) {
     on_player(m);
-  } else if (eq(type, "game") || eq(type, "reminders")) {
-    ESP_LOGW(TAG, "«%s» в новом дизайне пока не рисуется", type);
+  } else if (eq(type, "game")) {
+    on_game(m);
+  } else if (eq(type, "reminders")) {
+    ui::set_reminders(num(m, "count", 0));
+  } else if (eq(type, "task_status")) {
+    on_task_status(m);
   } else if (eq(type, "weather")) {
     ui::set_weather(num(m, "cond", -1), num(m, "temp", 0));
   } else if (eq(type, "night")) {

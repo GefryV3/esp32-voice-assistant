@@ -249,9 +249,9 @@ void build_ring(const Scene &s) {
   float ar[RING_E + 2], ag[RING_E + 2], ab[RING_E + 2];  // янтарный пульс от угла не зависит
   for (int e = 0; e < RING_E + 2; e++) {
     const float a = alert ? s.alert * s.pulse * expn(e / 13.0f) : 0;
-    ar[e] = 255 * a;
-    ag[e] = 140 * a;
-    ab[e] = 20 * a;
+    ar[e] = s.alert_col[0] * a;
+    ag[e] = s.alert_col[1] * a;
+    ab[e] = s.alert_col[2] * a;
   }
   for (int i = 0; i < RING_A; i++) {
     const float a = i * TAU / RING_A;
@@ -1165,6 +1165,8 @@ void draw_card(const Scene &s) {
   }
 }
 
+#include "face/games.inc"
+
 // Таблицы дизеринга: порог Байера × значение канала → 5/6 бит, сразу с яркостью
 void build_lut(int bright) {
   for (int t = 0; t < 16; t++)
@@ -1261,6 +1263,9 @@ void render_strip(const Scene &s, uint32_t g) {
     draw_caption(s);
     draw_timer(s);
     draw_card(s);
+    draw_task(s);
+    draw_reminders(s);
+    draw_game(s);
     draw_zs(s);
   }
   pf.strips++;

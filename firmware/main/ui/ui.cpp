@@ -4,6 +4,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "audio/audio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -82,6 +83,9 @@ void render_task(void *) {
       in = s_in;
     }
     in.now = now;
+    in.mic_level = audio::mic_level();
+    in.bang_n = audio::bang_count();
+    in.beat_n = audio::beat_count();
     const time_t t = time(nullptr);
     struct tm lt;
     localtime_r(&t, &lt);
@@ -203,6 +207,34 @@ void set_player(bool on, bool playing, const char *title, const char *artist, in
   s_in.player_dur = std::max(0, dur_s);
   copy_text(s_in.player_title, sizeof s_in.player_title, title);
   copy_text(s_in.player_artist, sizeof s_in.player_artist, artist);
+}
+
+void set_task(face::Task state, const char *label, int pct) {
+  Lock lock;
+  const uint32_t now = now_ms();
+  if (state != s_in.task) s_in.task_at = now;
+  s_in.task = state;
+  s_in.task_pct = std::clamp(pct, -1, 100);
+  copy_text(s_in.task_label, sizeof s_in.task_label, label);
+  // вопрос от Claude будит колонку: как любое событие от сервера
+  if (state == face::Task::NeedsInput || state == face::Task::NeedsPermission) s_in.activity_at = now;
+}
+
+void set_game(face::Game g, int p0, int p1, const char *board, uint32_t ms) {
+  Lock lock;
+  const uint32_t now = now_ms();
+  s_in.game = g;
+  s_in.game_at = now;
+  s_in.game_ms = std::clamp<uint32_t>(ms, 500, 120000);
+  s_in.game_p0 = p0;
+  s_in.game_p1 = p1;
+  if (board) copy_text(s_in.game_board, sizeof s_in.game_board, board);
+  s_in.activity_at = now;
+}
+
+void set_reminders(int count) {
+  Lock lock;
+  s_in.reminders = std::clamp(count, 0, 99);
 }
 
 uint32_t fps() { return s_fps; }

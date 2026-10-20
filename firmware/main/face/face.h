@@ -6,12 +6,16 @@
 namespace face {
 
 enum class Voice : uint8_t { Idle, Listening, Thinking, Speaking };
-enum class Expr : uint8_t { None, Happy, Skeptic, Roll, Side, Surprise, Sorry };
+enum class Expr : uint8_t { None, Happy, Skeptic, Roll, Side, Surprise, Sorry, Tired, Bored };
 enum class Caption : uint8_t { None, Heard, Said, Reply };
 enum class Icon : uint8_t { None, Light };
 // Карточки с телефона: уведомление, звонок, батарея, сводка, ночная колкость, «вставай»,
 // проверка перед сном (её строки разделены « · »).
 enum class Card : uint8_t { None, Msg, Call, Battery, Info, Remark, Wake, Check };
+
+// Ход длинной задачи (сообщение task_status) и игры на экране (сообщение game).
+enum class Task : uint8_t { Idle, Working, NeedsInput, NeedsPermission, Done, Failed };
+enum class Game : uint8_t { None, Coin, Dice, Wheel, Rps, Magic8, Ttt };
 
 // Что известно колонке на момент кадра (снимок модели ui).
 struct Input {
@@ -42,6 +46,20 @@ struct Input {
   uint32_t player_at = 0;  // когда пришли pos/dur
   int player_pos = 0, player_dur = 0;  // секунды
   char player_title[64] = "", player_artist[48] = "";
+  // задача: кольцо по краю и подпись снизу
+  Task task = Task::Idle;
+  uint32_t task_at = 0;
+  int task_pct = -1;
+  char task_label[32] = "";
+  // игра: p0…p2 — параметры по виду (см. ui::set_game), board — поле крестиков-ноликов
+  Game game = Game::None;
+  uint32_t game_at = 0, game_ms = 0;
+  int game_p0 = 0, game_p1 = 0;
+  char game_board[10] = ".........";
+  int reminders = 0;
+  // микрофон (считается на колонке, звук никуда не уходит): уровень 0…1, счётчики событий
+  float mic_level = 0;
+  uint32_t bang_n = 0, beat_n = 0;  // резкий громкий звук (хлопок, стук) / удар ритма
 };
 
 struct Eye {
@@ -98,6 +116,20 @@ struct Scene {
   bool player = false, player_playing = false;
   float player_frac = 0;
   const char *player_title = "", *player_artist = "";
+  // задача
+  float task_a = 0, task_frac = 0, task_spin = 0, task_flash = 0;  // проявление, доля, угол бегущей дуги, вспышка
+  Task task = Task::Idle;
+  bool task_big = false;  // есть место для подписи (глаза уменьшены, часы убраны)
+  const char *task_label = "";
+  float alert_col[3] = {255, 140, 20};  // цвет пульса по краю (янтарь, зелёный, красный)
+  // игра
+  float game_a = 0, game_t = 0;
+  Game game = Game::None;
+  int game_p0 = 0, game_p1 = 0;
+  char board[10] = ".........";
+  float cell_a[9] = {};
+  int reminders = 0;
+  float rem_a = 0;
 };
 
 bool init();
