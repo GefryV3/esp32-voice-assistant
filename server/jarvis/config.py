@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,6 +46,8 @@ class Settings:
     presence_pc_min: float = 10              # компьютер считается активным, если трогали за столько минут
     presence_phone_min: float = 10           # то же для экрана/разблокировки телефона
     presence_idle_min: float = 180           # столько минут без признаков при связи — «нет на месте»; 0 — не считать
+    routines: bool = True                    # рутины: утренний брифинг, приветствие дома
+    briefing_at: str = "08:00"               # брифинг по времени, если будильник не выключали
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
@@ -105,6 +108,9 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     presence = env.get("JARVIS_PRESENCE", "auto").strip().lower()
     if presence not in ("auto", "off"):
         raise ConfigError("JARVIS_PRESENCE: auto или off")
+    briefing_at = env.get("JARVIS_BRIEFING_AT", "08:00").strip()
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", briefing_at):
+        raise ConfigError(f"JARVIS_BRIEFING_AT должен быть вида ЧЧ:ММ, например 08:00: {briefing_at!r}")
 
     return Settings(
         device_token=token,
@@ -139,6 +145,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         tavily_key=env.get("TAVILY_API_KEY", ""),
         serper_key=env.get("SERPER_API_KEY", ""),
         searxng_url=env.get("JARVIS_SEARXNG_URL", ""),
+        routines=env.get("JARVIS_ROUTINES", "on").strip().lower() not in ("0", "false", "no", "off"),
+        briefing_at=briefing_at,
         ha_url=env.get("JARVIS_HA_URL") or (SUPERVISOR_URL if env.get("SUPERVISOR_TOKEN") else ""),
         ha_token=env.get("JARVIS_HA_TOKEN") or env.get("SUPERVISOR_TOKEN", ""),
     )

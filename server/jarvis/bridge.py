@@ -144,6 +144,7 @@ class Bridge:
         self._watchdog: asyncio.Task | None = None
         self._bedtime_day = ""
         self._loop_task: asyncio.Task | None = None
+        self.on_wake: Callable[[], None] | None = None   # будильник выключен — человек проснулся
         self._background: set[asyncio.Task] = set()
         self._last_screen: dict[str, Any] = {}
         hub.bridge = self
@@ -416,6 +417,8 @@ class Bridge:
         await self.speaker(protocol.notify("remark", title, text, ms=10_000))
 
     async def _alarm_dismissed(self, at: float) -> None:
+        if self.on_wake is not None:
+            self.on_wake()
         # «спал X ч»: от последнего выключения экрана ночью до будильника
         slept = at - self._screen_off_at
         if 3 * 3600 < slept < 14 * 3600:
