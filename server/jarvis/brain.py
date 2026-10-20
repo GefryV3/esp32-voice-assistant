@@ -113,6 +113,7 @@ class Brain:
         self.extensions: list[Any] = []   # модули со своими функциями Gemini: .TOOLS, .tool_names, async .call(name, args)
         self.learning = None     # Learning (jarvis.learning), ставит __main__
         self.translator = None   # Translator (jarvis.translate): переводчик, ставит __main__
+        self.hunches = None      # Hunches (jarvis.hunches): догадки о привычках, ставит __main__
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)

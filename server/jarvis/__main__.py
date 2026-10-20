@@ -27,6 +27,7 @@ from .claude_status import ClaudeStatus
 from .ota import Ota
 from .presence import Presence
 from .morning import Morning, MorningConfig
+from .hunches import Hunches
 from .learning import Learning
 from .routines import Routines
 from .transit import Transit, TransitConfig
@@ -238,6 +239,18 @@ async def main() -> None:
         learning.start()
     else:
         learning = None
+    hunches = None
+    if ha and learning:
+        hunches = brain.hunches = Hunches(
+            brain, learning, ha, announce=voice.announce, notify=(tg.send if tg else None),
+            presence=presence if presence.enabled else None, night=routines.night if routines else None,
+            muted=lambda: any(voice.quiet.active(d) for d in list(hub.devices)), bridge=bridge)
+        hunches.attach_ha()
+        if lights:
+            hunches.attach_lights(lights)
+        brain.extensions.append(hunches)
+        extras.append(hunches)
+        hunches.start()
     if digest and learning:
         digest.learning_digest = learning.digest      # «чему я научился» в недельной сводке
     if voice or tg:
@@ -262,7 +275,7 @@ async def main() -> None:
         finally:
             if lights:
                 await lights.state.stop()
-            for module in (habits, digest, school, breaks, tgvoice):
+            for module in (habits, digest, school, breaks, tgvoice, hunches):
                 if module:
                     await module.stop()
             if learning:

@@ -291,6 +291,15 @@ class Telegram:
             if out is not None:
                 await self.send(out, chat_id)
                 return
+        hunches = getattr(self.brain, "hunches", None)
+        if hunches is not None:
+            low = text.casefold().strip(" .!")
+            if low in ("да", "нет", "yes", "no") and hunches.waiting():
+                await self.send(await hunches.answer_text(low in ("да", "yes")), chat_id)
+                return
+            if text.split()[0].lower().lstrip("/") in ("hunch", "hunches"):
+                await self.send(await hunches.command("hunch " + " ".join(text.split()[1:])) or "", chat_id)
+                return
         learning = self.brain.learning if self.brain is not None else None
         if learning is not None:
             low = text.casefold().strip(" .!")
