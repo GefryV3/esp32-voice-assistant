@@ -202,6 +202,8 @@ def parse_color(text: str) -> tuple[int, int, int] | None:
     text = re.sub(r"\s+", " ", (text or "").strip().casefold())
     if m := re.fullmatch(r"#?([0-9a-f]{6})", text):
         return tuple(int(m[1][i:i + 2], 16) for i in (0, 2, 4))     # type: ignore[return-value]
+    if text in COLORS:                    # точное слово (в том числе «light blue») важнее приставки
+        return COLORS[text]
     for prefixes, mix in ((_DARK_PREFIXES, None), (_LIGHT_PREFIXES, 255), (_BRIGHT_PREFIXES, -1)):
         for pre in prefixes:
             if text.startswith(pre):
