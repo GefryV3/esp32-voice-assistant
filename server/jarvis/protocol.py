@@ -275,3 +275,20 @@ def player(state: str, title: str = "", artist: str = "", pos_ms: int = 0, dur_m
     return {"type": "player", "state": _one_of("state", state, ("playing", "paused", "none")),
             "title": _clip(title, 60), "artist": _clip(artist, 47),
             "pos": max(0, int(pos_ms)) // 1000, "dur": max(0, int(dur_ms)) // 1000}
+
+
+TASK_STATES = ("idle", "working", "needs_input", "needs_permission", "done", "failed")
+
+
+def _fit(value: str, max_bytes: int) -> str:
+    """Строго не длиннее max_bytes байт UTF-8 (с «…», если пришлось обрезать)."""
+    data = value.encode()
+    if len(data) <= max_bytes:
+        return value
+    return data[:max_bytes - 3].decode(errors="ignore").rstrip() + "…"
+
+
+def task_status(state: str, label: str = "", pct: int = -1) -> Message:
+    """Ход длинной задачи (Claude Code, фоновые агенты): docs/protocol-next.md. pct −1 — процент неизвестен."""
+    return {"type": "task_status", "state": _one_of("state", state, TASK_STATES),
+            "label": _fit(label, 31), "pct": -1 if pct < 0 else _int_in("pct", int(pct), 0, 100)}

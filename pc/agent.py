@@ -74,12 +74,39 @@ async def run(url: str, token: str) -> None:
                         if msg.get("type") == "open_url" and msg.get("url"):
                             log.info("открываю %s", msg["url"])
                             webbrowser.open(msg["url"])
+                        elif msg.get("type") == "skill_job":
+                            asyncio.create_task(_skill_job(ws, msg))
                 finally:
                     report.cancel()
         except (OSError, ConnectionClosed, InvalidHandshake, ConnectionError, TimeoutError) as e:
             log.warning("нет связи (%s), повтор через %d с", e, delay)
         await asyncio.sleep(delay)
         delay = min(delay * 2, 30)
+
+
+async def _skill_job(ws, job: dict) -> None:
+    """Задание от сервера: написать навык Маги руками Claude Code (server/tools/skill_runner.py)."""
+    loop = asyncio.get_running_loop()
+    jid = job.get("id", 0)
+
+    def progress(text: str) -> None:
+        log.info("навык №%s: %s", jid, text)
+        asyncio.run_coroutine_threadsafe(
+            ws.send(json.dumps({"type": "skill_progress", "id": jid, "text": text})), loop)
+
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server" / "tools"))
+        from skill_runner import SkillRunner      # noqa: PLC0415
+        repo = Path(__file__).resolve().parents[1]
+        py = repo / "server" / ".venv" / "Scripts" / "python.exe"
+        runner = SkillRunner(repo, python=str(py) if py.exists() else None, progress=progress)
+        result = await asyncio.to_thread(runner.execute, job)
+    except Exception as e:      # раннер не должен ронять агента
+        result = {"type": "skill_result", "id": jid, "ok": False, "error": f"{type(e).__name__}: {e}"}
+    try:
+        await ws.send(json.dumps(result, ensure_ascii=False))
+    except ConnectionClosed:
+        log.warning("навык №%s готов, но связи с сервером нет: %s", jid, result.get("branch"))
 
 
 async def _report(ws) -> None:

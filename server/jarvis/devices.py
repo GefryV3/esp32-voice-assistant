@@ -72,6 +72,8 @@ class DeviceHub:
         self.presence: Any = None  # «на месте ли пользователь» (jarvis.presence)
         self.routines: Any = None  # рутины (jarvis.routines), если включены
         self.telegram: Any = None  # Telegram-бот (jarvis.telegram), если задан токен
+        self.skills: Any = None    # предложения навыков (jarvis.skill_requests)
+        self.claude: Any = None    # ход сессий Claude Code (jarvis.claude_status)
 
     # ── жизненный цикл ──
 

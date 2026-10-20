@@ -17,6 +17,7 @@ from .agents import Agents, make_search
 from .google import Google
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
+from .claude_status import ClaudeStatus
 from .ota import Ota
 from .presence import Presence
 from .routines import Routines
@@ -118,6 +119,19 @@ async def main() -> None:
                         pc_min=settings.presence_pc_min, phone_min=settings.presence_phone_min,
                         idle_min=settings.presence_idle_min)
     brain.presence = presence if presence.enabled else None
+    # навыки: уведомления и команды в Telegram, задания навыкам уходят на ноутбук через мост ПК
+    async def pc_send(msg) -> bool:
+        return bridge.pc is not None and await bridge.pc.send(msg)
+
+    requests = hub.skills = brain.skill_requests
+    requests.pc_send = pc_send
+    bridge.on_pc_event = requests.handle_pc
+    bridge.on_pc_connect = requests.dispatch_waiting
+    hub.claude = ClaudeStatus(lambda msg: _device_send(hub, msg), voice.announce if voice else None,
+                              brain.pref, brain.set_pref)
+    if tg:
+        brain.on_notice = requests.notify = tg.send
+        tg.skills = requests
     hub.presence = presence
     if voice:
         voice.presence = presence

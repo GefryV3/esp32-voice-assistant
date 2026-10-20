@@ -19,6 +19,8 @@ from . import protocol
 from .google import TOOLS as GOOGLE_TOOLS, Google
 from .agents import TOOLS as AGENT_TOOLS, Agents
 from .ha import TOOLS as HOME_TOOLS, HomeAssistant
+from .skill_requests import SkillRequests, TOOLS as SKILL_REQUEST_TOOLS
+from .skills_loader import MANAGE_TOOLS as SKILL_MANAGE_TOOLS, SkillLoader
 
 log = logging.getLogger(__name__)
 
@@ -61,8 +63,6 @@ TOOLS: list[dict[str, Any]] = [
      "Сначала скажи короткое прощание словами, потом вызови: колонка уйдёт в ожидание и не будет "
      "ждать продолжения. Не вызывай, если пользователь явно собирается продолжать.",
      "parameters": {"type": "OBJECT", "properties": {}}},
-    {"name": "current_time", "description": "Точное текущее время и дата.",
-     "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "forget", "description": "Забыть факты, в тексте которых есть эта подстрока.",
      "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING"}}, "required": ["text"]}},
     {"name": "add_reminder", "description": "Поставить напоминание. Укажи либо minutes (через сколько "
@@ -91,7 +91,8 @@ def when_words(due: datetime, now: datetime) -> str:
 
 class Brain:
     def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now,
-                 ha: HomeAssistant | None = None, agents: Agents | None = None, google: Google | None = None):
+                 ha: HomeAssistant | None = None, agents: Agents | None = None, google: Google | None = None,
+                 skills_dir: Path | None = None):
         self.now = now
         self.google = google
         self.ha = ha
@@ -103,6 +104,12 @@ class Brain:
         self.db.commit()
         self._task: asyncio.Task | None = None
         self.on_message: Callable[[], None] | None = None   # зовётся после каждой записи в общую историю
+        self.on_notice: Callable[[str], Awaitable[object]] | None = None   # сообщение пользователю (Telegram): навык упал и т. п.
+        reserved = {t["name"] for t in TOOLS + HOME_TOOLS + AGENT_TOOLS + GOOGLE_TOOLS + SKILL_MANAGE_TOOLS + SKILL_REQUEST_TOOLS}
+        self.skills = SkillLoader(self.db, now=now, data_dir=Path(path).parent, services={"ha": ha, "google": google},
+                                  reserved=reserved, notify=self._notice, **({"dir": skills_dir} if skills_dir else {}))
+        self.skills.load_all()
+        self.skill_requests = SkillRequests(self.db, loader=self.skills, now=now)
 
     # ── общая история разговоров (голос и Telegram) ──
     #
@@ -185,8 +192,12 @@ class Brain:
                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
         self.db.commit()
 
+    def _notice(self, text: str):
+        return self.on_notice(text) if self.on_notice else None
+
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else [])
+        return (TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
+                + (GOOGLE_TOOLS if self.google else []) + self.skills.tools() + SKILL_MANAGE_TOOLS + SKILL_REQUEST_TOOLS)
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -198,6 +209,12 @@ class Brain:
 
     async def _call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         now = self.now().replace(tzinfo=None)
+        if self.skills.owns(name):
+            return await self.skills.call(name, args)
+        if name == "skills_manage":
+            return await self.skills.manage(args)
+        if name in ("propose_skill", "skill_decision"):
+            return await self.skill_requests.call(name, args)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
         if name.startswith("google_") and self.google:
@@ -224,8 +241,6 @@ class Brain:
                 return {"ok": False, "error": "mode: away, here или auto"}
             self.presence.set_override(mode)
             return {"ok": True, "mode": mode, "note": "away: колонка отзовётся снова после presence here из Telegram"}
-        if name == "current_time":
-            return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":
