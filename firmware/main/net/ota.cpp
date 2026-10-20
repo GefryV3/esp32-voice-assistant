@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "audio/audio.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_log.h"
@@ -49,11 +50,15 @@ void report(const char *state, int pct, const char *text = "") {
 
 void ota_task(void *) {
   audio::play_stop();
+  // Внутренней RAM у колонки ~21 КБ; стек задачи, буфер HTTP и приём Wi-Fi за раз её съедали до 6 КБ, и
+  // скачивание обрывалось (ESP_FAIL). Микрофон на время закачки молчит: его кадры тоже идут через те же буферы.
+  const bool was_listening = audio::mic_pause();
   esp_http_client_config_t http = {};
   http.url = s_url;
   http.timeout_ms = 15000;
-  http.buffer_size = 4096;
-  http.keep_alive_enable = true;
+  http.buffer_size = 2048;
+  http.buffer_size_tx = 512;
+  http.keep_alive_enable = false;
   esp_https_ota_config_t cfg = {};
   cfg.http_config = &http;
 
@@ -83,8 +88,10 @@ void ota_task(void *) {
     vTaskDelay(pdMS_TO_TICKS(800));   // дать сообщению уйти
     esp_restart();
   }
-  ESP_LOGE(TAG, "не вышло: %s", esp_err_to_name(err));
+  ESP_LOGE(TAG, "не вышло: %s (свободно внутренней RAM %u, минимум %u)", esp_err_to_name(err),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
   report("error", 0, esp_err_to_name(err));
+  audio::mic_resume(was_listening);   // не вышло — колонка продолжает слушать слово пробуждения
   s_busy = false;
   vTaskDelete(nullptr);
 }
@@ -124,7 +131,7 @@ bool start(const char *path, ReportFn report_fn) {
     return true;
   }
   ESP_LOGI(TAG, "обновление: %s", s_url);
-  if (xTaskCreatePinnedToCore(ota_task, "ota", 8192, nullptr, 4, nullptr, 0) != pdPASS) {
+  if (xTaskCreatePinnedToCore(ota_task, "ota", 5120, nullptr, 4, nullptr, 0) != pdPASS) {
     report("error", 0, "нет памяти под задачу");
     s_busy = false;
   }

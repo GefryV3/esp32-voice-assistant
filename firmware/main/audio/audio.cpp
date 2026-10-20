@@ -502,6 +502,12 @@ void listen(bool on, int gain_db) {
   s_listening = on;
 }
 
+bool mic_pause() { return s_listening.exchange(false); }
+
+void mic_resume(bool was_listening) {
+  if (was_listening) s_listening = true;
+}
+
 void set_barge_in(bool on, float ratio) {
   s_barge_ratio_x100 = static_cast<int>(std::clamp(ratio, 1.2f, 20.0f) * 100.0f);
   if (on != s_barge_on) ESP_LOGI(TAG, "перебивание %s (порог ×%.1f)", on ? "включено" : "выключено", ratio);
