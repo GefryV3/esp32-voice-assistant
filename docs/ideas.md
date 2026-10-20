@@ -1,7 +1,7 @@
 === File: ideas.md ===
 # Ideas and Scenarios (2026-10-19, to choose from)
 
-Principle from [use-cases.md](use-cases.md): the column does what is inconvenient to do on a phone.
+Principle from [use-cases.md](use-cases.md): the speaker does what is inconvenient to do on a phone.
 Size: **S** — evening, **M** — day, **L** — several days. "Required" — what should already be in place.
 Phrases are given as examples of how it sounds.
 
@@ -11,7 +11,7 @@ Phrases are given as examples of how it sounds.
 #39 master's voice (replying only to him) and "who is in the room", #40 homework and tests from WebUntis plus school
 mail and Teams (the user often misses tasks in Teams), #41 "help me remember" (low priority),
 #42 whisper, #43 room security (only in a safe form, see below), voice messages from Telegram are read aloud
-on the column at home, #45 automation guesses (part of the "living" Maga), #46 translator for any languages,
+on the speaker at home, #45 automation guesses (part of the "living" Maga), #46 translator for any languages,
 #47 news by topics (try it), #50 breaks based on computer activity (feasible).
 **Not doing:** #44 (there is "don't listen"), #48 (enough screen), #49.
 **Constraint:** hidden eavesdropping and retelling of other people's conversations in the room (parents, brothers, guests) are
@@ -40,12 +40,12 @@ is in the room (presence detection in the room: phone BLE beacon, fallback: LD24
 
 1. **#1. «Мага, спокойной ночи» ("Maga, good night") — one scenario for the whole evening** (M). The light smoothly fades into a warm
    "sunset" over a couple of minutes (WLED supports `transition`), the screen and sound quiet down, one phrase out loud:
-   «Будильник на 7:10, завтра первое дело в 10, ночью дождь» ("Alarm set for 7:10, first task tomorrow at 10, rain at night"). The column checks that the phone is on
+   «Будильник на 7:10, завтра первое дело в 10, ночью дождь» ("Alarm set for 7:10, first task tomorrow at 10, rain at night"). The speaker checks that the phone is on
    charging, and stays silent until morning after that. Required: Google Calendar (exists), HA lights (exist).
 2. **#2. Quieter and shorter at night** (S). From `night_start` to `night_end`, replies are whispered and in a single
    phrase, speaker volume drops automatically (`volume` is already in the protocol), prompt includes "speak
    quietly, briefly". Currently, Maga speaks at night just like during the day, while people nearby are sleeping.
-3. **#3. «Что я пропустил?» ("What did I miss?")** (M). While you are away or wearing headphones, the column collects phone notifications
+3. **#3. «Что я пропустил?» ("What did I miss?")** (M). While you are away or wearing headphones, the speaker collects phone notifications
    (the bridge already receives them). Then: «Три сообщения от мамы, одно от банка, остальное шум» ("Three messages from mom, one from the bank, the rest is noise").
    Gemini will filter out the noise itself. Required: `bridge.py` (`notifs`), fetch history from it.
 4. **#4. Language partner mode: German** (M). Currently the prompt says "Russian only". The phrase
@@ -60,7 +60,7 @@ is in the room (presence detection in the room: phone BLE beacon, fallback: LD24
 6. **#6. Claude Code reports via voice** (S). The Claude Code `Stop` hook sends a short post to the server
    (the computer bridge already exists), Maga says: «Сессия с Telegram закончила, три коммита» ("Telegram session finished, three commits") or
    highlights the desk green. Especially convenient when you are waiting for a long task and stepped away.
-7. **#7. Clap-clap — bedside light** (M, firmware). Two claps in a row right on the column itself (simple
+7. **#7. Clap-clap — bedside light** (M, firmware). Two claps in a row right on the speaker itself (simple
    sound analysis on ESP, without a wake word and without a server) toggle the bedside lamp. Instantly, no need to speak
    out loud at night, works without the internet. False positives are caught using a threshold and
    a couple of strikes with an interval of 0.3–0.7 s.
@@ -84,8 +84,8 @@ is in the room (presence detection in the room: phone BLE beacon, fallback: LD24
 - **#13. Pomodoro with desk backlight** (S). «Фокус 50» ("Focus 50"): desk backlight cold white, timer ring along the edge
    of the screen, at the end the desk smoothly turns green and Maga says: «Перерыв, встань» ("Break, get up"). On the 10th
    minute of the break, the desk turns blue again. Everything is ready: WLED, screen timer, `home_set` with color.
-- **#14. Focus mode** (M). «Мага, фокус» ("Maga, focus"): mirror phone notifications to the column only from
-  selected people, cooler lighting, shorter replies, column stays silent except for urgent matters.
+- **#14. Focus mode** (M). «Мага, фокус» ("Maga, focus"): mirror phone notifications to the speaker only from
+  selected people, cooler lighting, shorter replies, speaker stays silent except for urgent matters.
 - **#15. Dictating notes into a project** (S). «Запиши в идеи: …» ("Note to ideas: ...") adds a line to the required file or
   Google Tasks with a tag. Suitable for study and projects: thoughts won't get lost while hands are on the keyboard.
 - **#16. Reading email on demand** (S). «Прочитай, что написал банк» ("Read what the bank wrote"): subject and essence, not the full text
@@ -123,12 +123,12 @@ is in the room (presence detection in the room: phone BLE beacon, fallback: LD24
 - **#27. Transit** (M). Wiener Linien: «Когда следующий трамвай?» ("When is the next tram?") and «пора выходить» ("time to leave") according to the calendar.
   Open data, no API key needed.
 - **#28. «Возьми зонт» ("Take an umbrella")** (S). On «я ушёл» ("I'm leaving") and rain in the forecast.
-- **#29. Weekly summary in Telegram** (S). Sleep, tasks, how many times the column replied, what it learned
+- **#29. Weekly summary in Telegram** (S). Sleep, tasks, how many times the speaker replied, what it learned
   that is new. At the same time, highlights what can be cleaned up in memory.
 
 ## Hardware
 
-- **#30. Sensors directly on the column** (S, ~10 €). BME280 (temperature, humidity, pressure) via I²C to
+- **#30. Sensors directly on the speaker** (S, ~10 €). BME280 (temperature, humidity, pressure) via I²C to
   ESP32-S3: «Тут 27 градусов, душно» ("It's 27 degrees here, stuffy"). SCD40 (CO₂) even more useful for sleep: «CO₂ 1400, открой
   окно» ("CO₂ is 1400, open the window"). Data goes to HA and into the conversation.
 - **#31. «Не слушай» ("Don't listen") button** (S). Physical or touch: microphone is disabled programmatically,
@@ -138,7 +138,7 @@ is in the room (presence detection in the room: phone BLE beacon, fallback: LD24
 
 ## Reliability and Maintenance
 
-- **#33. Column is not mute without a server** (M, firmware). Clocks, timers, and alarm-reminders
+- **#33. Speaker is not mute without a server** (M, firmware). Clocks, timers, and alarm-reminders
   work independently if the server or Wi-Fi drops; "no connection" on the screen.
 - **#34. Memory backup** (S). Once a week the bot sends you `brain.db` as a file in Telegram.
   Maga's memory is valuable, losing it would be a pity.

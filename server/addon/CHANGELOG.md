@@ -6,7 +6,7 @@
   20 turns, $1.5, 12 minutes. The runner automatically finds the Claude application's `claude.exe`.
 - **Backup schedule** for the alarm clock: if WebUntis blocks access (login via Microsoft), it calculates as
   usual: Mon-Fri first lesson at 8:00 (`WAKE_SCHOOL_START`), wake-up at 6:20 with 59 min prep time.
-- "Column" app 0.4.0: haptic feedback on sliders and buttons (in APK), cover art palette, alarm clock.
+- «Колонка» app 0.4.0: haptic feedback on sliders and buttons (in APK), cover art palette, alarm clock.
 
 ## 0.13.0
 Major merge of ten parallel efforts. Details for each: docs/changes/*.md.

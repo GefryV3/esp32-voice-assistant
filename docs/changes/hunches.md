@@ -1,58 +1,60 @@
-# hunches: «догадки» (#45), Мага замечает привычки и предлагает автоматизации
+# hunches: "guesses" (#45), Maga notices habits and suggests automations
 
-Новый модуль `server/jarvis/hunches.py`, тесты `server/tests/test_hunches.py` (22 теста на подменах HA, времени и REST).
-Файла `docs/market-research.md` в репозитории нет, опирался на текст задачи.
+New module `server/jarvis/hunches.py`, tests `server/tests/test_hunches.py` (22 tests using HA, time, and REST mocks).
+The file `docs/market-research.md` is not in the repository, so I relied on the task description.
 
-## Что сделано
-- **Журнал событий** (таблица `events` в brain.db, 60 дней): свет и лампы из HA (отдельное WebSocket-соединение,
-  `subscribe_events state_changed`, без опроса; переподключается сам), «спокойной ночи», запуск музыки, установка
-  будильника и начало/конец работы за компьютером (опрос `bridge.pc_active` раз в минуту, событием становится
-  состояние, продержавшееся 5 минут).
-- **Только действия человека**: события с `context.parent_id` (автоматизации, сценарии) отбрасываются; свои вызовы Маги
-  (`ha.request` оборачивается, запоминается `context.id` ответа call_service), прямые команды лампам WLED и
-  «спокойной ночи» тоже. Команды пользователя через инструменты Gemini (`ha.call`) считаются пользовательскими.
-  Группы ламп пропускаются (участники приходят сами). Сутки считаются с 4 утра («00:10» относится к вечеру накануне).
-- **Поиск закономерностей** раз в сутки после 03:40: одно действие в одно время ±15 минут не меньше чем в 5 из
-  последних 7 дней («каждый вечер») или 4 из последних 5 будней («по будням»). Лампы одного момента (±10 мин) сливаются
-  в одну догадку. Кандидаты: `learned(kind=hunch, status=candidate)`, структура в таблице `hunches`.
-  Автоматизировать умеем только свет (вкл/выкл). Остальные закономерности (компьютер, будильник, музыка,
-  «спокойной ночи») сохраняются как `status=insight` и видны в `hunch list`, но не предлагаются.
-- **Предложение**: голосом (`Voice.announce`), если колонка занята или её нет — в Telegram. Условия: не ночью, с 11 до 21,
-  не при «не слушай», только `presence.here()`, не больше одного в сутки, не пока висит неотвеченное, и пока активных
-  автоматизаций от Маги меньше 3. Неотвеченное через 36 ч возвращается в кандидаты, после двух молчаний считается «нет».
-- **«Да»** создаёт автоматизацию REST-запросом `POST {api}/config/automation/config/maga_hunch_<id>_<ts>`
-  (WebSocket-команды создания автоматизаций в HA нет; адрес REST выводится из `JARVIS_HA_URL`/supervisor, токен тот же).
-  Имя всегда «Мага: гасить свет в 23:30», триггер `time`, для будней условие `weekday`. **«Нет»** запоминается навсегда.
-- **Откат**: удаляет автоматизацию только если id в нашей таблице начинается с `maga_hunch_`, а имя в HA начинается с
-  «Мага:» (иначе отказ); чужие не трогаются. Откаченную догадку больше не предлагаем.
-- **Журнал**: записи «автоматизация» и «откатил автоматизацию» в `changelog` обучения, видны в `what_changed`.
-  `undo_change` их не откатывает (он синхронный и знает только выученные правила): откат через `hunch_undo`.
+## What was done
+- **Event log** (`events` table in `brain.db`, 60 days): lights and lamps from HA (dedicated WebSocket connection,
+  `subscribe_events state_changed`, without polling; auto-reconnecting), "good night" («спокойной ночи»), music playback,
+  alarm setting, and start/end of PC work (polling `bridge.pc_active` once a minute; a state that lasts for 5 minutes
+  becomes the event).
+- **Human actions only**: events with `context.parent_id` (automations, scenes) are discarded; Maga's own calls
+  (`ha.request` is wrapped, remembering the `context.id` of the `call_service` response), direct WLED lamp commands,
+  and "good night" («спокойной ночи») are also excluded. User commands via Gemini tools (`ha.call`) are considered user actions.
+  Lamp groups are skipped (individual members arrive on their own). The day starts at 4 AM ("00:10" belongs to the previous evening).
+- **Pattern search** once a day after 03:40: a single action at the same time ±15 minutes in at least 5 of the last
+  7 days ("every evening") or 4 of the last 5 weekdays ("on weekdays"). Lamps of the same moment (±10 min) are merged
+  into a single hunch. Candidates: `learned(kind=hunch, status=candidate)`, structure in the `hunches` table.
+  We can only automate lighting (on/off). Other patterns (PC, alarm, music, "good night" («спокойной ночи»)) are saved
+  as `status=insight` and are visible in `hunch list`, but are not suggested.
+- **Suggestion**: via voice (`Voice.announce`), or via Telegram if the speaker is busy or missing. Conditions: not at night,
+  from 11 AM to 9 PM, not during "don't listen" («не слушай»), only when `presence.here()`, no more than once a day,
+  not while an unanswered suggestion is pending, and while active Maga automations are fewer than 3. An unanswered suggestion
+  returns to candidates after 36 hours, and after two silences, it is considered a "no".
+- **"Yes"** creates an automation via a REST request `POST {api}/config/automation/config/maga_hunch_<id>_<ts>`
+  (there is no WebSocket command to create automations in HA; the REST address is derived from `JARVIS_HA_URL`/supervisor,
+  using the same token). The name is always "Maga: turn off light at 23:30" («Мага: гасить свет в 23:30»), the trigger is
+  `time`, and weekdays have a `weekday` condition. **"No"** is remembered forever.
+- **Rollback**: deletes the automation only if the ID in our table starts with `maga_hunch_` and the name in HA starts with
+  "Maga:" («Мага:» — otherwise rejected); foreign automations are not touched. Rolled-back hunches are no longer suggested.
+- **Log**: "automation" and "rolled back automation" entries in the training `changelog`, visible in `what_changed`.
+  `undo_change` does not roll them back (it is synchronous and only knows learned rules): rollback is done via `hunch_undo`.
 
-## Инструменты Gemini, консоль, Telegram
-`hunch_list`, `hunch_undo` (id необязателен), `hunch_answer(accept, id?)`.
-Консоль и Telegram: `hunch list | run [N] | undo [N] | yes | no | detect | stats | on | off`.
-`hunch run` = найти закономерности и предложить сейчас без лимитов, `hunch run N` = создать автоматизацию по догадке N
-(это «по команде», лимит в 3 не действует). В Telegram «да»/«нет» при висящем предложении идут в догадки
-(раньше, чем в «Запомнить?» обучения).
+## Gemini tools, console, and Telegram
+`hunch_list`, `hunch_undo` (ID is optional), `hunch_answer(accept, id?)`.
+Console and Telegram: `hunch list | run [N] | undo [N] | yes | no | detect | stats | on | off`.
+`hunch run` = find patterns and suggest immediately without limits, `hunch run N` = create an automation for hunch N
+(this is "on command", the limit of 3 does not apply). In Telegram, "yes"/"no" when a suggestion is pending go to hunches
+(taking precedence over learning's "Remember?" («Запомнить?»)).
 
-## Правки в общих файлах (минимальные)
-`brain.py` (поле `hunches`), `__main__.py` (создание, `attach_ha`/`attach_lights`, остановка, `extras`),
-`telegram.py` («да/нет» и `hunch`). `lights.py`, `ha.py`, `learning.py` не менялись: подмены ставятся на лету.
+## Minor changes in common files
+`brain.py` (`hunches` field), `__main__.py` (creation, `attach_ha`/`attach_lights`, shutdown, `extras`),
+`telegram.py` ("yes/no" («да/нет») and `hunch`). `lights.py`, `ha.py`, `learning.py` were not changed: mocks are applied on the fly.
 
-## Новых переменных .env нет
-Включено, если есть HA и обучение (то есть голос и GEMINI_API_KEY). Выключатель: `hunch off` (pref `hunches`).
+## No new .env variables
+Enabled if HA and learning are present (i.e., voice and `GEMINI_API_KEY`). Switch: `hunch off` (pref `hunches`).
 
-## Не проверено вживую
-- Реальный `POST/GET/DELETE /api/config/automation/config/<id>` через supervisor (`http://supervisor/core/api`): разрешён
-  ли путь в аддоне и хватает ли прав токена. Если HA ответит не 200, предложение остаётся висеть и пользователю
-  придёт ошибка.
-- Что реальные события `state_changed` от WLED-ламп и ручных переключений несут нужный `context`, и что
-  фильтр «свои действия» не пропускает лишнего (например утренний свет из morning.py идёт через `ha.request`, должно отсекаться).
-- Живая реакция Gemini на подсказку предложения и вызов `hunch_answer`.
-- Событие работы за компьютером и будильника в боевых данных.
+## Not verified live
+- Real `POST/GET/DELETE /api/config/automation/config/<id>` via supervisor (`http://supervisor/core/api`): whether the path
+  is allowed in the add-on and token permissions are sufficient. If HA returns anything other than 200, the suggestion remains
+  pending and the user receives an error.
+- Whether real `state_changed` events from WLED lamps and manual switches carry the necessary `context`, and whether
+  the "own actions" filter doesn't let too much through (e.g., morning light from `morning.py` goes through `ha.request` and should be filtered out).
+- Live Gemini reaction to the suggestion prompt and the `hunch_answer` call.
+- PC work and alarm events in production data.
 
-## Осталось / идеи
-- События pc/alarm/music/goodnight только копятся: для них нет автоматизаций в HA (можно позже предлагать, например,
-  «подготовить свет перед твоим вечерним сном»).
-- Не предлагаем автоматизации с яркостью/цветом: включение без параметров.
-- Если на устройстве несколько колонок, «не слушай» проверяется по всем.
+## Remaining / ideas
+- PC/alarm/music/goodnight events are only accumulated: there are no automations for them in HA yet (later we could suggest things
+  like "prepare the light before your evening sleep").
+- We do not suggest automations with brightness/color: switching on without parameters.
+- If a device has multiple speakers, "don't listen" («не слушай») is checked across all of them.

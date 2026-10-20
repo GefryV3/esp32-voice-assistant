@@ -1,78 +1,79 @@
-# voice-id: голос хозяина (#39), «кто в комнате», охрана (#43)
+=== File: voice-id.md ===
+# voice-id: owner's voice (#39), "who is in the room", security (#43)
 
-## Сделано
-Новый модуль `server/jarvis/voiceid.py` (+ минимальные аддитивные правки `voice.py`, `telegram.py`,
-`__main__.py`, `config.py`, `.env.example`, `pyproject.toml`-комментарий) и `tests/test_voiceid.py` (35 тестов).
+## Done
+New module `server/jarvis/voiceid.py` (+ minimal additive edits to `voice.py`, `telegram.py`,
+`__main__.py`, `config.py`, `.env.example`, `pyproject.toml` comment) and `tests/test_voiceid.py` (35 tests).
 
-- **Модель**: WeSpeaker ResNet34 (VoxCeleb), ONNX 26,5 МБ, класс ECAPA по качеству (EER ~1% на VoxCeleb).
-  Выбрана вместо ECAPA-TDNN: готового ECAPA в ONNX с признаками внутри нет, а этот работает на
-  `onnxruntime` + numpy без torch (Python 3.12 Windows и `python:3.13-slim`, новых зависимостей **нет**).
-  Признаки (Kaldi fbank 80) посчитаны на numpy. Качается при первом запуске в `data/models` (`ensure_model`,
-  как Vosk), в репозитории файла нет. Источник: релиз sherpa-onnx на GitHub (ссылка проверена, 200 OK).
-- **Проверено на настоящей модели** (скачал в scratchpad, не в репозиторий): два синтетических голоса Windows
-  (Zira/Hazel), по 4 фразы. Один голос, разные фразы: сходство 0.69–0.83; разные голоса: 0.22–0.42.
-  Вектор 256 чисел, ~70 мс на 1,5 с речи на этом ПК. Это чистый синтез, не живой микрофон.
-- **Отпечатки**: таблица `voiceprints(name, embedding, ts)` в brain.db. Только векторы, звук не хранится.
-  Сравнение: косинус с усреднённым вектором человека.
-- **Запись** `voice enroll [имя]` (консоль и Telegram): на экране колонки 10 коротких фраз (`caption`), писк,
-  5 с записи через `audio.record` (общий поток микрофона), нужна речь ≥1 с (иначе одна повторная попытка),
-  сохраняем при ≥5 удачных, иначе ничего. Идёт в фоне, итог приходит в Telegram. Повторная запись заменяет старую.
-  Для другого человека (`voice enroll аня`) первая фраза — согласие, которую он сам читает вслух; без явной
-  команды никого не записываем; `voice forget <имя>` удаляет.
-- **Проверка после слова**: после «Мага» разговор не открывается сразу, сервер копит 1-2 с речи (по
-  уровню звука), сравнивает с хозяином, и только тогда запускает разговор; накопленный звук дозаливается в
-  Gemini (задержка ~0,5 с на коротких фразах, на длинных почти нет). Чужой/записанный другой: в журнале
-  `чужой голос, сходство 0.31 (порог 0.50)`, колонка молчит. После слова нет речи 4 с: ничего не открываем.
-- **Режимы**: `voice on|off` (по умолчанию off; `on` отказывает без образцов хозяина или без модели),
-  `voice any [мин]` — всем на N минут (по умолчанию 30, макс. 480; `any 0` снимает), `voice threshold [0.2…0.9]`
-  (+ `JARVIS_VOICEID_THRESHOLD`, по умолчанию 0.5), `voice status`, `voice list`.
-- **Политика неуверенности**: сходство в пределах порога−0.10 и сейчас ночь (`bridge.night()`) → **отвечаем**
-  (простуженный/сонный голос, колонка у кровати). Днём то же сходство → молчим. Сбой модели, ошибка
-  сравнения → отвечаем (нет доказательства, что говорит чужой). Записанный другой человек (сходство ≥ порога)
-  ночью тоже не получает ответа.
-- **Кто в комнате**: инструмент Gemini `who_is_here` (через `brain.extensions`). Кто говорил последним и кого
-  слышали после слова за последние 15 минут. Только в памяти процесса, на диск не пишется. Узнаёт только
-  людей, записавшихся сами; остальные «незнакомый». Работает, пока режим `owner` (иначе проверка не идёт).
-- **Охрана** `guard on|off` (pref `guard`, по умолчанию off): хозяина по `presence.here()` нет, а микрофон слышит
-  речь (≥3 с по уровню за 20 с) → одно сообщение в Telegram: время, секунд речи, чей голос (хозяин / имя /
-  незнакомый / не определён). Антиспам 10 минут. Без записи и расшифровки; 4 с звука для опознавания живут
-  в памяти. Не работает во время разговора, записи образцов и режима тишины `mute`.
+- **Model**: WeSpeaker ResNet34 (VoxCeleb), ONNX 26.5 MB, ECAPA-class quality (EER ~1% on VoxCeleb).
+  Chosen instead of ECAPA-TDNN: no ready-made ECAPA in ONNX with features inside is available, whereas this works on
+  `onnxruntime` + numpy without torch (Python 3.12 Windows and `python:3.13-slim`, **no new dependencies**).
+  Features (Kaldi fbank 80) are computed on numpy. Downloaded on first start to `data/models` (`ensure_model`,
+  like Vosk), not present in the repository. Source: sherpa-onnx release on GitHub (link verified, 200 OK).
+- **Tested on real model** (downloaded in scratchpad, not in repository): two Windows synthetic voices
+  (Zira/Hazel), 4 phrases each. Same voice, different phrases: similarity 0.69–0.83; different voices: 0.22–0.42.
+  256-number vector, ~70 ms per 1.5 s of speech on this PC. This is pure synthesis, not a live microphone.
+- **Voiceprints**: `voiceprints(name, embedding, ts)` table in brain.db. Vectors only, audio is not stored.
+  Comparison: cosine similarity with a person's averaged vector.
+- **Recording** `voice enroll [name]` (console and Telegram): 10 short phrases on the speaker screen (`caption`), a beep tone,
+  5 s of recording via `audio.record` (general microphone stream), speech duration ≥1 s required (otherwise one retry),
+  saved if ≥5 successful attempts, otherwise discarded. Runs in the background, result arrives in Telegram. Re-recording replaces the old one.
+  For another person (`voice enroll аня` ("anya")), the first phrase is consent, which they read out loud themselves; nobody is recorded
+  without an explicit command; `voice forget <name>` deletes.
+- **Verification after wake word**: after «Мага» ("Maga"), the conversation does not open immediately; the server accumulates 1-2 s of speech (by
+  sound level), compares it with the owner, and only then starts the conversation; accumulated audio is appended to
+  Gemini (latency ~0.5 s on short phrases, almost none on long ones). Stranger / recorded other person: in log
+  `чужой голос, сходство 0.31 (порог 0.50)` ("stranger voice, similarity 0.31 (threshold 0.50)"), speaker is silent. No speech for 4 s after wake word: nothing opens.
+- **Modes**: `voice on|off` (off by default; `on` refuses without owner voiceprints or model),
+  `voice any [min]` — for everyone for N minutes (30 by default, max 480; `any 0` disables), `voice threshold [0.2…0.9]`
+  (+ `JARVIS_VOICEID_THRESHOLD`, 0.5 by default), `voice status`, `voice list`.
+- **Uncertainty policy**: similarity within threshold−0.10 and it is currently night (`bridge.night()`) → **we answer**
+  (hoarse/sleepy voice, speaker by the bed). Daytime same similarity → we remain silent. Model failure, comparison error
+  → we answer (no proof that a stranger is speaking). Recorded other person (similarity ≥ threshold)
+  also gets no answer at night.
+- **Who is in the room**: Gemini tool `who_is_here` (via `brain.extensions`). Who spoke last and who
+  was heard after the wake word over the last 15 minutes. In process memory only, not written to disk. Recognizes only
+  people who enrolled themselves; the rest are "unknown". Works while in `owner` mode (otherwise check is not performed).
+- **Security** `guard on|off` (pref `guard`, off by default): owner is not present via `presence.here()`, but microphone hears
+  speech (≥3 s by level over 20 s) → single message in Telegram: time, seconds of speech, whose voice (owner / name /
+  unknown / undetermined). Antispam 10 minutes. Without recording and transcription; 4 s of audio for identification live
+  in memory. Does not work during conversation, sample recording, and silence mode `mute`.
 
-## Не сделано намеренно (подтверждено в docs/ideas.md)
-Скрытая запись, расшифровка и пересказ чужих разговоров, фоновая запись комнаты. В Австрии это уголовно
-наказуемо; делаем только узнавание голоса по отпечатку и метаданные охраны.
+## Intentionally not done (confirmed in docs/ideas.md)
+Hidden recording, transcription and retelling of strangers' conversations, background room recording. In Austria, this is criminally
+punishable; we only do voice recognition by voiceprint and security metadata.
 
-## Новые переменные и команды
-`JARVIS_VOICEID=on|off` (off — модель не качается, команды остаются без эффекта), `JARVIS_VOICEID_THRESHOLD=0.5`.
-Консоль/Telegram: `voice status|list|threshold [x]|on|off|any [мин]|enroll [имя]|forget <имя>`, `guard on|off`.
-Команды `voice idle…` (экран) не затронуты. Таблица voiceprints создаётся сама.
+## New variables and commands
+`JARVIS_VOICEID=on|off` (off — model is not downloaded, commands remain without effect), `JARVIS_VOICEID_THRESHOLD=0.5`.
+Console/Telegram: `voice status|list|threshold [x]|on|off|any [min]|enroll [name]|forget <name>`, `guard on|off`.
+Commands `voice idle…` (screen) are not affected. The voiceprints table is created automatically.
 
-## Какой точности ждать (честно)
-- Эталон модели на чистой речи: ~1% ошибок. Дома хуже: дешёвый INMP441 в 1-3 м, эхо комнаты, 1-2 с речи,
-  простуда, шёпот ночью, русская речь на английской модели. Реалистично: хозяин узнаётся в 85-95% слов с
-  порогом 0.5, чужой взрослый отсеивается в ~90-95%. Похожий голос (брат, отец, ребёнок того же возраста)
-  может проходить, а шёпот и крик занижают сходство. Это **удобство, не защита**: запись с динамика может обмануть.
-- Короткие команды («Мага, свет», 0,5-1 с речи) надёжнее хуже длинных.
-- Охрана по уровню звука ловит и телевизор, и музыку: ложные срабатывания возможны (поэтому порог 3 с и антиспам).
+## What accuracy to expect (honestly)
+- Model benchmark on clean speech: ~1% error. At home it is worse: cheap INMP441 at 1-3 m, room echo, 1-2 s of speech,
+  colds, whispering at night, Russian speech on an English model. Realistically: owner is recognized in 85-95% of utterances with
+  threshold 0.5, an adult stranger is filtered out in ~90-95%. A similar voice (brother, father, child of the same age)
+  may pass, while whispering and shouting lower the similarity. This is **convenience, not security**: a speaker recording can fool it.
+- Short commands («Мага, свет» ("Maga, light"), 0.5-1 s of speech) are more reliable than long ones.
+- Sound-level security catches both TV and music: false positives are possible (hence the 3 s threshold and antispam).
 
-## Что должен измерить пользователь дома
-1. `voice enroll` в тихой комнате, на привычном месте (у кровати), потом ещё раз за компьютером.
-2. Пока режим off: сказать «Мага, …» пару десятков раз и смотреть `log`: в режиме owner строки
-   `голос хозяина, сходство …`; записать разброс (норма, шёпот, после пробуждения, с поворотом головы).
-   Порог поставить ниже минимума «своих» на 0.05-0.1 и выше максимума «чужих» (попросить домашних сказать «Мага»).
-3. Ночное окно: сходство шёпотом должно быть в [порог−0.10, порог); если ниже — `voice threshold` вниз.
-4. Время ответа после слова (прибавка ~0,5 с на коротких фразах) и что слово без речи не открывает разговор.
-5. Не мешает ли проверка слову во время барж-ина/follow-up (проверка только на слово, не на продолжение разговора).
-6. `guard on`, выйти из комнаты на 10 минут (presence away) и включить в ней телевизор: сколько ложных сообщений.
+## What the user must measure at home
+1. `voice enroll` in a quiet room, at the usual spot (by the bed), then again at the computer.
+2. While mode is off: say «Мага, …» ("Maga, ...") a couple of dozen times and watch `log`: in owner mode, lines
+   `голос хозяина, сходство …` ("owner voice, similarity ..."); record spread (normal, whisper, after waking up, with head turned).
+   Set threshold below minimum of "own" by 0.05-0.1 and above maximum of "strangers" (ask family members to say «Мага» ("Maga")).
+3. Night window: whisper similarity must be in [threshold−0.10, threshold); if lower — `voice threshold` down.
+4. Response time after wake word (addition of ~0.5 s on short phrases) and that a wake word without speech does not open conversation.
+5. Whether verification interferes with the wake word during barge-in/follow-up (check only on wake word, not on continuation of conversation).
+6. `guard on`, leave the room for 10 minutes (presence away) and turn on the TV in it: how many false messages.
 
-## Не проверено вживую
-Всё на подменах и синтетических голосах. Не проверено: запись образцов на настоящей колонке (подпись
-фразы на экране, писк `tone`, 5-секундное окно), задержка проверки в бою, поведение на живом микрофоне,
-Telegram-сообщения охраны, работа в образе аддона (onnxruntime уже в образе, модель докачается на первом запуске:
-нужен интернет из аддона к github.com). Выкладку и прошивку не трогал.
+## Not tested live
+Everything on fallbacks and synthetic voices. Not tested: recording samples on a real speaker (caption
+signing on screen, `tone` beep, 5-second window), verification latency in combat, behavior on a live microphone,
+Telegram security messages, operation as an addon image (onnxruntime is already in the image, model will download on first start:
+internet access from the addon to github.com is required). Deployment and firmware untouched.
 
-## Слияние
-Общие файлы: в `voice.py` +3 точки (атрибут `voiceid`, вызов `voiceid.on_audio` перед детектором, вызов
-`voiceid.begin` при слове), `telegram.py` (атрибут и маршрут `voice`/`guard`), `__main__.py` (создание и фоновая
-загрузка модели; `brain.extensions` и `hub.extras` получают `voiceid`), `config.py` (2 поля). Версию и
-CHANGELOG не менял.
+## Merging
+Common files: in `voice.py` +3 points (`voiceid` attribute, `voiceid.on_audio` call before detector, `voiceid.begin` call
+on wake word), `telegram.py` (attribute and route `voice`/`guard`), `__main__.py` (creation and background
+model download; `brain.extensions` and `hub.extras` receive `voiceid`), `config.py` (2 fields). Version and
+CHANGELOG not changed.

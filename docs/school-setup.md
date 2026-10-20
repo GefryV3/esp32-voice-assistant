@@ -1,61 +1,58 @@
-# Школа: что подключено и как подключить остальное
+# School: What is Connected and How to Connect the Rest
 
-Мага знает про школу из трёх источников. Всё только на чтение, без обхода школьных ограничений.
+Maga knows about the school from three sources. Everything is read-only, without bypassing school restrictions.
 
-## 1. WebUntis (готово, ключи уже в `server/.env`)
+## 1. WebUntis (ready, keys already in `server/.env`)
 
-Нужны `UNTIS_SERVER`, `UNTIS_SCHOOL`, `UNTIS_USER`, `UNTIS_PASSWORD` (логин ученика).
-Режим «только iCal» (`UNTIS_ICAL_URL`) расписание даёт, а домашку и контрольные нет.
+You need `UNTIS_SERVER`, `UNTIS_SCHOOL`, `UNTIS_USER`, `UNTIS_PASSWORD` (student login).
+The "iCal only" mode (`UNTIS_ICAL_URL`) provides the schedule, but not homework and exams.
 
-* «что задано» → `school_homework`, «когда контрольная» → `school_exams`, «что завтра отменили» → `school_changes`.
-* Вечером в 19:30 (вс–чт, накануне учебного дня) Мага сам напомнит, но только если есть что сказать:
-  контрольная завтра/послезавтра, невыполненная домашка, отмены и замены, задания из Teams без отметки.
-  Не ночью и не в режиме «не слушай». Один раз в день.
+* "what is assigned" ("что задано") → `school_homework`, "when is the exam" ("когда контрольная") → `school_exams`, "what was cancelled tomorrow" ("что завтра отменили") → `school_changes`.
+* In the evening at 19:30 (Sun–Thu, on the eve of a school day), Maga will remind you himself, but only if there is something to say:
+  tomorrow's/the day after tomorrow's exam, uncompleted homework, cancellations and substitutions, Teams assignments without a mark.
+  Not at night and not in the "do not listen" ("не слушай") mode. Once a day.
 * `.env`: `JARVIS_SCHOOL_REMIND=on|off`, `JARVIS_SCHOOL_REMIND_AT=19:30`.
-* Консоль: `school status|hw|exams|changes|missed|tasks|remind|clear`.
+* Console: `school status|hw|exams|changes|missed|tasks|remind|clear`.
 
-## 2. Уведомления Teams и Outlook с телефона (готово, ничего настраивать в школе не нужно)
+## 2. Teams and Outlook notifications from the phone (ready, nothing to set up at school)
 
-Приложение Мага на телефоне уже пересылает серверу уведомления (доступ к уведомлениям включён). Сервер
-запоминает те, что пришли от `com.microsoft.teams` и `com.microsoft.office.outlook` (таблица `school_notifs`).
+Maga's app on the phone already forwards notifications to the server (notification access is enabled). The server
+saves those that came from `com.microsoft.teams` and `com.microsoft.office.outlook` (the `school_notifs` table).
 
-* «что я пропустил в Teams и почте» → `school_missed` (после показа записи помечаются «просмотрено»).
-* «что не сдано» → `school_tasks`: уведомления со словами assigned / Aufgabe / due / fällig / zugewiesen / Abgabe;
-  висят, пока не скажешь «сделал» (`school_task_done`).
-* Условия: в приложении Мага на телефоне Teams и Outlook **не заглушены** (экран «Приложения»), в самих
-  Teams/Outlook уведомления включены, телефон на связи с сервером. Что пришло, пока телефон был выключен или
-  без сети, не дойдёт: копится только то, что телефон показал при работающем мосте.
-* Ограничение: текст уведомления короткий (часто только заголовок и первая строка), поэтому это «что пришло»,
-  а не полный список заданий. Полный список ниже (путь А) возможен только с согласия школы.
+* "what did I miss in Teams and mail" ("что я пропустил в Teams и почте") → `school_missed` (after showing the record, they are marked as "viewed" ("просмотрено")).
+* "what is not submitted" ("что не сдано") → `school_tasks`: notifications with the words assigned / Aufgabe / due / fällig / zugewiesen / Abgabe;
+  they hang around until you say "done" ("сделал") (`school_task_done`).
+* Conditions: in Maga's app on the phone, Teams and Outlook are **not muted** (the "Apps" ("Приложения") screen), notifications are enabled in Teams/Outlook themselves, the phone is connected to the server. What came while the phone was turned off or without a network will not arrive: only what the phone showed while the bridge was running is accumulated.
+* Limitation: the notification text is short (often just the title and the first line), so this is "what came",
+  not a full list of assignments. The full list below (path A) is only possible with the school's consent.
 
-## 3. Путь А: Microsoft Graph (почта и задания Teams напрямую) — только с согласия школы
+## 3. Path A: Microsoft Graph (mail and Teams assignments directly) — only with the school's consent
 
-Что понадобится по документации Microsoft Graph (делегированные права, вход самим учеником):
-* почта: `Mail.Read`;
-* задания Teams (Education API): `EduAssignments.ReadBasic` (студенту: его задания, сроки, статус сдачи);
-* `offline_access` для длительного входа.
+What will be needed according to the Microsoft Graph documentation (delegated permissions, student login):
+* mail: `Mail.Read`;
+* Teams assignments (Education API): `EduAssignments.ReadBasic` (for the student: their assignments, deadlines, submission status);
+* `offline_access` for a long-term login.
 
-Чтобы приложение могло войти в школьный аккаунт, нужна регистрация приложения в Microsoft Entra ID
-(портал entra.microsoft.com). **У ученика школьного тенанта регистрация приложений и согласие на права,
-как правило, отключены**; права вроде `EduAssignments.*` в любом случае требуют согласия администратора.
-Поэтому реалистично так:
-1. Узнай у ИТ-администратора школы (в HTL это обычно ИТ-админ/Systembetreuer), разрешён ли доступ
-   сторонних приложений к Teams-заданиям и почте ученика и можно ли выдать согласие администратора.
-2. Если да: администратор регистрирует приложение (тип «публичный клиент», вход по коду устройства),
-   выдаёт `Mail.Read` и `EduAssignments.ReadBasic`, присылает тебе Client ID и Tenant ID (это не пароли).
-3. Тогда ключи (`MS_CLIENT_ID`, `MS_TENANT_ID`) вписываешь ты сам в `server/.env`, а я допишу модуль.
-Если школа отказала, ничего не обходим: остаётся путь Б и уведомления (раздел 2).
+For the application to be able to log into the school account, application registration in Microsoft Entra ID is required
+(the entra.microsoft.com portal). **As a rule, a student of a school tenant has application registration and consent to permissions disabled**; permissions like `EduAssignments.*` require administrator consent in any case.
+Therefore, realistically it is as follows:
+1. Ask the school IT administrator (at HTL this is usually the IT admin/Systembetreuer) whether access
+   of third-party applications to Teams assignments and student mail is allowed and whether administrator consent can be issued.
+2. If yes: the administrator registers the application (type "public client", login via device code),
+   issues `Mail.Read` and `EduAssignments.ReadBasic`, sends you the Client ID and Tenant ID (these are not passwords).
+3. Then you enter the keys (`MS_CLIENT_ID`, `MS_TENANT_ID`) into `server/.env` yourself, and I will write the module.
+If the school refused, we do not bypass anything: path B and notifications remain (section 2).
 
-## 4. Путь Б: пересылка школьной почты на Gmail
+## 4. Path B: Forwarding school mail to Gmail
 
-Gmail у Маги уже подключён (`server/jarvis/google.py`), поэтому письма, пересланные на него, он прочитает,
-и по отправителю (школьный адрес) можно отличить школьные.
-1. Открой школьную почту в браузере: outlook.office.com (вход школьным аккаунтом).
-2. Шестерёнка «Параметры» → «Почта» → «Пересылка» (Forwarding). Включи пересылку, укажи свой Gmail,
-   по желанию «Сохранять копию».
-   Либо «Почта» → «Правила» → «Добавить правило» → действие «Переслать на…».
-3. Если пересылка серая или пишет, что запрещена администратором: школа её отключила (так бывает часто).
-   Не обходи: либо спроси ИТ-администратора, либо пользуйся уведомлениями (раздел 2).
-4. Gmail может сначала попросить подтвердить пересылку: письмо-подтверждение приходит на Gmail.
-5. Проверка: попроси школьного друга или самого себя прислать письмо и спроси Магу «что пришло на почту».
-Минус: пересылаются только письма, а задания Teams (это не почта) нет: для них раздел 2 или путь А.
+Maga already has Gmail connected (`server/jarvis/google.py`), so emails forwarded to it will be read by him,
+and school emails can be distinguished by the sender (school address).
+1. Open school mail in a browser: outlook.office.com (login with school account).
+2. Gear "Settings" ("Параметры") → "Mail" ("Почта") → "Forwarding" ("Пересылка"). Enable forwarding, specify your Gmail,
+   optionally "Keep a copy" ("Сохранять копию").
+   Or "Mail" → "Rules" ("Правила") → "Add new rule" ("Добавить правило") → action "Forward to..." ("Переслать на…").
+3. If forwarding is grayed out or says it is prohibited by the administrator: the school has disabled it (this often happens).
+   Do not bypass it: either ask the IT administrator or use notifications (section 2).
+4. Gmail may first ask you to confirm forwarding: a confirmation email arrives on Gmail.
+5. Check: ask a school friend or yourself to send an email and ask Maga "what came to the mail" ("что пришло на почту").
+Disadvantage: only emails are forwarded, and Teams assignments (this is not mail) are not: for them, use section 2 or path A.

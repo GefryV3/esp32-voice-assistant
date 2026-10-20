@@ -1,44 +1,45 @@
-# Сессия school: школа (WebUntis, Teams/Outlook) и «помоги запомнить»
+=== File: school.md ===
+# Session school: school (WebUntis, Teams/Outlook) and "help me remember"
 
-Ветка `claude/school-618b54`. Не выкладывалось и не прошивалось.
+Branch `claude/school-618b54`. Neither deployed nor flashed.
 
-## Что выяснено про WebUntis (проверено вживую чтением под логином ученика, 2026-10-20)
-* JSON-RPC `getHomeworks` и `getExams` — «Method not found»: закрыты (в JSON-RPC их не было).
-* Рабочий путь: тот же вход + `GET /WebUntis/api/token/new` + Bearer, затем REST
-  `/WebUntis/api/homeworks/lessons` (домашка, срок, completed, предмет по lessonId) и `/WebUntis/api/exams`
-  (тип, предмет, дата, время). Живой ответ: 19 контрольных на ближайшие 200 дней, домашка за 120 дней
-  (4 штуки, часть выполнена), отмены/замены/заметки через `getTimetable` (code, substText, lstext).
-* Данные только читаются, пароль в логи и вывод не попадает.
+## What has been figured out about WebUntis (verified live by reading under student login, 2026-10-20)
+* JSON-RPC `getHomeworks` and `getExams` — "Method not found": closed (they were not present in JSON-RPC).
+* Working path: same login + `GET /WebUntis/api/token/new` + Bearer, then REST
+  `/WebUntis/api/homeworks/lessons` (homework, deadline, completed, subject by lessonId) and `/WebUntis/api/exams`
+  (type, subject, date, time). Live response: 19 exams for the next 200 days, homework for 120 days
+  (4 items, some completed), cancellations/substitutions/notes via `getTimetable` (code, substText, lstext).
+* Data is read-only; the password never ends up in logs or output.
 
-## Что сделано
-* `server/jarvis/school.py`: `School` (REST + getTimetable), функции Gemini `school_homework`, `school_exams`,
-  `school_changes`; вечерняя подсказка через `Voice.announce` (раз в день, 19:30, вс–чт, только если есть что
-  сказать, не ночью/не в «не слушай»).
-* `server/jarvis/school_inbox.py`: копилка уведомлений Teams/Outlook в `brain.db` (`school_notifs`), функции
-  `school_missed`, `school_tasks`, `school_task_done` (пометка «просмотрено», задания по словам
-  assigned/Aufgabe/due/fällig…). Хук в мосте: `Bridge.on_notif` (2 строки).
-* `server/jarvis/memorize.py`: `memorize_start/next/result`, таблицы `memo_sets`, `memo_chunks`
-  (ящики Лейтнера 1/3/7/14/30 дней, ошибка — снова через 10 минут), `de_words` не тронута.
-* `__main__.py`: создание и регистрация расширений (`brain.extensions`, `hub.extras`), остановка School.
-* `docs/school-setup.md`: инструкция для пользователя про Microsoft Graph (путь А) и пересылку на Gmail (путь Б).
-* Тесты: `server/tests/test_school.py` (13), весь набор: 441 прошло, 2 пропущено.
+## What has been done
+* `server/jarvis/school.py`: `School` (REST + getTimetable), Gemini functions `school_homework`, `school_exams`,
+  `school_changes`; evening reminder via `Voice.announce` (once a day, 19:30, Sun–Thu, only if there is something
+  to say, not at night/not in "do not listen" mode).
+* `server/jarvis/school_inbox.py`: inbox for Teams/Outlook notifications in `brain.db` (`school_notifs`), functions
+  `school_missed`, `school_tasks`, `school_task_done` (marked as "viewed", tasks filtered by keywords
+  assigned/Aufgabe/due/fällig…). Hook in the bridge: `Bridge.on_notif` (2 lines).
+* `server/jarvis/memorize.py`: `memorize_start/next/result`, tables `memo_sets`, `memo_chunks`
+  (Leitner boxes 1/3/7/14/30 days, mistake — repeat in 10 minutes), `de_words` untouched.
+* `__main__.py`: creation and registration of extensions (`brain.extensions`, `hub.extras`), stopping School.
+* `docs/school-setup.md`: user instructions for Microsoft Graph (path A) and forwarding to Gmail (path B).
+* Tests: `server/tests/test_school.py` (13), entire suite: 441 passed, 2 skipped.
 
-## Новое в `.env` (всё необязательно)
-`JARVIS_SCHOOL_REMIND=on|off` (по умолчанию on), `JARVIS_SCHOOL_REMIND_AT=19:30`.
-Нужны уже существующие `UNTIS_SERVER/SCHOOL/USER/PASSWORD`.
+## New in `.env` (all optional)
+`JARVIS_SCHOOL_REMIND=on|off` (default on), `JARVIS_SCHOOL_REMIND_AT=19:30`.
+Requires already existing `UNTIS_SERVER/SCHOOL/USER/PASSWORD`.
 
-## Консоль
+## Console
 `school status|hw|exams|changes|missed|tasks|remind|clear`, `memo list|reset`.
 
-## Проверить вживую
-* Вечернюю фразу (`school remind` в консоли) и что она не лезет ночью/в «не слушай».
-* Что уведомления Teams/Outlook реально доходят до `school_notifs` (пакеты `com.microsoft.teams`,
-  `com.microsoft.office.outlook`; Teams мог бы слать другой пакет, тогда добавить в `PACKAGES`).
-* Заучивание голосом: как Gemini ведёт `memorize_next/result` (подсказка Live не менялась, правила
-  в описаниях функций и в `note` результата).
-* Фильтр «замен»: показываются только code cancelled/irregular или substText; обычные заметки `lstext` («2/2») скрыты.
+## To check live
+* Evening phrase (`school remind` in console) and that it doesn't trigger at night/in "do not listen" mode.
+* That Teams/Outlook notifications actually reach `school_notifs` (packages `com.microsoft.teams`,
+  `com.microsoft.office.outlook`; Teams might send a different package, in which case add it to `PACKAGES`).
+* Voice memorization: how Gemini handles `memorize_next/result` (Live prompt unchanged, rules
+  in function descriptions and in `note` of the result).
+* "Substitutions" filter: only `code cancelled/irregular` or `substText` are shown; ordinary `lstext` notes ("2/2") are hidden.
 
-## Не сделано / вопросы
-* Путь А (Graph) и Б (пересылка) только описаны: нужно согласие школы, ключей у меня нет.
-* `docs/market-research.md` в этой ветке отсутствует, ориентировался на задание.
-* Вечерний список «невыполненное из Teams» входит в вечернюю подсказку (число заданий) и в `school_tasks`.
+## Not done / questions
+* Path A (Graph) and B (forwarding) are only described: school consent is required, I don't have the keys.
+* `docs/market-research.md` is absent in this branch; I relied on the assignment.
+* The evening list of "uncompleted items from Teams" is included in the evening reminder (number of tasks) and in `school_tasks`.

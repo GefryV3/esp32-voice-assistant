@@ -1,57 +1,60 @@
-# Extras: голос из Telegram на колонке, переводчик, новости по темам, перерывы
+=== File: extras.md ===
+# Extras: Telegram voice on the speaker, translator, topic-based news, breaks
 
-Ветка `claude/extras-6449ee`. Не выложено, версию и CHANGELOG не трогал. Тесты: `server/tests/test_extras.py`
-(25 тестов на подменах, без сети); весь набор: 452 прошло, 2 пропущено.
+Branch `claude/extras-6449ee`. Not deployed, version and CHANGELOG left untouched. Tests: `server/tests/test_extras.py`
+(25 tests on mocks, without network); entire suite: 452 passed, 2 skipped.
 
-## 1. Голос из Telegram на колонке (`jarvis/tg_voice.py`, правки в `telegram.py`)
-- Бот принимает `voice` и `audio` только от `TELEGRAM_CHAT_IDS`, качает файл (getFile + скачивание),
-  декодирует в PCM 24 кГц моно, играет через `Audio.stream` с коротким сигналом перед сообщением.
-- Декодер: **ffmpeg из apt** (`addon/Dockerfile`: `tzdata ffmpeg`). Причина: pure-python декодера Opus нет, libopus
-  через ctypes + свой разбор Ogg хрупко и без mp3/m4a; ffmpeg читает всё, нужных Python-зависимостей нет.
-  Образ вырастет примерно на 100-150 МБ.
-- Правила: нет колонки / она в разговоре / режим тишины («не слушай») → сообщение в очереди (до 3, живёт час,
-  потом боту «не дождался»); ночью громкость тише на время сообщения (как в разговоре). Бот отвечает «Озвучено.»
-  или причиной. Длиннее 60 с и файлы больше 4 МБ отклоняются.
-- `/say <текст>` говорит голосом Маги через `Voice.announce` (Gemini, дословно, ночью вполголоса), до 600 символов.
-- Выключатель `JARVIS_TG_VOICE=on|off` (по умолчанию on). При off голосовые молча игнорируются, как раньше.
-- Консоль: `tgvoice` (состояние и очередь).
+## 1. Telegram Voice on the Speaker (`jarvis/tg_voice.py`, updates to `telegram.py`)
+- The bot accepts `voice` and `audio` only from `TELEGRAM_CHAT_IDS`, downloads the file (getFile + download),
+  decodes it into 24 kHz mono PCM, and plays it via `Audio.stream` with a short cue signal before the message.
+- Decoder: **ffmpeg from apt** (`addon/Dockerfile`: `tzdata ffmpeg`). Reason: there is no pure-python Opus decoder,
+  libopus via ctypes + custom Ogg parsing is fragile and lacks mp3/m4a support; ffmpeg reads everything, and required
+  Python dependencies are absent. The image will grow by about 100-150 MB.
+- Rules: no speaker / speaker in a conversation / silence mode ("do not listen" («не слушай»)) → message goes into the queue
+  (up to 3 items, lives for an hour, then tells the bot "timed out" («не дождался»)); at night, volume is lower for the duration
+  of the message (as in a conversation). The bot replies "Played." («Озвучено.») or gives the reason. Longer than 60 s
+  and files larger than 4 MB are rejected.
+- `/say <text>` speaks the text in Maga's («Мага») voice via `Voice.announce` (Gemini, verbatim, at night in a half-whisper),
+  up to 600 characters.
+- Switch `JARVIS_TG_VOICE=on|off` (default on). When off, voice messages are silently ignored, as before.
+- Console: `tgvoice` (status and queue).
 
-## 2. Переводчик на любые языки (`jarvis/translate.py`)
-- Функция Gemini `translate_mode(mode, language)`: `phrase` (разово), `interpret` (русский ⇄ язык до «хватит
-  переводить»), `off`. Правила приходят в результате функции, как у немецкого; при открытии сессии в режиме (консоль
-  `tr on <язык>`) идут в системную подсказку вместо «только по-русски» (`voice._new_live`).
-- Не ломает немецкий: включение одного выключает другой (`brain._call`), режим живёт на один разговор
-  (`Brain.end_conversation`), `long_talk` учитывает переводчик. Название языка проверяется (буквы, до 40 символов).
-- Консоль: `tr on <язык>|off|status|prompt`.
+## 2. Universal Translator (`jarvis/translate.py`)
+- Gemini function `translate_mode(mode, language)`: `phrase` (one-off), `interpret` (Russian ⇄ language until "stop translating" («хватит
+  переводить»)), `off`. Rules result from the function, just like for German; when opening a session in a mode (console
+  `tr on <language>`), they go into the system prompt instead of "Russian only" (`voices._new_live`).
+- Doesn't break German: enabling one disables the other (`brain._call`), the mode lives for one conversation
+  (`Brain.end_conversation`), `long_talk` takes the translator into account. Language name is validated (letters, up to 40 characters).
+- Console: `tr on <language>|off|status|prompt`.
 
-## 3. Новости по темам (`jarvis/news.py`, `Routines.briefing_extra`)
-- Темы в `brain.db` (`news_topics`); голос: функция `news_topics` («следи за новостями про: техника, Австрия»);
-  консоль: `news topics|add|del|now|on|off`.
-- В обычный утренний брифинг добавляется до 3 новостей (по фразе, темы по кругу по дню года) через
-  `brain.agents.generate` (поиск Tavily/Serper/DDG). Это добавка к подсказке брифинга, отдельного объявления нет;
-  за день ищем один раз (кэш), вчерашнее не повторяем. Мягкое пробуждение (SOFT_PROMPT) новости не получает.
-- `JARVIS_NEWS`: не задан = само включится, когда названы темы (без тем молчит); `off` = выключено совсем;
-  `on` = включено. Тебе (пользователю) нужно назвать темы.
+## 3. Topic-Based News (`jarvis/news.py`, `Routines.briefing_extra`)
+- Topics in `brain.db` (`news_topics`); voice function `news_topics` ("follow news about: tech, Austria" («следи за новостями про: техника, Австрия»));
+  console: `news topics|add|del|now|on|off`.
+- The regular morning briefing gets up to 3 news items (by phrase, topics rotated by day of the year) via
+  `brain.agents.generate` (Tavily/Serper/DDG search). This is an addition to the briefing prompt, there is no separate announcement;
+  we search once a day (cache), yesterday's news is not repeated. Soft wake-up (SOFT_PROMPT) does not receive news.
+- `JARVIS_NEWS`: not set = turns on automatically when topics are named (stays silent without topics); `off` = completely disabled;
+  `on` = enabled. You (the user) need to name the topics.
 
-## 4. Перерывы (`jarvis/breaks.py`)
-- По `bridge.pc.state["idle"]`: простой не больше 5 мин = работа продолжается; через `JARVIS_BREAK_MIN` минут
-  (по умолчанию 120, 0 = выключено совсем) один раз за отрезок короткая подсказка через announce. Не ночью, не в
-  тишине, не чаще раза в 90 минут (метка в prefs), колонка занята — повтор на следующем шаге.
-- По умолчанию ВЫКЛЮЧЕНО. Включение: «напоминай про перерывы» (функция `breaks_mode`) или консоль `break on|off`.
+## 4. Breaks (`jarvis/breaks.py`)
+- Based on `bridge.pc.state["idle"]`: inactivity no more than 5 min = work continues; after `JARVIS_BREAK_MIN` minutes
+  (default 120, 0 = completely disabled) once per period, a short prompt via announce. Not at night, not in
+  silence, no more than once every 90 minutes (marker in prefs), speaker busy — repeat at the next step.
+- Disabled by default. Enabling: "remind me about breaks" («напоминай про перерывы») (function `breaks_mode`) or console `break on|off`.
 
-## Новые переменные .env (все необязательные, в `.env.example`)
+## New .env Variables (all optional, in `.env.example`)
 `JARVIS_TG_VOICE`, `JARVIS_NEWS`, `JARVIS_BREAK_MIN`.
 
-## Проверить вживую (ничего из этого не проверялось)
-- В образе аддона есть `ffmpeg`; голосовое из Telegram декодируется (OGG/Opus) и звучит на колонке, сигнал не
-  оглушает, ночью тише; очередь при «не слушай» и в разговоре.
-- `/say` произносит текст дословно (Gemini может добавить лишнее: при необходимости ужесточить подсказку).
-- Переводчик: «переводи с русского на английский» держит режим и выходит по «хватит переводить»; качество
-  редких языков на живой голосовой модели.
-- Новости: поиск реально возвращает свежую фразу; добавка не раздувает брифинг.
-- Перерывы: `idle` от программы на ПК приходит в секундах (как в `PC_ACTIVE_S`).
+## To Verify Live (none of this has been tested)
+- The addon image includes `ffmpeg`; a voice message from Telegram is decoded (OGG/Opus) and plays on the speaker, the cue signal is not
+  deafening, quieter at night; queue works during "do not listen" («не слушай») and in conversation.
+- `/say` speaks text verbatim (Gemini may add extra stuff: tighten the prompt if necessary).
+- Translator: "translate from Russian to English" («переводи с русского на английский») holds the mode and exits upon "stop translating" («хватит переводить»);
+  quality of rare languages on the live voice model.
+- News: search actually returns a fresh phrase; the addition does not bloat the briefing.
+- Breaks: `idle` from the PC app arrives in seconds (as in `PC_ACTIVE_S`).
 
-## Что осталось / заметки
-- `docs/market-research.md` в репозитории не нашёл, делал по описанию задачи.
-- Гейт «режим тишины» берёт `Voice.quiet.active`; режим «presence away» голосовые не блокирует.
-- Принести: темы новостей; решить, включать ли перерывы.
+## Remaining / Notes
+- `docs/market-research.md` was not found in the repository, implemented based on the task description.
+- The "silence mode" («режим тишины») gate takes `Voice.quiet.active`; the "presence away" mode does not block voice messages.
+- To bring: news topics; decide whether to enable breaks.

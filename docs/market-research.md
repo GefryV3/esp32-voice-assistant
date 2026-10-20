@@ -1,92 +1,66 @@
-# Что умеют похожие устройства и чего не хватает Маге (2026-10-20)
+# What Similar Devices Can Do and What Maga Lacks (2026-10-20)
 
-Разбор: колонки Amazon (Alexa+), Яндекс (Алиса), Google (Gemini for Home), настольные компаньоны
-(Vector, EMO, Loona, ElliQ) и открытые проекты (Home Assistant Voice PE, Rhasspy, OVOS). Цель: найти
-функции, которых у нас нет и которые подходят твоей жизни (школа, спальня, компьютер, Home Assistant,
-Android, Telegram). Нумерация продолжает [ideas.md](ideas.md): идеи с **#38**.
+Review: Amazon speakers (Alexa+), Yandex (Alisa), Google (Gemini for Home), desktop companions (Vector, EMO,
+Loona, ElliQ), and open-source projects (Home Assistant Voice PE, Rhasspy, OVOS). Goal: find functions we
+lack that fit your life (school, bedroom, computer, Home Assistant, Android, Telegram). Numbering continues
+[ideas.md](ideas.md): ideas starting with **#38**.
 
-Источники: [Alexa+ и личности (TechCrunch)](https://techcrunch.com/2026/02/25/amazons-ai-powered-alexa-gets-new-personality-options/),
-[Alexa+ обзор 2026](https://tech.yahoo.com/home/articles/4-reasons-why-alexa-actually-091700283.html),
-[Что нового в Google Home](https://support.google.com/googlehome/answer/15962877?hl=en),
-[Google Home Speaker и Gemini](https://blog.google/products-and-platforms/devices/google-nest/google-home-speaker-gemini-features/),
-[функции Алисы 2026 (WinBug)](https://winbug.ru/skrytye-funktsii-alisy-2026/),
-[блог Алисы](https://alice.yandex.ru/blog/2026/archived-devices),
-[настольные роботы 2026](https://the-gadgeteer.com/2026/05/17/emotional-ai-companion-robots/),
+Sources: [Alexa+ and personalities (TechCrunch)](https://techcrunch.com/2026/02/25/amazons-ai-powered-alexa-gets-new-personality-options/),
+[Alexa+ review 2026](https://tech.yahoo.com/home/articles/4-reasons-why-alexa-actually-091700283.html),
+[What's new in Google Home](https://support.google.com/googlehome/answer/15962877?hl=en),
+[Google Home Speaker and Gemini](https://blog.google/products-and-platforms/devices/google-nest/google-home-speaker-gemini-features/),
+[Alisa features 2026 (WinBug)](https://winbug.ru/skrytye-funktsii-alisy-2026/),
+[Alisa blog](https://alice.yandex.ru/blog/2026/archived-devices),
+[desktop robots 2026](https://the-gadgeteer.com/2026/05/17/emotional-ai-companion-robots/),
 [Home Assistant Voice PE](https://thepihut.com/products/home-assistant-voice-preview-edition),
-[открытые голосовые проекты](https://www.stork.ai/alternatives/rhasspy).
-Часть пунктов (шёпот, охрана, «догадки» Alexa) описана по общеизвестным функциям этих продуктов, а не по
-источникам выше: перед реализацией сверим с документацией.
+[open voice projects](https://www.stork.ai/alternatives/rhasspy).
+Some items (whisper, security, Alexa "hunches") are described based on well-known functions of these products
+rather than the sources above; we will cross-check with documentation before implementation.
 
-## Что у Маги уже есть и не хуже, а часто лучше
+## What Maga Already Has and Does Not Worse, Often Better
 
-| Функция в продуктах | У Маги |
+| Feature in Products | Maga |
 |---|---|
-| Продолжение разговора без слова (Алиса 20 с, Google Continued Conversation) | есть, 6 с, при немецком 14 с |
-| Перебивание ответа | есть (barge-in) |
-| Личности «Brief / Chill / Sweet» (Alexa+) | ползунок язвительности, характер по времени суток, обратная связь «слишком длинно» |
-| Память (у Google окно 15 минут) | долгая память, общая история с Telegram, ночная рефлексия |
-| Проактивность (ElliQ) | редкие спонтанные реплики, вопросы по привычкам, брифинг |
-| Таймеры, будильники, напоминания, заметки, списки | есть; будильник по расписанию школы |
-| Найти телефон, звонки, уведомления, плеер | есть (мост телефона) |
-| Режим «не слушать» (кнопка Mute у Алисы и Voice PE) | голосом («не слушай час»), аппаратной кнопки нет |
-| Локальное слово пробуждения | на сервере, своё «Мага» |
-| Игры, тренажёры (Алиса: «Легко сказать», игры) | немецкий, «Города», «20 вопросов», викторина |
-| Эмоции на устройстве (EMO, Vector: сотни выражений) | глаза, реакции на звук и музыку |
-| Работа без облака для дома (Алиса: Zigbee, Matter) | дом идёт через локальный HA |
+| Continuing conversation without wake word (Alisa 20 s, Google Continued Conversation) | present, 6 s, 14 s in German |
+| Interrupting the answer (barge-in) | present |
+| Personalities "Brief / Chill / Sweet" (Alexa+) | sarcasm slider, time-of-day character, "too long" feedback |
+| Memory (Google window is 15 minutes) | long-term memory, shared Telegram history, nightly reflection |
+| Proactivity (ElliQ) | rare spontaneous utterances, questions about habits, briefing |
+| Timers, alarms, reminders, notes, lists | present; alarm tied to school schedule |
+| Find phone, calls, notifications, media player | present (phone bridge) |
+| "Do not listen" mode (Alisa and Voice PE Mute button) | by voice («не слушай час» ("don't listen for an hour")), no hardware button |
+| Local wake word | on server, custom «Мага» ("Maga") |
+| Games, trainers (Alisa: «Легко сказать» ("Easy to say"), games) | German, «Города» ("Cities"), «20 вопросов» ("20 questions"), quiz |
+| On-device emotions (EMO, Vector: hundreds of expressions) | eyes, reactions to sound and music |
+| Smart home without cloud (Alisa: Zigbee, Matter) | home goes through local HA |
 
-## Чего у Маги нет (кандидаты, #38 и дальше)
+## What Maga Lacks (Candidates, #38 and Beyond)
 
-Размер: **S** вечер, **M** день, **L** несколько дней.
+Size: **S** evening, **M** day, **L** several days.
 
-- **#38. Быстрый путь для простых команд** (M). У Alexa и Алисы «включи свет», «таймер на 5 минут» отрабатывают
-  мгновенно и без большой модели. У Маги всё идёт через Gemini (первый звук ответа 0,6–0,8 с). Идея: короткий список
-  частых команд (свет комнаты, яркость, таймер, «который час», «стоп») распознаёт локально Vosk на сервере и
-  выполняет сразу, с коротким тоном или подписью на экране вместо длинного ответа. Выигрыш: почти мгновенно, работает
-  и при проблемах с Gemini, тратит меньше квоты.
-- **#39. Узнаёт тебя по голосу** (L). У Alexa, Google, Алисы есть профили голоса. Для Маги это решение твоей просьбы
-  «работать, только когда я в комнате»: отвечать только на твой голос, а не на братьев, родителей и телевизор.
-  Вариант: небольшая модель голосового отпечатка на сервере (ECAPA/Resemblyzer), запись 10 фраз для обучения,
-  проверка после слова пробуждения. Риск: ошибки на шумном микрофоне, нужна калибровка.
-- **#40. Домашка и контрольные из WebUntis** (M). Раз расписание теперь читается, из него (и из «Hausaufgaben»,
-  «Prüfung») можно вытащить: «завтра контрольная по AM», «что задали», напоминание вечером про невыполненное.
-  Аналог «помощи с уроками» у Алисы, но привязан к твоему реальному расписанию. Нужно проверить, отдаёт ли школа
-  Hausaufgaben и Prüfungen через этот вход.
-- **#41. «Помоги запомнить»** (M). У Алисы такой навык есть: учит текст по частям. Для учёбы: продиктовал конспект или
-  список терминов, Мага проверяет по кругу (как с немецкими словами), повторяет по схеме. Можно переиспользовать
-  таблицу и повторение из немецкого.
-- **#42. Шёпот в ответ** (S). У Alexa есть режим шёпота: если говоришь шёпотом, отвечает шёпотом. Ночью у кровати
-  идеально: сервер определяет шёпот по уровню и спектру, включает ночной режим на этот разговор (громкость ещё ниже,
-  подсказка «шёпотом»). Небольшая правка к тому, что уже сделано для ночи.
-- **#43. Охрана комнаты, пока тебя нет** (M). У Алисы «режим охраны», у Alexa Guard, у Vector «сторож»: слушает звуки и
-  присылает уведомление. Для тебя: когда по присутствию тебя нет в комнате, а колонка слышит голос или шаги, в Telegram
-  приходит сообщение и короткая запись. Всё локально на сервере. Нужно твоё решение по приватности (дома другие люди).
-- **#44. Режим «не запоминай»** (S). «Режим инкогнито» у Алисы. Мага на время не пишет историю и не учится на
-  разговоре. Полезно для разговоров, которые не хочется хранить. Просто флаг для истории и рефлексии.
-- **#45. «Догадки» об автоматизациях** (M). У Alexa Hunches: замечает закономерности и предлагает рутину. Мага видит
-  твои повторяющиеся действия (свет в 23:30, будильник на 6:20) и предлагает: «Ты каждый вечер гасишь свет в 23:30,
-  сделать это само?». Опирается на уже существующий модуль обучения и на HA.
-- **#46. Переводчик в реальном времени** (S). У Google «Interpreter». Мага переводит фразу или разговор (русский ↔
-  немецкий), удобно для школы и практики. Gemini Live это умеет; нужен режим и подсказка.
-- **#47. Новости по твоим темам** (S). «Home Brief» и «News Brief» у Google. Утренний брифинг уже есть; добавляем 3
-  коротких новости по темам, которые ты выберешь (техника, Австрия, гаджеты) через фоновых агентов с поиском.
-- **#48. Состояния Маги на подсветке** (S). У Алисы подсветка Станции 3 (Ambilight), у Voice PE светодиодное кольцо.
-  У тебя есть WLED-лампы: «Палка» или стол могут мягко пульсировать, когда Мага слушает или думает. Пока выглядит как
-  украшение, делать только если понравится.
-- **#49. Аппаратная кнопка Mute** (S, железо). У Voice PE и Алисы физический выключатель микрофона. Мы выбрали «не
-  слушай» голосом, но кнопка даёт абсолютную уверенность (особенно при гостях).
-- **#50. Перерывы по реальной активности компьютера** (S). У ElliQ проактивные «встань, разомнись». У тебя есть данные
-  о работе за компьютером, можно напоминать про перерыв и воду после 2 часов подряд. Ты отказался от помодоро и
-  режима фокуса, поэтому это только если захочешь; по умолчанию не включать.
+- **#38. Fast path for simple commands** (M). On Alexa and Alisa, «включи свет» ("turn on the light"), «таймер на 5 минут» ("timer for 5 minutes") execute instantly without a large model. In Maga, everything goes through Gemini (first audio response 0.6–0.8 s). Idea: a short list of frequent commands (room light, brightness, timer, «который час» ("what time is it"), «стоп» ("stop")) is recognized locally by Vosk on the server and executed immediately, with a short tone or screen label instead of a long answer. Benefit: almost instant, works even during Gemini issues, uses less quota.
+- **#39. Recognizes you by voice** (L). Alexa, Google, and Alisa have voice profiles. For Maga, this solves your request to «работать, только когда я в комнате» ("work only when I'm in the room"): respond only to your voice, ignoring brothers, parents, and the TV. Option: a small voice fingerprint model on the server (ECAPA/Resemblyzer), recording 10 phrases for training, checking after the wake word. Risk: errors on a noisy microphone, calibration needed.
+- **#40. Homework and exams from WebUntis** (M). Now that the schedule is read, from it (and from "Hausaufgaben" and "Prüfung") we can extract: «завтра контрольная по AM» ("tomorrow is the AM test"), «что задали» ("what was assigned"), an evening reminder about uncompleted tasks. Equivalent to Alisa's "homework help," but tied to your real schedule. Need to check if the school exposes Hausaufgaben and Prüfungen through this entry point.
+- **#41. "Help me remember"** (M). Alisa has this skill: learns text in parts. For studying: dictate notes or a list of terms, Maga quizzes you in a loop (like with German words), repeats according to a schedule. You can reuse the table and repetition logic from German.
+- **#42. Whisper response** (S). Alexa has a whisper mode: if you speak in a whisper, it answers in a whisper. Ideal at the bedside at night: the server detects a whisper by level and spectrum, enables night mode for this conversation (volume even lower, hint «шёпотом» ("in a whisper")). A small tweak to what has already been done for the night.
+- **#43. Room security while you are away** (M). Alisa has a "guard mode", Alexa Guard, Vector "guard": listens for sounds and sends a notification. For you: when presence shows you are not in the room, but the speaker hears a voice or footsteps, a message and a short recording arrive in Telegram. All locally on the server. Requires your decision on privacy (there are other people at home).
+- **#44. "Do not remember" mode** (S). Alisa's "Incognito mode". Maga temporarily stops writing history and learning from the conversation. Useful for chats you don't want stored. Just a flag for history and reflection.
+- **#45. Automation "hunches"** (M). Alexa Hunches: notices patterns and suggests a routine. Maga sees your repeating actions (light at 23:30, alarm at 6:20) and suggests: «Ты каждый вечер гасишь свет в 23:30, сделать это само?» ("You turn off the light every evening at 23:30, should I do it automatically?"). Relies on the already existing learning module and HA.
+- **#46. Real-time translator** (S). Google "Interpreter". Maga translates a phrase or conversation (Russian ↔ German), convenient for school and practice. Gemini Live can do this; we need a mode and a prompt.
+- **#47. News on your topics** (S). Google's "Home Brief" and "News Brief". The morning briefing is already there; we add 3 short news items on topics you choose (tech, Austria, gadgets) via background search agents.
+- **#48. Maga states on backlighting** (S). Alisa Station 3 has Ambilight, Voice PE has an LED ring. You have WLED lights: the "Stick" or desk can gently pulse when Maga is listening or thinking. Currently looks like decoration, do it only if you like it.
+- **#49. Hardware Mute button** (S, hardware). Voice PE and Alisa have a physical microphone switch. We chose «не слушай» ("don't listen") by voice, but a button gives absolute confidence (especially when guests are over).
+- **#50. Breaks based on actual computer activity** (S). ElliQ has proactive "stand up, stretch" prompts. You have data on computer work, so it can remind you to take a break and drink water after 2 hours straight. You declined Pomodoro and focus mode, so this is only if you want it; disabled by default.
 
-## Чего у других много, а нам не нужно
+## What Others Have Much of, But We Do Not Need
 
-Музыка и мультирум, магазины и покупки, звонки родным, «Интерком», детские сказки и родительский контроль,
-камеры и дверные звонки, умные розетки (у тебя их нет), SOS для пожилых, подписки (Alexa+ около 15–20 $ в месяц,
-Google Home Premium, Яндекс Плюс): у Маги подписки нет, платишь только за использование Gemini.
+Music and multi-room, stores and shopping, calls to family, "Intercom", kids' fairy tales and parental control,
+cameras and doorbells, smart plugs (you don't have any), SOS for the elderly, subscriptions (Alexa+ around $15–20
+per month, Google Home Premium, Yandex Plus): Maga has no subscription, you pay only for Gemini usage.
 
-## Что стоит сделать первым
+## What Is Worth Doing First
 
-1. **#38 быстрый путь** и **#42 шёпот**: дёшево, ощущается сразу.
-2. **#40 домашка и контрольные** и **#41 «помоги запомнить»**: самое полезное для школы.
-3. **#39 голос хозяина**: решает «работать, только когда я», но сложный, делать после ночных проверок дома.
-4. **#43 охрана** и **#45 догадки**: интересные, но нужны твои решения.
+1. **#38 fast path** and **#42 whisper**: cheap, felt immediately.
+2. **#40 homework and exams** and **#41 "help me remember"**: most useful for school.
+3. **#39 owner's voice**: solves «работать, только когда я» ("work only when it's me"), but complex, do after night home checks.
+4. **#43 security** and **#45 hunches**: interesting, but require your decisions.
