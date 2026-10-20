@@ -97,6 +97,7 @@ class Brain:
         self.ha = ha
         self.agents = agents
         self.presence = None     # Presence, ставит __main__
+        self.learning = None     # Learning (jarvis.learning), ставит __main__
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -186,7 +187,9 @@ class Brain:
         self.db.commit()
 
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else [])
+        from .learning import TOOLS as LEARN_TOOLS
+        return (TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
+                + (GOOGLE_TOOLS if self.google else []) + (LEARN_TOOLS if self.learning else []))
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -204,6 +207,8 @@ class Brain:
             return await self.google.call(name, args)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
+        if name in ("feedback", "what_changed", "undo_change", "confirm_learning") and self.learning:
+            return await self.learning.call(name, args)
         if name == "set_voice":
             wanted = str(args.get("name", "")).strip().casefold()
             match = next((v for v in VOICES if v.casefold() == wanted), None)
@@ -229,7 +234,8 @@ class Brain:
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":
-            return {"ok": True, "forgotten": self.forget(str(args.get("text", "")))}
+            needle = str(args.get("text", ""))
+            return {"ok": True, "forgotten": self.forget(needle) + (self.learning.forget(needle) if self.learning else 0)}
         if name == "add_reminder":
             text = str(args.get("text", "")).strip()
             if not text:

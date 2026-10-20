@@ -65,7 +65,7 @@ def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
                   tools: bool = False, home: bool = False,
                   history: list[tuple[datetime, str, str, str]] | None = None,
-                  history_lines: int = HISTORY_LINES) -> str:
+                  history_lines: int = HISTORY_LINES, learned: str = "") -> str:
     freq = ("в каждом втором ответе" if sarcasm < 70 else "почти в каждом ответе" if sarcasm < 90 else
             "в каждом ответе, дерзко и жёстко, как токсичный друг-циник (без настоящих оскорблений и без мата)")
     tone = (f"Твой характер: язвительный, с сухим острым юмором. {freq[0].upper() + freq[1:]} едко подколи или "
@@ -118,7 +118,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 
 Тебя зовут Мага (ты мужского рода, говори о себе «я сделал», «я взялся»). На «Hey Jarvis»
 ты тоже откликаешься, но ты не Джарвис и не изображаешь его. {abilities}
-{memory}{recent}"""
+{memory}{learned}{recent}"""
 
 
 def tail_bytes(text: str, max_bytes: int = 120) -> str:
@@ -399,7 +399,7 @@ class Voice:
         history = brain.recent_messages(HISTORY_LINES) if brain else None
         return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
                                                brain is not None, brain is not None and brain.ha is not None,
-                                               history))
+                                               history, learned=brain.learning.prompt_section() if brain and brain.learning else ""))
 
     async def _open_live(self) -> LiveSession:
         live = self._new_live()

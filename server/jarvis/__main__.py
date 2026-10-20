@@ -19,6 +19,7 @@ from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
 from .presence import Presence
+from .learning import Learning
 from .routines import Routines
 from .telegram import Telegram, parse_chat_ids
 from .voice import Voice
@@ -123,6 +124,17 @@ async def main() -> None:
         voice.presence = presence
     if tg:
         tg.presence = presence
+    if voice and settings.gemini_api_key:
+        from .agents import ask_model
+
+        async def learn_ask(prompt: str) -> str:
+            return await asyncio.to_thread(ask_model, settings.gemini_api_key, settings.agent_model, prompt)
+        learning = brain.learning = hub.learning = Learning(
+            brain, ask=learn_ask, notify=(tg.send if tg else None), announce=voice.announce,
+            presence=presence if presence.enabled else None, night=routines.night if routines else None)
+        learning.start()
+    else:
+        learning = None
     if voice or tg:
         async def remind(text: str) -> bool:
             # колонка не ответила (нет её или занята) — напоминание уходит в Telegram
@@ -141,6 +153,8 @@ async def main() -> None:
             else:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
+            if learning:
+                await learning.stop()
             if routines:
                 await routines.stop()
             if tg:
