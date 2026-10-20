@@ -150,6 +150,7 @@ class Telegram:
         self.download = download
         self.tgvoice = None      # TgVoice: голосовые сообщения и /say звучат на колонке
         self.presence = None     # Presence: команда «presence here|away|auto» из чата
+        self.voiceid = None      # VoiceID: команды voice … и guard on|off из чата
         self.skills = None       # SkillRequests: /skills, /approve, /reject, /enable, /diff
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
         self._offset = 0
@@ -286,6 +287,11 @@ class Telegram:
         if text.split()[0].lower().lstrip("/") == "presence" and self.presence is not None:
             await self.send(await self.presence.command("presence " + " ".join(text.split()[1:])) or "", chat_id)
             return
+        if self.voiceid is not None and text.split()[0].lower().lstrip("/") in ("voice", "guard"):
+            out = await self.voiceid.command(text)
+            if out is not None:
+                await self.send(out, chat_id)
+                return
         if self.skills is not None and text.split()[0].lower().lstrip("/") in SKILL_COMMANDS:
             out = await self.skills.command(text)
             if out is not None:

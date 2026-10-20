@@ -455,6 +455,7 @@ class Voice:
         self._wake_factory = wake_factory
         self.brain = brain
         self.presence = None      # Presence: пока человека нет на месте, разговор не начинаем
+        self.voiceid = None       # VoiceID: после слова проверяет, что говорит хозяин (voiceid.py)
         if brain is not None:
             brain.on_message = self._history_changed
         self.voice_name = settings.voice_name     # меняются на лету командами tts и affect
@@ -692,6 +693,8 @@ class Voice:
             return
         if self.quiet.on_audio(dev, pcm):
             return       # «не слушай»: звук не идёт ни в Gemini, ни в детектор слова
+        if self.voiceid is not None and self.voiceid.on_audio(dev, pcm):
+            return       # идёт проверка голоса после слова: звук копит она
         det = self._detectors.get(dev.id)
         if det is None or self.clock() < self._quiet_until.get(dev.id, 0.0):
             return
@@ -702,6 +705,9 @@ class Voice:
         if score >= self.settings.wake_threshold:
             if not self._present():
                 self._quiet_until[dev.id] = self.clock() + WAKE_COOLDOWN_S
+                return
+            if self.voiceid is not None and self.voiceid.begin(dev):
+                log.info("%s: слово пробуждения (%.2f), проверяю голос", dev.id, score)
                 return
             log.info("%s: слово пробуждения (%.2f)", dev.id, score)
             self.start(dev)

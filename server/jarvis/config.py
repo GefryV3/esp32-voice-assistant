@@ -52,6 +52,8 @@ class Settings:
     ble_uuid: str = ""                       # UUID iBeacon телефона (BLE Transmitter в приложении HA)
     room_away_min: float = 5                 # столько минут колонка не видит человека (room) — «в комнате нет»
     presence_idle_min: float = 180           # столько минут без признаков при связи — «нет на месте»; 0 — не считать
+    voiceid: bool = True                     # голос хозяина (voiceid.py): модель скачивается, сам режим — voice on
+    voiceid_threshold: float = 0.5           # порог косинусного сходства; выше — строже
     routines: bool = True                    # рутины: утренний брифинг, приветствие дома
     briefing_at: str = "08:00"               # брифинг по времени, если будильник не выключали
     habits: bool = True                      # привычки: случайный вопрос «это сделано?» по задачам Google
@@ -139,10 +141,19 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", digest_at):
         raise ConfigError(f"JARVIS_DIGEST_AT должен быть вида ЧЧ:ММ: {digest_at!r}")
 
+    try:
+        voiceid_threshold = float(env.get("JARVIS_VOICEID_THRESHOLD", "0.5").replace(",", "."))
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_VOICEID_THRESHOLD должен быть числом 0.2…0.9: {e}") from None
+    if not 0.2 <= voiceid_threshold <= 0.9:
+        raise ConfigError("JARVIS_VOICEID_THRESHOLD должен быть от 0.2 до 0.9")
+
     def on(key: str) -> bool:
         return env.get(key, "on").strip().lower() not in ("0", "false", "no", "off")
 
     return Settings(
+        voiceid=on("JARVIS_VOICEID"),
+        voiceid_threshold=voiceid_threshold,
         habits=on("JARVIS_HABITS"),
         habits_prob=habits_prob,
         habits_windows=env.get("JARVIS_HABITS_WINDOWS", "18:00-21:30"),

@@ -44,6 +44,7 @@ from .translate import Translator
 from .fastpath import make_fast_factory
 from .quiet import make_mute_factory
 from .voice import Voice
+from .voiceid import OnnxEmbedder, VoiceID, ensure_model as ensure_voiceid_model
 from .wake import WakeWord, ensure_models
 from .wake_vosk import MultiWake, VoskWake, ensure_model
 from .config import ConfigError, load_settings, read_env_file
@@ -215,6 +216,23 @@ async def main() -> None:
     if voice and tg:
         tgvoice = tg.tgvoice = TgVoice.from_env(voice, tg.send, env)
         extras.append(tgvoice)
+    if settings.voiceid:
+        voiceid = VoiceID(brain, hub=hub, voice=voice, audio=audio, presence=presence if presence.enabled else None,
+                          notify=tg.send if tg else None, night=bridge.night, threshold=settings.voiceid_threshold)
+        brain.extensions.append(voiceid)
+        extras.append(voiceid)
+        if tg:
+            tg.voiceid = voiceid
+
+        async def load_voiceid() -> None:
+            # модель качается в фоне: пока её нет, колонка отзывается как раньше
+            try:
+                path = await asyncio.to_thread(ensure_voiceid_model, Path(settings.data_dir) / "models")
+                voiceid.embedder = await asyncio.to_thread(OnnxEmbedder, path)
+                logging.getLogger("jarvis").info("модель голоса готова, режим: %s", voiceid.mode)
+            except Exception as e:
+                logging.getLogger("jarvis").warning("голос хозяина выключен: %s", e)
+        voiceid_task = asyncio.create_task(load_voiceid())     # noqa: F841 (держим ссылку до конца main)
     habits = None
     if voice and google and settings.habits:
         habits = Habits(voice.announce, google=google, brain=brain, settings=lambda: bridge.store.values,

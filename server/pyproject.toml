@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "websockets>=14",
     "numpy>=1.26",          # слово пробуждения
-    "onnxruntime>=1.20",    # модели openWakeWord
+    "onnxruntime>=1.20",    # модели openWakeWord и голоса хозяина (voiceid.py); новых зависимостей нет
     "vosk>=0.3.45",         # слово «Мага»: распознавание речи с грамматикой
 ]
 
