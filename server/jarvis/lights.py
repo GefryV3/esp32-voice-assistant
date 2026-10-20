@@ -229,6 +229,34 @@ class Lights:
         await self._call("turn_on", plain, {"transition": 1})
         return "включил" + (f" ({len(plain)} без запомненного вида)" if plain else ", вид вернул")
 
+    async def room(self, action: str) -> dict:
+        """Быстрые команды света для голоса без Gemini: on, off, dim, bright. → {ok, note|error}."""
+        lamps = [l for l in await self.state.lamps(fresh=True) if l.alive]
+        if not lamps:
+            return {"ok": False, "error": "не нашёл ни одной лампы"}
+        lit = [l for l in lamps if l.on]
+        if action == "on":
+            if lit:
+                return {"ok": True, "note": "Свет уже горит"}
+            await self.toggle_room()
+            return {"ok": True, "note": "Свет включён"}
+        if action == "off":
+            if not lit:
+                return {"ok": True, "note": "Свет уже выключен"}
+            await self.state.capture(force=True)
+            self.state.hold(60)
+            await asyncio.gather(
+                self._call("turn_off", [l.entity_id for l in lit], {"transition": 0.5}),
+                *(self.state.wled_post(l.host, {"on": False, "transition": 5}) for l in lit if l.is_wled))
+            return {"ok": True, "note": "Свет выключен"}
+        if action in ("dim", "bright"):
+            if not lit:
+                return {"ok": False, "error": "свет выключен"}
+            step = -25 if action == "dim" else 25
+            await self._call("turn_on", [l.entity_id for l in lit], {"brightness_step_pct": step, "transition": 0.5})
+            return {"ok": True, "note": "Потемнее" if action == "dim" else "Поярче"}
+        return {"ok": False, "error": f"нет такой команды света: {action}"}
+
     # ── свет под музыку ──
 
     async def on_media(self, msg: dict) -> None:

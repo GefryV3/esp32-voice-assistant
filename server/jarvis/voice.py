@@ -19,14 +19,16 @@ from datetime import datetime
 from typing import Any
 
 from . import protocol
-from .audio import Audio
+from .audio import Audio, tone
 from .brain import Brain
 from .config import Settings
-from .character import NIGHT_NOTE, daypart_note, effective_sarcasm
+from .character import NIGHT_NOTE, WHISPER_NOTE, daypart_note, effective_sarcasm
 from .devices import Device, DeviceHub
 from .gemini_fallback import FALLBACK_HOLD_S, VOICE_NOTE, Notice, is_overload
 from .gemini_live import Event, LiveError, LiveSession
+from .fastpath import FastPath
 from .quiet import Quiet, night_volume
+from .whisper import WhisperConfig, whisper_volume
 from .health import GEMINI_ERRORS
 
 log = logging.getLogger(__name__)
@@ -166,6 +168,16 @@ class Conversation:
         self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
         self._barge = asyncio.Event()  # колонка сообщила: пользователь перебил ответ
         self.speaking = False
+        # быстрый путь (#38) и шёпот (#42): только в разговоре по слову, не в текстовых и служебных
+        listening_talk = not one_shot
+        self._fast = voice.fast.listener() if listening_talk else None
+        self._fast_cmd = None
+        self._events: asyncio.Queue | None = None
+        self._whisper = voice.whisper.detector() if listening_talk else None
+        self.whispered = False
+        self.live: LiveSession | None = None
+        self.followup = ""         # подсказка для короткого голосового ответа после быстрой команды
+        self.t_start = voice.clock()
 
     def on_barge_in(self) -> None:
         if self.speaking:
@@ -174,6 +186,49 @@ class Conversation:
     def feed(self, pcm: bytes) -> None:
         if self.listening:
             self.mic.put_nowait(pcm)
+            self._analyze(pcm)
+
+    def _analyze(self, pcm: bytes) -> None:
+        """Тот же звук — в локальные распознаватели: команда быстрого пути и признак шёпота."""
+        if self._fast is not None and self._events is not None and self._fast_cmd is None:
+            cmd = self._fast.feed(pcm)
+            if cmd is not None:
+                self._fast_cmd = cmd
+                self._events.put_nowait(Event("fast", text=cmd.kind))
+        if self._whisper is not None:
+            verdict = self._whisper.feed(pcm)
+            if verdict is not None:
+                det, self._whisper = self._whisper, None
+                if verdict and not self.whispered:
+                    self.whispered = True
+                    log.info("%s: шёпот (%s)", self.dev.id, det.stats())
+                    self.voice._spawn(self.voice.whisper_mode(self.dev, self.live))
+                else:
+                    log.info("%s: голос обычный (%s)", self.dev.id, det.stats())
+
+    async def _fast_done(self) -> bool:
+        """Выполнить команду быстрого пути. False — не смогли, пусть отвечает Gemini."""
+        v, dev, cmd = self.voice, self.dev, self._fast_cmd
+        self._fast_cmd = None
+        out = await v.fast.execute(dev, cmd)
+        if out is None:
+            return False
+        ms = int((v.clock() - self.t_start) * 1000)
+        v.fast.record(cmd, ms)
+        v.log("user", cmd.text)
+        v.transcript = [("я", cmd.text), ("быстрый путь", out.note or cmd.kind)]
+        self.listening = False
+        if not out.silent:
+            caps = dev.hello.caps
+            if "display" in caps:
+                await dev.send(protocol.emotion("happy" if out.ok else "sorry", 1800))
+                if out.note:
+                    await dev.send(protocol.caption("reply", out.note, out.icon))
+            if "speaker" in caps and out.ok and not out.voice:
+                async with v.audio.stream(dev, 22050) as s:
+                    await s.write(tone(1175, 70, 22050, 0.3))
+        self.followup = v.fast.voice_prompt(cmd, out)
+        return True
 
     async def _pump_mic(self, live: LiveSession) -> None:
         while True:
@@ -276,6 +331,7 @@ class Conversation:
                 stack.push_async_exit(live)
                 pump = asyncio.create_task(self._pump_mic(live))
                 events: asyncio.Queue[Event | None] = asyncio.Queue()
+                self._events, self.live = events, live
                 reader = asyncio.create_task(self._read(live, events))
                 try:
                     v.transcript = [("текстом", text)] if text else []
@@ -288,6 +344,7 @@ class Conversation:
                     deadline = v.clock() + NO_SPEECH_S
                     why = ""
                     skip_old = False     # после перебивания хвост старого ответа Gemini не играем
+                    answered = False     # Gemini уже начал отвечать: быстрый путь молчит
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
@@ -297,6 +354,14 @@ class Conversation:
                         if ev is None or ev.kind == "go_away":
                             why = "Gemini закрыл сессию" if ev is None else "Gemini попросил переподключиться"
                             break
+                        if ev.kind == "fast":
+                            if answered or not await self._fast_done():
+                                self._fast_cmd = None
+                                continue
+                            why = "быстрый путь"
+                            break
+                        if ev.kind in ("audio", "tool_call"):
+                            answered, self._fast = True, None
                         if skip_old:
                             if ev.kind in ("interrupted", "turn_complete"):
                                 skip_old = False       # старый ответ кончился, дальше — новый
@@ -350,6 +415,9 @@ class Conversation:
                             while not self.mic.empty():
                                 self.mic.get_nowait()
                             self.listening = True
+                            if self._fast is not None:
+                                self._fast.reset()
+                                answered = False
                             await dev.send(protocol.voice("listening"))
                             deadline = v.clock() + (LONG_FOLLOW_UP_S if v.brain and v.brain.long_talk
                                                     else FOLLOW_UP_S)
@@ -364,7 +432,7 @@ class Conversation:
             await dev.send(protocol.caption(
                 "reply", "Gemini перегружен, попробуй позже" if is_overload(e) else "Не могу связаться с Gemini"))
         finally:
-            if ducked:
+            if ducked or self.whispered:
                 await v.restore_volume(dev)
             self.listening = False
             await dev.send(protocol.voice("idle"))
@@ -376,6 +444,7 @@ class Voice:
                  brain: Brain | None = None,
                  live_factory: Callable[[str], LiveSession] | None = None,
                  mute_factory: Callable[[], Any] | None = None,
+                 fast_factory: Callable[[], Any] | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  now: Callable[[], datetime] = datetime.now):
         self.hub = hub
@@ -401,6 +470,8 @@ class Voice:
             tools=brain.tools() if brain else None, silence_ms=settings.vad_silence_ms,
             affective=self._use_affective))
         self.quiet = Quiet(self, mute_factory)    # режим тишины «не слушай»
+        self.fast = FastPath(self, fast_factory, clock=clock)     # быстрый путь без Gemini
+        self.whisper = WhisperConfig(brain)       # шёпот в ответ
         if brain is not None:
             brain.mute_hook = self.quiet.mute_tool
         self._detectors: dict[str, Any] = {}
@@ -469,6 +540,23 @@ class Voice:
             await dev.send(protocol.volume(day))
         except Exception:
             pass
+
+    async def whisper_mode(self, dev: Device, live: LiveSession | None) -> None:
+        """Пользователь говорит шёпотом: динамик ещё тише ночного и заметка Gemini «отвечай шёпотом»."""
+        day = self._day_volume()
+        if day is not None:
+            level = whisper_volume(day, night_volume(day))
+            if level < day:
+                try:
+                    await dev.send(protocol.volume(level))
+                except Exception:
+                    pass
+        send_note = getattr(live, "send_note", None)
+        if send_note is not None:
+            try:
+                await send_note(WHISPER_NOTE)
+            except Exception as e:
+                log.warning("заметку про шёпот Gemini не принял: %r", e)
 
     def affective_active(self) -> bool:
         return self.affective and self.clock() >= self._affective_off_until
@@ -667,6 +755,8 @@ class Voice:
             if dev.id in self._detectors:
                 self._detectors[dev.id].reset()
             self._spawn(self._clear_caption(dev))
+            if talk.followup and "speaker" in dev.hello.caps:
+                self.start(dev, talk.followup, service=True, one_shot=True)    # «Готово» после быстрой команды
             if self._detectors:
                 self._prewarm()      # следующий разговор — на свежей сессии (память, время)
 
@@ -682,6 +772,10 @@ class Voice:
 
     async def command(self, line: str) -> str | None:
         parts = line.split(maxsplit=1)
+        if parts and parts[0].lower() == "fast":
+            return await self.fast.command(line)
+        if parts and parts[0].lower() == "whisper":
+            return await self.whisper.command(line)
         if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect", "mute", "de", "game"):
             return None
         if parts[0].lower() == "mute":

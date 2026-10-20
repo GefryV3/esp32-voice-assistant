@@ -41,6 +41,7 @@ from .breaks import Breaks
 from .news import News
 from .tg_voice import TgVoice
 from .translate import Translator
+from .fastpath import make_fast_factory
 from .quiet import make_mute_factory
 from .voice import Voice
 from .wake import WakeWord, ensure_models
@@ -114,6 +115,7 @@ async def main() -> None:
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
                       mute_factory=await make_mute_factory(Path(settings.data_dir) / "models"),
+                      fast_factory=await asyncio.to_thread(make_fast_factory, Path(settings.data_dir) / "models"),
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
                               search=settings.agent_search, fallback_model=settings.fallback_text_model,

@@ -154,6 +154,11 @@ class LiveSession:
         await self._ws.send(json.dumps({"clientContent": {
             "turns": [{"role": "user", "parts": [{"text": text}]}], "turnComplete": True}}))
 
+    async def send_note(self, text: str) -> None:
+        """Дописать в контекст сессии заметку, не вызывая ответа (turnComplete=false)."""
+        await self._ws.send(json.dumps({"clientContent": {
+            "turns": [{"role": "user", "parts": [{"text": text}]}], "turnComplete": False}}))
+
     async def send_tool_results(self, results: list[tuple[str, str, dict]]) -> None:
         """Ответы на tool_call: (id, имя, результат)."""
         await self._ws.send(json.dumps({"toolResponse": {"functionResponses": [
