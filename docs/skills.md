@@ -94,11 +94,11 @@ async def call(name, args, ctx):
   коммита; основная ветка и рабочая папка не трогаются; ветка с таким именем уже есть — отказ;
 - Claude Code запускается так: `claude -p … --permission-mode dontAsk --permission-prompts none --tools
   Read,Glob,Grep,Edit,Write,Bash --allowedTools Read Glob Grep "Edit(<файл навыка>)" "Edit(<файл теста>)"
-  "Bash(python -m pytest -q <файл теста>)" --max-turns 30 --max-budget-usd 3.00 --no-session-persistence`.
+  "Bash(python -m pytest -q <файл теста>)" --max-turns 20 --max-budget-usd 1.50 --no-session-persistence`.
   Нет веба, нет субагентов, любое действие вне белого списка отклоняется без вопросов. Правило `Edit(путь)`
   покрывает и Write (документация Claude Code, раздел Permissions). Правила пользователя из `~/.claude/settings.json`
   всё равно действуют: если там широкие разрешения, они остаются;
-- лимиты: 30 ходов, 3 доллара (клиентская оценка), 20 минут на стене (по таймауту процесс убивается вместе с детьми);
+- лимиты на одну сборку: 20 ходов, 1.5 доллара (клиентская оценка), 12 минут на стене (по таймауту процесс убивается вместе с детьми);
   меняются в `SkillRunner(...)`;
 - окружение без секретов: переменные с `TOKEN`, `SECRET`, `PASSWORD`, `API_KEY`, `REFRESH` вырезаются (кроме
   `ANTHROPIC_*` и `CLAUDE_*`, они нужны самому Claude Code);
@@ -133,3 +133,13 @@ async def call(name, args, ctx):
 ```
 
 Статусы в `skill_requests`: `proposed` → `approved` → `running` → `ready` → `enabled`; ещё `rejected`, `failed`.
+
+
+## Лимит сборок (чтобы не выжечь подписку Claude)
+
+Каждая сборка навыка запускает `claude -p` и тратит лимит подписки. Поэтому сервер сам ограничивает запуски:
+по умолчанию **одна сборка в сутки, три в неделю, пауза между сборками 4 часа**. Одобренное сверх лимита не
+пропадает: оно ждёт, и Мага пишет, когда можно (`/approve N` позже). Настройки в `.env`:
+`SKILL_MAX_PER_DAY`, `SKILL_MAX_PER_WEEK`, `SKILL_MIN_GAP_H`. Выключатель: `/skills build off`
+(`/skills build on` включает, `/skills build` показывает счётчики). Сама сборка всё равно идёт только после
+твоего «да»: Мага не может запустить её сам.

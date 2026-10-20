@@ -22,9 +22,9 @@ from typing import Any
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,30}$")
 MAX_TEXT = 1500
-DEFAULT_TIMEOUT_S = 20 * 60
-DEFAULT_BUDGET_USD = 3.0
-DEFAULT_MAX_TURNS = 30
+DEFAULT_TIMEOUT_S = 12 * 60       # экономим лимит подписки: короче, меньше ходов, меньше бюджет
+DEFAULT_BUDGET_USD = 1.5
+DEFAULT_MAX_TURNS = 20
 DIFF_LIMIT = 3000
 SECRET_HINTS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "REFRESH")
 

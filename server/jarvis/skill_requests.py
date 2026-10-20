@@ -14,7 +14,9 @@ import logging
 import re
 import sqlite3
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from .skills_loader import NAME_RE, SkillLoader
@@ -25,15 +27,40 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS skill_requests (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, what TEXT NOT NULL, why TEXT NOT NULL,
     status TEXT NOT NULL, created TEXT NOT NULL, branch TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS skill_runs (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, rid INTEGER NOT NULL);
 """
 MAX_OPEN = 5            # не больше стольких нерешённых предложений: Мага не должна заваливать карточками
 STATUS_RU = {"proposed": "ждёт ответа", "approved": "одобрено, ждёт ноутбук", "running": "пишется",
              "ready": "готово, ждёт включения", "failed": "не вышло", "rejected": "отклонено", "enabled": "включено"}
 OPEN_STATUSES = ("proposed", "approved", "running")
 
+
+
+@dataclass(frozen=True)
+class Quota:
+    """Лимит сборок навыков: каждая сборка тратит лимит подписки Claude, поэтому по умолчанию строго.
+    Считаются запуски `claude -p` на ноутбуке (одобренные задания, ушедшие на ноутбук)."""
+    per_day: int = 1
+    per_week: int = 3
+    min_gap_h: float = 4.0
+
+    @classmethod
+    def from_env(cls, env: dict[str, str] | None = None) -> "Quota":
+        env = {**os.environ} if env is None else env
+        d = cls()
+
+        def num(key: str, default: float) -> float:
+            try:
+                return max(float(env.get(key, default)), 0.0)
+            except (TypeError, ValueError):
+                return default
+        return cls(int(num("SKILL_MAX_PER_DAY", d.per_day)), int(num("SKILL_MAX_PER_WEEK", d.per_week)),
+                   num("SKILL_MIN_GAP_H", d.min_gap_h))
+
+
 TOOLS: list[dict[str, Any]] = [
     {"name": "propose_skill", "description": "Предложить себе новый навык, которого не хватает: пользователь "
-     "просит «научись делать X» или ты заметила, что чего-то не умеешь. Ничего не пишется сразу: пользователю "
+     "просит «научись делать X» или ты заметил, что чего-то не умеешь. Ничего не пишется сразу: пользователю "
      "уходит карточка в Telegram, и только после его «да» навык пишется на ноутбуке и проверяется человеком. "
      "title — короткое название, what — что навык делает (какие функции и откуда данные), why — зачем.",
      "parameters": {"type": "OBJECT", "properties": {
@@ -63,12 +90,52 @@ class SkillRequests:
     def __init__(self, db: sqlite3.Connection, *, loader: SkillLoader | None = None,
                  now: Callable[[], datetime] = datetime.now,
                  notify: Callable[[str], Awaitable[Any]] | None = None,
-                 pc_send: Callable[[dict], Awaitable[bool]] | None = None):
+                 pc_send: Callable[[dict], Awaitable[bool]] | None = None, quota: Quota | None = None):
         self.db, self.loader, self.now = db, loader, now
+        self.quota = quota or Quota.from_env()
         self.notify = notify          # текст в Telegram
         self.pc_send = pc_send        # сообщение мосту ПК; True — ушло
         db.executescript(SCHEMA)
         db.commit()
+
+    # ── лимит сборок (экономим лимит подписки Claude) ──
+
+    def build_enabled(self) -> bool:
+        row = self.db.execute("SELECT value FROM prefs WHERE key = 'skills_build'").fetchone() \
+            if self.db.execute("SELECT name FROM sqlite_master WHERE name = 'prefs'").fetchone() else None
+        return not row or row[0] != "off"
+
+    def set_build_enabled(self, on: bool) -> None:
+        self.db.execute("CREATE TABLE IF NOT EXISTS prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        self.db.execute("INSERT INTO prefs (key, value) VALUES ('skills_build', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = excluded.value", ("on" if on else "off",))
+        self.db.commit()
+
+    def _runs_since(self, since: datetime) -> list[datetime]:
+        rows = self.db.execute("SELECT ts FROM skill_runs ORDER BY id").fetchall()
+        return [t for t in (datetime.fromisoformat(r[0]) for r in rows) if t >= since]
+
+    def quota_block(self) -> str:
+        """Пустая строка, если сборку можно запускать, иначе причина и когда можно."""
+        if not self.build_enabled():
+            return "сборка навыков выключена (/skills build on, чтобы включить)"
+        now, q = self.now(), self.quota
+        day = self._runs_since(now - timedelta(days=1))
+        week = self._runs_since(now - timedelta(days=7))
+        if q.min_gap_h and day and now - day[-1] < timedelta(hours=q.min_gap_h):
+            return f"после прошлой сборки не прошло {q.min_gap_h:g} ч, можно после {(day[-1] + timedelta(hours=q.min_gap_h)):%H:%M}"
+        if len(day) >= q.per_day:
+            return f"сегодня уже {len(day)} из {q.per_day} сборок, можно после {(day[0] + timedelta(days=1)):%d.%m %H:%M}"
+        if len(week) >= q.per_week:
+            return f"за неделю уже {len(week)} из {q.per_week} сборок, можно после {(week[0] + timedelta(days=7)):%d.%m %H:%M}"
+        return ""
+
+    def quota_status(self) -> str:
+        now, q = self.now(), self.quota
+        return (f"Сборка навыков: {'включена' if self.build_enabled() else 'выключена'}. За сутки "
+                f"{len(self._runs_since(now - timedelta(days=1)))}/{q.per_day}, за неделю "
+                f"{len(self._runs_since(now - timedelta(days=7)))}/{q.per_week}, пауза между сборками {q.min_gap_h:g} ч. "
+                f"Меняется: SKILL_MAX_PER_DAY, SKILL_MAX_PER_WEEK, SKILL_MIN_GAP_H в .env.")
 
     # ── хранилище ──
 
@@ -150,9 +217,15 @@ class SkillRequests:
         return await self._dispatch(r)
 
     async def _dispatch(self, r: dict) -> str:
+        if reason := self.quota_block():
+            return (f"Одобрено: №{r['id']} «{r['title']}», но запускать пока нельзя: {reason}. "
+                    "Оно ждёт: напиши /approve " + str(r["id"]) + " позже.")
         job = {"type": "skill_job", "id": r["id"], "name": r["name"], "title": r["title"],
                "what": r["what"], "why": r["why"]}
         if self.pc_send is not None and await self.pc_send(job):
+            self.db.execute("INSERT INTO skill_runs (ts, rid) VALUES (?, ?)",
+                            (self.now().isoformat(timespec="seconds"), r["id"]))
+            self.db.commit()
             self._set(r["id"], status="running")
             return f"Одобрено: №{r['id']} «{r['title']}». Ноутбук взял задание, напишу, когда будет готово."
         return (f"Одобрено: №{r['id']} «{r['title']}», но ноутбук не на связи. Запущу, как только он "
@@ -209,6 +282,10 @@ class SkillRequests:
             if cmd == "skills" and (len(parts) == 1 or parts[1].lower() in ("requests", "заявки")):
                 head = self.loader.summary() if self.loader else "загрузчик навыков не запущен"
                 return f"Навыки:\n{head}\n\nПредложения:\n{self.listing()}"
+            if cmd == "skills" and len(parts) >= 2 and parts[1].lower() == "build":
+                if len(parts) >= 3 and parts[2].lower() in ("on", "off"):
+                    self.set_build_enabled(parts[2].lower() == "on")
+                return self.quota_status()
             if cmd == "approve":
                 return await self.approve(num)
             if cmd == "reject":
@@ -243,7 +320,7 @@ class SkillRequests:
                 r = await self.propose_and_announce(str(args.get("title", "")), str(args.get("what", "")),
                                                     str(args.get("why", "")), str(args.get("name", "")))
                 return {"ok": True, "id": r["id"], "status": r["status"],
-                        "note": "карточка ушла в Telegram; скажи пользователю, что спросила, и жди его «да»"}
+                        "note": "карточка ушла в Telegram; скажи пользователю, что спросил, и жди его «да»"}
             if name == "skill_decision":
                 rid = int(args["id"]) if args.get("id") else None
                 decision = str(args.get("decision", "")).strip().lower()

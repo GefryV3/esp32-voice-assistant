@@ -182,3 +182,37 @@ async def test_telegram_commands_reach_skill_requests(setup):
     await tg.poll_once()
     assert len(http.sent()) == 1 and "взял задание" in http.sent()[0]      # чужой чат (7) проигнорирован
     assert req.get(1)["status"] == "running"
+
+
+async def test_quota_limits_builds_and_can_be_switched_off(setup):
+    from datetime import timedelta
+
+    from jarvis.skill_requests import Quota
+    brain, req, fake, d = setup
+    clock = {"t": NOW}
+    req.now = lambda: clock["t"]
+    req.quota = Quota(per_day=1, per_week=2, min_gap_h=4)
+    ids = [req.propose(f"Навык {i}", "что-то")["id"] for i in range(4)]
+    assert "Ноутбук взял" in await req.approve(ids[0])                      # первая сборка идёт
+    out = await req.approve(ids[1])
+    assert "нельзя" in out and "ждёт" in out and len(fake.pc) == 1          # второй в тот же день нет
+    clock["t"] = NOW + timedelta(hours=3)
+    assert "нельзя" in await req.approve(ids[1])                            # пауза 4 ч, а сутки ещё не прошли
+    clock["t"] = NOW + timedelta(days=1, hours=1)
+    assert "Ноутбук взял" in await req.approve(ids[1])                      # через сутки можно
+    clock["t"] = NOW + timedelta(days=2, hours=3)
+    out = await req.approve(ids[2])
+    assert "за неделю уже 2 из 2" in out and len(fake.pc) == 2              # недельный лимит
+    req.quota = Quota(per_day=5, per_week=9, min_gap_h=0)
+    assert "включена" in await req.command("skills build")
+    assert "выключена" in await req.command("skills build off")
+    assert "выключена" in await req.approve(ids[3]) or "нельзя" in await req.approve(ids[3])
+    assert len(fake.pc) == 2
+    await req.command("skills build on")
+    assert "Ноутбук взял" in await req.approve(ids[3])
+
+
+def test_quota_from_env():
+    from jarvis.skill_requests import Quota
+    q = Quota.from_env({"SKILL_MAX_PER_DAY": "3", "SKILL_MIN_GAP_H": "0.5", "SKILL_MAX_PER_WEEK": "x"})
+    assert (q.per_day, q.per_week, q.min_gap_h) == (3, 3, 0.5)
