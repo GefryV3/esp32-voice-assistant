@@ -107,6 +107,7 @@ class LiveSession:
                  tools: list[dict[str, Any]] | None = None, silence_ms: int = SILENCE_MS,
                  affective: bool = False, url: str = LIVE_URL, connect: Callable = ws_connect):
         self._key = api_key
+        self.affective = affective
         self._setup = setup_message(model, voice, system, tools, silence_ms, affective)
         self._url = url.replace("/v1beta.", "/v1alpha.") if affective else url
         self._connect = connect

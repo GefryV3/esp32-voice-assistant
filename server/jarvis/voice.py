@@ -156,6 +156,12 @@ def tail_bytes(text: str, max_bytes: int = 120) -> str:
     return "…" + data[-(max_bytes - 3):].decode(errors="ignore").lstrip()
 
 
+def is_affective_reject(err: object) -> bool:
+    """1007 / invalid argument: модель не знает поля enableAffectiveDialog."""
+    text = str(err)
+    return "1007" in text or "invalid argument" in text.lower()
+
+
 class Conversation:
     """Один разговор с одной колонкой: от слова пробуждения до тишины."""
 
@@ -177,6 +183,8 @@ class Conversation:
         self.whispered = False
         self.live: LiveSession | None = None
         self.followup = ""         # подсказка для короткого голосового ответа после быстрой команды
+        self.close_error = ""      # с чем Gemini закрыл сессию посреди разговора
+        self.retry_plain = False   # Gemini отверг эмоциональный режим на первом ответе — повторить обычным
         self.t_start = voice.clock()
 
     def on_barge_in(self) -> None:
@@ -235,12 +243,12 @@ class Conversation:
             pcm = await self.mic.get()
             await live.send_audio(pcm)
 
-    @staticmethod
-    async def _read(live: LiveSession, events: asyncio.Queue) -> None:
+    async def _read(self, live: LiveSession, events: asyncio.Queue) -> None:
         try:
             async for ev in live.events():
                 await events.put(ev)
         except LiveError as e:
+            self.close_error = str(e)
             log.warning("%s", e)
         finally:
             await events.put(None)
@@ -424,6 +432,12 @@ class Conversation:
                 finally:
                     pump.cancel()
                     reader.cancel()
+                # Gemini 3.8 Live принимает настройки с эмоциональным диалогом, но на первом ответе закрывает 1007
+                if (why == "Gemini закрыл сессию" and not answered and getattr(live, "affective", False)
+                        and is_affective_reject(self.close_error)):
+                    v.reject_affective(self.close_error)
+                    self.retry_plain = True
+                    why += ", эмоциональный режим не принят — повторю обычным"
                 log.info("%s: разговор окончен (%s)", dev.id, why)
         except LiveError as e:
             log.warning("Gemini Live: %s", e)
@@ -559,6 +573,13 @@ class Voice:
             except Exception as e:
                 log.warning("заметку про шёпот Gemini не принял: %r", e)
 
+    def reject_affective(self, err: object) -> None:
+        """Модель не знает эмоционального диалога (в Gemini 3.8 Live он убран): выключаем насовсем."""
+        self.affective = False
+        if self.brain:
+            self.brain.set_pref("affective", "0")
+        log.warning("Gemini не принимает эмоциональный диалог (%s): выключил насовсем, affect on — вернуть", err)
+
     def affective_active(self) -> bool:
         return self.affective and self.clock() >= self._affective_off_until
 
@@ -606,12 +627,8 @@ class Voice:
                     model = fb
                 elif used_aff and not is_overload(e):
                     self._affective_off_until = self.clock() + AFFECTIVE_OFF_S
-                    if "1007" in str(e) or "invalid argument" in str(e).lower():
-                        # модель не знает такого поля (в Gemini 3.8 Live эмоциональный диалог убран): навсегда выключаем
-                        self.affective = False
-                        if self.brain:
-                            self.brain.set_pref("affective", "0")
-                        log.warning("Gemini не принимает эмоциональный диалог: выключил насовсем (JARVIS_AFFECTIVE=0)")
+                    if is_affective_reject(e):
+                        self.reject_affective(e)
                     log.warning("эмоциональный режим не подключился (%s): обычный режим на %.0f мин",
                                 e, AFFECTIVE_OFF_S / 60)
                     aff = False
@@ -751,6 +768,9 @@ class Voice:
         dev = talk.dev
         try:
             await talk.run(text, service)
+            if talk.retry_plain:     # тот же разговор заново, уже без эмоционального режима
+                talk = self._talks[dev.id] = Conversation(self, dev, talk.one_shot)
+                await talk.run(text, service)
         except Exception:
             log.exception("разговор с %s упал", dev.id)
         finally:

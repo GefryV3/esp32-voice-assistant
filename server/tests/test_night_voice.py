@@ -169,6 +169,44 @@ async def test_affective_pref_off_is_respected(hub, tmp_path):
     assert live.opened == [(False, "gemini-3.8-live")]
 
 
+class RejectAffectiveLive(RecordingLive):
+    """Как Gemini 3.8 Live: с эмоциональным режимом настройки принимает, а на первом ответе закрывает 1007."""
+
+    async def __aenter__(self):
+        await super().__aenter__()
+        self.affective = self.opened[-1][0]
+        return self
+
+    async def events(self):
+        if self.affective:
+            raise LiveError("Gemini закрыл соединение: 1007 Request contains an invalid argument.")
+        async for ev in super().events():
+            yield ev
+
+
+async def test_affective_rejected_mid_session_turns_off_and_retries(hub, tmp_path):
+    ref = []
+    live = RejectAffectiveLive(ref)
+    brain = Brain(tmp_path / "b.db")
+    brain.set_pref("affective", "1")
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              brain=brain, live_factory=live)
+    ref.append(v)
+    ws = await speaker(hub, caps=("display", "speaker"))
+    try:
+        await v.command("ask привет")
+        async with asyncio.timeout(3):
+            while len(live.texts) < 2:
+                await asyncio.sleep(0.01)
+        # тот же вопрос ушёл второй раз, уже в обычную сессию, и режим выключен насовсем
+        assert live.opened == [(True, "gemini-3.8-live"), (False, "gemini-3.8-live")]
+        assert live.texts == ["привет", "привет"]
+        assert brain.pref("affective") == "0" and v.affective is False
+        await live.queue.put(None)
+    finally:
+        await ws.close()
+
+
 # ── 5. откат при 503 ──
 
 def test_is_overload_detects_503():
