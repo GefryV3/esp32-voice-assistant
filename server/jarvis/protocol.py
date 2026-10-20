@@ -21,7 +21,7 @@ CLOSE_BAD_VERSION = 4003
 HELLO_TIMEOUT_S = 5.0
 
 VOICE_STATES = ("idle", "listening", "thinking", "speaking")
-EMOTIONS = ("happy", "skeptic", "roll", "side", "surprise", "sorry")
+EMOTIONS = ("happy", "skeptic", "roll", "side", "surprise", "sorry", "tired", "bored")
 CAPTION_KINDS = ("heard", "said", "reply", "none")
 ICONS = ("none", "light")
 SLEEP_CLOCK = ("top", "bottom")

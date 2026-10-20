@@ -22,11 +22,10 @@ from jarvis import __version__  # noqa: E402
 from jarvis.config import read_env_file  # noqa: E402
 
 DEFAULT_DEST = r"\\192.168.178.86\addons\jarvis"
-# в аддоне адрес и папка данных свои — с ноутбука разработки берём только эти
-ENV_KEYS = ("JARVIS_DEVICE_TOKEN", "JARVIS_TZ", "JARVIS_LOG_LEVEL",
-            "GEMINI_API_KEY", "JARVIS_GEMINI_MODEL", "JARVIS_VOICE", "JARVIS_WAKE_THRESHOLD", "JARVIS_WAKE_WORDS", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN", "JARVIS_GOOGLE_TZ", "JARVIS_AFFECTIVE", "JARVIS_SILENCE_MS",
-            "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "JARVIS_TELEGRAM_MODEL",
-            "JARVIS_AGENT_MODEL", "JARVIS_AGENT_SEARCH", "BRAVE_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY", "JARVIS_SEARXNG_URL", "JARVIS_BARGE_IN", "JARVIS_BARGE_RATIO")
+# в аддон идёт всё из server/.env, кроме того, что в аддоне своё: адрес и порт, папка данных, доступ к HA
+# (аддон ходит к ядру через Supervisor) и адрес сервера для программ на ноутбуке
+SKIP_KEYS = {"JARVIS_HOST", "JARVIS_PORT", "JARVIS_DATA", "JARVIS_SERVER", "JARVIS_FIRMWARE",
+             "JARVIS_HA_URL", "JARVIS_HA_TOKEN", "JARVIS_ENV_FILE"}
 
 
 def build(dest: Path) -> list[str]:
@@ -54,7 +53,7 @@ def build(dest: Path) -> list[str]:
     if built.is_file():
         shutil.copyfile(built, fw_dir / "jarvis.bin")
 
-    lines = [f"{k}={env[k]}" for k in ENV_KEYS if env.get(k)]
+    lines = [f"{k}={v}" for k, v in env.items() if v and k not in SKIP_KEYS]
     (dest / "jarvis.env").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return sorted(p.name for p in dest.iterdir())
 

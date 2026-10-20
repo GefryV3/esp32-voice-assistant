@@ -199,6 +199,8 @@ async def main() -> None:
         learning.start()
     else:
         learning = None
+    if digest and learning:
+        digest.learning_digest = learning.digest      # «чему я научился» в недельной сводке
     if voice or tg:
         async def remind(text: str) -> bool:
             # колонка не ответила (нет её или занята) — напоминание уходит в Telegram

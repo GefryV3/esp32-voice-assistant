@@ -31,7 +31,7 @@ class RecentLogHandler(logging.Handler):
 HELP = """\
 Команды (уходят первой подключённой колонке):
   voice idle|listening|thinking|speaking
-  emotion happy|skeptic|roll|side|surprise|sorry [мс]
+  emotion happy|skeptic|roll|side|surprise|sorry|tired|bored [мс]
   say heard|said <текст>        say reply [light] <текст>        say none
   timer <сек> [название]        timer 0 — снять
   task idle|working|needs_input|needs_permission|done|failed [pct|-1] [название]
