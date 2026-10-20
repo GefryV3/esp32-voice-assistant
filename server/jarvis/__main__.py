@@ -21,6 +21,7 @@ from .ota import Ota
 from .presence import Presence
 from .routines import Routines
 from .telegram import Telegram, parse_chat_ids
+from .quiet import make_mute_factory
 from .voice import Voice
 from .wake import WakeWord, ensure_models
 from .wake_vosk import MultiWake, VoskWake, ensure_model
@@ -92,9 +93,10 @@ async def main() -> None:
     brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha, google=google)
     if settings.gemini_api_key:
         voice = Voice(hub, audio, settings, brain=brain,
+                      mute_factory=await make_mute_factory(Path(settings.data_dir) / "models"),
                       wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
-                              search=settings.agent_search,
+                              search=settings.agent_search, fallback_model=settings.fallback_text_model,
                               search_fn=make_search(settings.agent_search, settings.brave_key, settings.searxng_url,
                                                     settings.tavily_key, settings.serper_key))
         brain.agents.start_delivery()
@@ -113,7 +115,7 @@ async def main() -> None:
         tg = hub.telegram = Telegram(
             settings.telegram_token, chat_ids, api_key=settings.gemini_api_key,
             model=settings.telegram_model, brain=brain, sarcasm=voice.sarcasm,
-            device_send=lambda msg: _device_send(hub, msg))
+            device_send=lambda msg: _device_send(hub, msg), fallback_model=settings.fallback_text_model)
     presence = Presence(settings.presence, bridge=bridge, ha=ha, brain=brain,
                         pc_min=settings.presence_pc_min, phone_min=settings.presence_phone_min,
                         idle_min=settings.presence_idle_min)

@@ -22,8 +22,11 @@ from . import protocol
 from .audio import Audio
 from .brain import Brain
 from .config import Settings
+from .character import NIGHT_NOTE, daypart_note, effective_sarcasm
 from .devices import Device, DeviceHub
+from .gemini_fallback import FALLBACK_HOLD_S, VOICE_NOTE, Notice, is_overload
 from .gemini_live import Event, LiveError, LiveSession
+from .quiet import Quiet, night_volume
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +36,7 @@ MAX_TURN_S = 60.0       # один ответ дольше этого — что
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
 WARM_FRACTION = 0.6     # слово «похоже» (доля порога) — соединяемся с Gemini заранее
+AFFECTIVE_OFF_S = 600.0  # affective не подключился — 10 минут говорим обычным режимом
 WARM_TTL_S = 150.0      # заготовленная сессия Gemini живёт столько, потом заменяется свежей (время, память)
 
 WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
@@ -65,7 +69,9 @@ def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
                   tools: bool = False, home: bool = False,
                   history: list[tuple[datetime, str, str, str]] | None = None,
-                  history_lines: int = HISTORY_LINES) -> str:
+                  history_lines: int = HISTORY_LINES, night: bool = False) -> str:
+    base_sarcasm = sarcasm
+    sarcasm = effective_sarcasm(now, sarcasm)     # время суток сдвигает ползунок
     freq = ("в каждом втором ответе" if sarcasm < 70 else "почти в каждом ответе" if sarcasm < 90 else
             "в каждом ответе, дерзко и жёстко, как токсичный друг-циник (без настоящих оскорблений и без мата)")
     tone = (f"Твой характер: язвительный, с сухим острым юмором. {freq[0].upper() + freq[1:]} едко подколи или "
@@ -76,9 +82,13 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
             "мягко и по-человечески. Просьбы выполняй всегда, колкость не вместо дела, а вдобавок."
             if sarcasm >= 45 else
             "Характер спокойный и доброжелательный, без подколов.")
+    tone += (daypart_note(now) if base_sarcasm >= 45 else "") + ("\n" + NIGHT_NOTE if night else "")
     abilities = (
         "Ты умеешь запоминать факты о пользователе (remember), ставить напоминания и таймеры. "
         "Делай это сразу функцией, а не обещай; после вызова коротко подтверди словами. "
+        "Если просят не слушать или помолчать на время («не слушай час», «помолчи», «тишина»), вызови "
+        "mute_listening(minutes), потом одной короткой фразой скажи, что замолкаешь и что вернуть можно "
+        "словами «Мага, вернись». "
         "Когда разговор по смыслу закончен (спасибо, пока, всё, отбой) — попрощайся коротко и вызови "
         "end_conversation: тогда колонка уйдёт в ожидание сразу, не ждёт продолжения. "
         "Долгие задачи (поиск в интернете, новости, сравнения, подборки) отдавай в фон функцией "
@@ -132,9 +142,10 @@ def tail_bytes(text: str, max_bytes: int = 120) -> str:
 class Conversation:
     """Один разговор с одной колонкой: от слова пробуждения до тишины."""
 
-    def __init__(self, voice: Voice, dev: Device):
+    def __init__(self, voice: Voice, dev: Device, one_shot: bool = False):
         self.voice = voice
         self.dev = dev
+        self.one_shot = one_shot      # один ответ и всё: микрофон в Gemini не открываем (тишина)
         self.mic: asyncio.Queue[bytes] = asyncio.Queue()
         self.listening = True     # микрофон идёт в Gemini
         self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
@@ -175,6 +186,11 @@ class Conversation:
                 continue
             out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
             log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
+            if name == "mute_listening" and out.get("ok"):
+                self.end_requested = True     # после подтверждения уходим в ожидание, звук в Gemini закрыт
+                self.listening = False
+                while not self.mic.empty():
+                    self.mic.get_nowait()
             if name == "start_task" and out.get("ok"):
                 self.end_requested = True     # задачу приняли: после подтверждения уходим в ожидание
             results.append((call_id, name, out))
@@ -233,8 +249,10 @@ class Conversation:
         """service=True: text — служебная подсказка (напоминание, фоновая задача), в историю не пишем."""
         dev, v = self.dev, self.voice
         heard = ""
+        ducked = False
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
+            ducked = await v.duck_for_night(dev)
             async with AsyncExitStack() as stack:
                 t_run = v.clock()
                 live = await v.take_live(text is None)
@@ -306,7 +324,7 @@ class Conversation:
                                 await dev.send(protocol.voice("listening"))
                                 deadline = v.clock() + NO_SPEECH_S
                                 continue
-                            if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps:
+                            if end is None or end.kind == "go_away" or "mic" not in dev.hello.caps or self.one_shot:
                                 why = "ответ без продолжения"
                                 break
                             if self.end_requested:
@@ -326,8 +344,11 @@ class Conversation:
         except LiveError as e:
             log.warning("Gemini Live: %s", e)
             await dev.send(protocol.emotion("sorry", 3000))
-            await dev.send(protocol.caption("reply", "Не могу связаться с Gemini"))
+            await dev.send(protocol.caption(
+                "reply", "Gemini перегружен, попробуй позже" if is_overload(e) else "Не могу связаться с Gemini"))
         finally:
+            if ducked:
+                await v.restore_volume(dev)
             self.listening = False
             await dev.send(protocol.voice("idle"))
 
@@ -337,6 +358,7 @@ class Voice:
                  wake_factory: Callable[[], Any] | None = None,
                  brain: Brain | None = None,
                  live_factory: Callable[[str], LiveSession] | None = None,
+                 mute_factory: Callable[[], Any] | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  now: Callable[[], datetime] = datetime.now):
         self.hub = hub
@@ -351,10 +373,19 @@ class Voice:
             brain.on_message = self._history_changed
         self.voice_name = settings.voice_name     # меняются на лету командами tts и affect
         self.affective = settings.affective
+        self._use_affective = self.affective      # с чем открывается ТЕКУЩАЯ сессия (см. _connect_live)
+        self._use_model = settings.gemini_model
+        self._affective_off_until = 0.0           # affective не подключился — до этого времени обычный режим
+        self._fallback_until = 0.0                # Gemini перегружен — до этого времени сразу запасная модель
+        self._overload_note = False               # запасная модель включена, пользователю ещё не сказали
+        self._overload_notice = Notice()
         self.live_factory = live_factory or (lambda system: LiveSession(
-            settings.gemini_api_key, settings.gemini_model, self.voice_name, system,
+            settings.gemini_api_key, self._use_model, self.voice_name, system,
             tools=brain.tools() if brain else None, silence_ms=settings.vad_silence_ms,
-            affective=self.affective))
+            affective=self._use_affective))
+        self.quiet = Quiet(self, mute_factory)    # режим тишины «не слушай»
+        if brain is not None:
+            brain.mute_hook = self.quiet.mute_tool
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -390,21 +421,90 @@ class Voice:
         if self._detectors:
             self._prewarm()
 
-    def _new_live(self) -> LiveSession:
+    def is_night(self) -> bool:
+        bridge = self.hub.bridge
+        return bridge is not None and bridge.night()
+
+    def _day_volume(self) -> int | None:
+        bridge = self.hub.bridge
+        return int(bridge.store.values["volume"]) if bridge is not None else None
+
+    async def duck_for_night(self, dev: Device) -> bool:
+        """Ночью на время разговора динамик тише. True — понизили (после разговора вернуть)."""
+        day = self._day_volume()
+        if day is None or not self.is_night():
+            return False
+        level = night_volume(day)
+        if level >= day:
+            return False
+        try:
+            await dev.send(protocol.volume(level))
+        except Exception:
+            return False
+        return True
+
+    async def restore_volume(self, dev: Device) -> None:
+        """Вернуть громкость пользователя (ту, что сейчас в настройках, а не запомненную до разговора)."""
+        day = self._day_volume()
+        if day is None:
+            return
+        try:
+            await dev.send(protocol.volume(day))
+        except Exception:
+            pass
+
+    def affective_active(self) -> bool:
+        return self.affective and self.clock() >= self._affective_off_until
+
+    def _live_model(self) -> str:
+        fb = self.settings.gemini_fallback_model
+        return fb if fb and self.clock() < self._fallback_until else self.settings.gemini_model
+
+    def _new_live(self, model: str | None = None, affective: bool | None = None) -> LiveSession:
         brain = self.brain
         if brain:      # голос и эмоциональный режим, выбранные голосом или консолью, переживают перезапуск
             self.voice_name = brain.pref("voice") or self.voice_name
             saved = brain.pref("affective")
             self.affective = saved == "1" if saved else self.affective
+        self._use_affective = self.affective_active() if affective is None else (affective and self.affective)
+        self._use_model = model or self._live_model()
         history = brain.recent_messages(HISTORY_LINES) if brain else None
-        return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
-                                               brain is not None, brain is not None and brain.ha is not None,
-                                               history))
+        system = system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
+                               brain is not None, brain is not None and brain.ha is not None,
+                               history, night=self.is_night())
+        if self._overload_note and self._use_model != self.settings.gemini_model:
+            self._overload_note = False         # сказать один раз: в этой сессии
+            system += VOICE_NOTE
+        return self.live_factory(system)
+
+    async def _connect_live(self) -> LiveSession:
+        """Открыть сессию Gemini с откатами. Эмоциональный режим не подключился (не перегрузка) — 10 минут
+        обычный режим, запись в журнал. 503/перегрузка — запасная модель (один раз скажем об этом голосом)."""
+        model, aff = self._live_model(), None
+        while True:
+            live = self._new_live(model, aff)
+            used_aff, used_model = self._use_affective, self._use_model
+            try:
+                await live.__aenter__()
+                return live
+            except LiveError as e:
+                fb = self.settings.gemini_fallback_model
+                if is_overload(e) and fb and used_model != fb:
+                    self._fallback_until = self.clock() + FALLBACK_HOLD_S
+                    self._overload_note = self._overload_notice.take(self.clock())
+                    log.warning("Gemini перегружен (%s): перехожу на запасную модель %s на %.0f с",
+                                e, fb, FALLBACK_HOLD_S)
+                    model = fb
+                elif used_aff and not is_overload(e):
+                    self._affective_off_until = self.clock() + AFFECTIVE_OFF_S
+                    log.warning("эмоциональный режим не подключился (%s): обычный режим на %.0f мин",
+                                e, AFFECTIVE_OFF_S / 60)
+                    aff = False
+                else:
+                    raise
 
     async def _open_live(self) -> LiveSession:
-        live = self._new_live()
-        await live.__aenter__()
-        return live
+        return await self._connect_live()
 
     def _prewarm(self) -> None:
         """Подключиться к Gemini, пока слово ещё договаривают: к его концу сессия уже готова."""
@@ -444,9 +544,7 @@ class Voice:
                     pass   # заготовка не вышла — откроем заново и покажем настоящую ошибку
             else:
                 await self._discard(task)
-        live = self._new_live()
-        await live.__aenter__()
-        return live
+        return await self._connect_live()
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
@@ -469,6 +567,7 @@ class Voice:
             self._detectors[dev.id].reset()
         self.audio.keep_listening.add(dev.id)
         await dev.send(protocol.listen_start(self.audio.mic_gain))
+        await self.quiet.restore(dev)      # переподключились в режиме тишины — снова quiet
         log.info("%s: слушаю слово пробуждения", dev.id)
         self._prewarm()      # сессия Gemini готова заранее: слово → сразу слушаем, без 1.2 с подключения
 
@@ -477,6 +576,8 @@ class Voice:
         if talk is not None:
             talk.feed(pcm)
             return
+        if self.quiet.on_audio(dev, pcm):
+            return       # «не слушай»: звук не идёт ни в Gemini, ни в детектор слова
         det = self._detectors.get(dev.id)
         if det is None or self.clock() < self._quiet_until.get(dev.id, 0.0):
             return
@@ -501,14 +602,16 @@ class Voice:
             log.info("нет на месте (%s) — запрос проигнорирован; «presence here» вернёт колонку", why)
         return ok
 
-    def start(self, dev: Device, text: str | None = None, service: bool = False) -> asyncio.Task | None:
+    def start(self, dev: Device, text: str | None = None, service: bool = False,
+              one_shot: bool = False) -> asyncio.Task | None:
         """Начать разговор: по слову пробуждения или текстом (команда ask). Служебные
         (напоминания, фоновые задачи; service=True) присутствие не проверяют."""
         if dev.id in self._talks:
             return None
         if not service and not self._present():
             return None
-        talk = self._talks[dev.id] = Conversation(self, dev)
+        # в тишине (и для коротких служебных ответов) микрофон в Gemini не открываем
+        talk = self._talks[dev.id] = Conversation(self, dev, one_shot or self.quiet.active(dev.id))
         return self._spawn(self._run(talk, text, service))
 
     async def announce(self, prompt: str) -> bool:
@@ -520,8 +623,9 @@ class Voice:
 
     async def remind(self, text: str) -> bool:
         """Сказать напоминание вслух. False — колонки нет или она занята, повторим позже."""
+        soft = " Сейчас ночь: скажи это вполголоса, совсем коротко." if self.is_night() else ""
         return await self.announce(f"Сработало напоминание: «{text}». Скажи пользователю об этом "
-                                   "одной короткой фразой, как будто сам вспомнил.")
+                                   f"одной короткой фразой, как будто сам вспомнил.{soft}")
 
     async def _run(self, talk: Conversation, text: str | None, service: bool = False) -> None:
         dev = talk.dev
@@ -550,8 +654,10 @@ class Voice:
 
     async def command(self, line: str) -> str | None:
         parts = line.split(maxsplit=1)
-        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect"):
+        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect", "mute"):
             return None
+        if parts[0].lower() == "mute":
+            return await self.quiet.command(parts[1].split() if len(parts) > 1 else [])
         if parts[0].lower() == "tts":
             if len(parts) < 2:
                 return (f"голос сейчас {self.voice_name}. tts <имя>: Puck, Fenrir, Zephyr, Charon, Orus, "

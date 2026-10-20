@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from websockets.asyncio.client import connect as ws_connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +121,10 @@ class LiveSession:
         except ConnectionClosed as e:
             raise LiveError(f"Gemini закрыл соединение: {e.rcvd.code if e.rcvd else '?'} "
                             f"{e.rcvd.reason if e.rcvd else ''}".strip()) from None
+        except InvalidStatus as e:     # сервер ответил на рукопожатие кодом (503 при перегрузке)
+            raise LiveError(f"Gemini ответил HTTP {e.response.status_code}") from None
+        except InvalidHandshake as e:
+            raise LiveError(f"Gemini отклонил соединение: {e!r}") from None
         except (OSError, TimeoutError) as e:
             raise LiveError(f"нет связи с Gemini: {e!r}") from None
         if "setupComplete" not in reply:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from collections import defaultdict, deque
@@ -26,6 +27,7 @@ from datetime import datetime
 from typing import Any
 
 from .brain import Brain
+from .gemini_fallback import CHAT_NOTE as OVERLOAD_NOTE, Notice
 from .voice import system_prompt
 
 log = logging.getLogger(__name__)
@@ -94,10 +96,14 @@ class Telegram:
                  brain: Brain | None = None, now: Callable[[], datetime] = datetime.now,
                  sarcasm: Callable[[], int] = lambda: 60,
                  device_send: Callable[[dict], Awaitable[None]] = _no_device,
-                 http: Http = urllib_post):
+                 http: Http = urllib_post, fallback_model: str = "", clock: Callable[[], float] = time.monotonic):
         self.token, self.chat_ids, self.api_key, self.model = token, chat_ids, api_key, model
         self.brain, self.now, self.sarcasm, self.http = brain, now, sarcasm, http
         self.device_send = device_send
+        self.fallback_model = fallback_model      # запасная модель при 503 (кроме FALLBACK_MODELS)
+        self._clock = clock
+        self._notice = Notice()
+        self._fell_back = False                   # в этом запросе пришлось уйти на запасную модель
         self.presence = None     # Presence: команда «presence here|away|auto» из чата
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
         self._offset = 0
@@ -135,7 +141,8 @@ class Telegram:
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
         """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
-        models = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+        models = [self.model]
+        models += [m for m in (*FALLBACK_MODELS, self.fallback_model) if m and m not in models]
         attempt = 0
         while True:
             try:
@@ -147,6 +154,12 @@ class Telegram:
                 if len(models) > 1 and ("PerDay" in str(e) or "RESOURCE_EXHAUSTED" in str(e)):
                     log.warning("telegram: у модели %s кончилась квота, перехожу на %s", models[0], models[1])
                     models.pop(0)       # суточная квота: ждать бессмысленно, берём запасную модель
+                    continue
+                if self.fallback_model and len(models) > 1 and str(e).startswith("HTTP 503") and attempt >= 1:
+                    log.warning("telegram: модель %s перегружена (503), перехожу на %s", models[0], models[1])
+                    models.pop(0)       # одна повторная попытка, потом запасная модель
+                    self._fell_back = True
+                    attempt = 0
                     continue
                 attempt += 1
                 if attempt >= 5:
@@ -163,6 +176,7 @@ class Telegram:
         if self.brain is not None:
             body["tools"] = [{"functionDeclarations": self.brain.tools()}]
         answer = ""
+        self._fell_back = False
         for _ in range(MAX_ROUNDS):
             r = await self._gemini({**body, "contents": contents})
             cands = r.get("candidates") or []
@@ -179,6 +193,8 @@ class Telegram:
                 results.append({"functionResponse": {"name": c.get("name", ""), "response": out}})
             contents.append({"role": "user", "parts": results})
         answer = answer or "Не смог ничего ответить, попробуй ещё раз."
+        if self._fell_back and self._notice.take(self._clock()):
+            answer = OVERLOAD_NOTE + "\n" + answer       # один раз за десять минут, не при каждом ответе
         if self.brain is not None:
             self.brain.log_message("telegram", "assistant", answer)
         else:
