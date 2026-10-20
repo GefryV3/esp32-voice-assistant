@@ -250,3 +250,23 @@ async def test_brain_passes_send_for_weather(cha, tmp_path):
         sent.append(msg)
     await brain.call("home_weather", {}, send)
     assert sent and sent[0]["type"] == "weather"
+
+
+async def test_unknown_color_is_an_error_and_lamps_are_not_touched(ha, ws):
+    # «crimson» раньше молча игнорировалось: лампы включались как были, а ответ был «успех»
+    before = len(services(ws))
+    out = await ha.call("home_set", {"name": "прихожая", "action": "on", "color": "цвет морской волны"})
+    assert not out["ok"] and "#RRGGBB" in out["error"] and len(services(ws)) == before
+
+
+async def test_many_color_names_and_shades(ha, ws):
+    from jarvis.ha import parse_color
+    assert parse_color("crimson") == (220, 20, 60)
+    assert parse_color("Малиновая") == parse_color("малиновый") == (220, 20, 100)     # окончания и регистр
+    assert parse_color("зелёный") == parse_color("зеленый")
+    dark, base, light = parse_color("тёмно-синий"), parse_color("синий"), parse_color("светло-синий")
+    assert dark[2] < base[2] and light[0] > base[0]
+    assert parse_color("ярко-синий") == base and parse_color("#ff8800") == (255, 136, 0)
+    assert parse_color("") is None and parse_color("не цвет") is None
+    await ha.call("home_set", {"name": "прихожая", "action": "on", "color": "crimson"})
+    assert services(ws)[-1][0]["rgb_color"] == [220, 20, 60]

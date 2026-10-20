@@ -50,7 +50,25 @@ COLORS = {  # название → RGB; по-русски и по-английс
     "синий": (0, 60, 255), "blue": (0, 60, 255), "фиолетовый": (140, 40, 255),
     "purple": (140, 40, 255), "розовый": (255, 60, 150), "pink": (255, 60, 150),
     "малиновый": (220, 20, 100), "белый": (255, 255, 255), "white": (255, 255, 255),
+    # оттенки для светодиодов (насыщенные: тусклые на ленте выглядят грязно)
+    "crimson": (220, 20, 60), "scarlet": (255, 36, 0), "maroon": (128, 0, 20), "burgundy": (128, 0, 32),
+    "бордовый": (128, 0, 32), "вишневый": (180, 10, 50), "вишнёвый": (180, 10, 50), "алый": (255, 36, 0),
+    "magenta": (255, 0, 255), "fuchsia": (255, 0, 200), "пурпурный": (160, 0, 160), "фуксия": (255, 0, 200),
+    "violet": (160, 60, 255), "lilac": (190, 130, 255), "лиловый": (180, 100, 255), "сиреневый": (190, 130, 255),
+    "lavender": (170, 140, 255), "лавандовый": (170, 140, 255), "indigo": (75, 0, 200), "индиго": (75, 0, 200),
+    "navy": (0, 0, 160), "azure": (0, 150, 255), "лазурный": (0, 150, 255), "sky": (80, 180, 255),
+    "turquoise": (0, 220, 200), "teal": (0, 160, 150), "aqua": (0, 255, 255), "аквамарин": (0, 255, 200),
+    "mint": (80, 255, 170), "мятный": (80, 255, 170), "lime": (150, 255, 0), "салатовый": (127, 255, 0),
+    "emerald": (0, 201, 87), "изумрудный": (0, 201, 87), "olive": (150, 160, 0), "оливковый": (150, 160, 0),
+    "gold": (255, 200, 0), "золотой": (255, 200, 0), "amber": (255, 170, 0), "янтарный": (255, 170, 0),
+    "coral": (255, 100, 80), "коралловый": (255, 100, 80), "salmon": (255, 110, 100), "peach": (255, 150, 100),
+    "персиковый": (255, 150, 100), "brown": (150, 75, 0), "коричневый": (150, 75, 0), "gray": (128, 128, 128),
+    "grey": (128, 128, 128), "серый": (128, 128, 128), "teal blue": (0, 130, 200),
 }
+_ADJ_ENDINGS = ("ый", "ий", "ой", "ая", "яя", "ое", "ее", "ые", "ие")
+_DARK_PREFIXES = ("тёмно-", "темно-", "тёмно ", "темно ", "тёмный ", "темный ", "dark ", "dark-")
+_LIGHT_PREFIXES = ("светло-", "светло ", "светлый ", "light ", "light-", "бледно-", "pale ")
+_BRIGHT_PREFIXES = ("ярко-", "ярко ", "яркий ", "bright ", "bright-", "насыщенно-")
 
 TOOLS: list[dict[str, Any]] = [
     {"name": "home_list", "description": "Список устройств умного дома с комнатой и состоянием. "
@@ -63,7 +81,8 @@ TOOLS: list[dict[str, Any]] = [
          "name": {"type": "STRING"}, "action": {"type": "STRING"},
          "brightness_percent": {"type": "NUMBER", "description": "Яркость света 1-100"},
          "color_temp_kelvin": {"type": "NUMBER", "description": "Теплота света, 2000 тёплый - 6500 холодный"},
-         "color": {"type": "STRING", "description": "Цвет света: название («красный», «blue») или #RRGGBB"},
+         "color": {"type": "STRING", "description": "Цвет света: название («красный», «малиновый», «blue») или "
+                  "#RRGGBB. Для любого другого оттенка сам вычисли и передай #RRGGBB"},
          "effect": {"type": "STRING", "description": "Эффект света, если лампа умеет"},
          "transition_s": {"type": "NUMBER", "description": "Плавно за столько секунд"}},
          "required": ["name", "action"]}},
@@ -161,11 +180,38 @@ def words(text: str) -> set[str]:
     return {w[:5] for w in re.findall(r"\w+", text.casefold()) if len(w) > 1}
 
 
+def _named_color(text: str) -> tuple[int, int, int] | None:
+    """Название без приставок: учитывает ё/е и окончания («малиновая», «малиновое» → «малиновый»)."""
+    for t in (text, text.replace("ё", "е")):
+        if t in COLORS:
+            return COLORS[t]
+        for end in _ADJ_ENDINGS:
+            if t.endswith(end):
+                stem = t[:-len(end)]
+                for ok in ("ый", "ий", "ой"):
+                    for key in (stem + ok, stem + ok.replace("ё", "е")):
+                        if key in COLORS:
+                            return COLORS[key]
+    return None
+
+
 def parse_color(text: str) -> tuple[int, int, int] | None:
-    text = (text or "").strip().casefold()
+    """«crimson», «малиновая», «тёмно-синий», «светло-зелёный», «#ff8800» → RGB; незнакомое — None."""
+    text = re.sub(r"\s+", " ", (text or "").strip().casefold())
     if m := re.fullmatch(r"#?([0-9a-f]{6})", text):
         return tuple(int(m[1][i:i + 2], 16) for i in (0, 2, 4))     # type: ignore[return-value]
-    return COLORS.get(text)
+    for prefixes, mix in ((_DARK_PREFIXES, None), (_LIGHT_PREFIXES, 255), (_BRIGHT_PREFIXES, -1)):
+        for pre in prefixes:
+            if text.startswith(pre):
+                base = _named_color(text[len(pre):])
+                if base is None:
+                    return None
+                if mix is None:       # тёмный: темнее, но не в чёрный (на ленте <25% не видно цвета)
+                    return tuple(max(1, round(c * 0.55)) if c else 0 for c in base)   # type: ignore[return-value]
+                if mix == 255:        # светлый: половина пути к белому
+                    return tuple(round(c + (255 - c) * 0.5) for c in base)             # type: ignore[return-value]
+                return base
+    return _named_color(text)
 
 
 def score(query: str, text: str) -> float:
@@ -301,6 +347,9 @@ class HomeAssistant:
     async def set(self, query: str, action: str, brightness: float | None = None,
                   kelvin: float | None = None, color: str = "", effect: str = "",
                   transition: float | None = None) -> dict:
+        if color and parse_color(color) is None:
+            return {"ok": False, "error": f"не знаю цвет «{color}»: передай его кодом #RRGGBB (любой оттенок) "
+                                          "или назови привычным словом, лампы не менял"}
         found = await self.resolve(query, ("light",) if parse_color(color) else CONTROLLABLE)
         if not found:
             return {"ok": False, "error": f"не нашёл устройство «{query}»"}

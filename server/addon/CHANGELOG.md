@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.5
+- **Light colors by voice**: `home_set` knew only 22 color names, and an unknown one («crimson») was silently ignored: the
+  lamps just turned on as they were and the answer was «done». Now ~70 names (Russian and English, endings like
+  «малиновая», «тёмно-»/«светло-»/«ярко-» shades), `#RRGGBB` for anything else, and an unknown color is an error
+  that leaves the lamps alone.
+
 ## 0.14.4 (firmware 0.7.2)
 - **Odd-size audio frame dropped the speaker's connection** (rare, seen twice): the frame is now trimmed to whole samples
   and an exception in an audio handler is logged instead of closing the connection.
