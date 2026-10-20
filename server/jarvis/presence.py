@@ -16,6 +16,11 @@ presence только для разговора, начатого человек
   7. Иначе — на месте.
 Если данных нет совсем (HA не настроен/молчит, телефон и компьютер не подключались),
 считаем «на месте»: лучше лишний раз ответить, чем молчать.
+Сильнее всего сигнал колонки room (BLE-маячок телефона или радар, docs/room-presence.md):
+  room.here=true свежее ROOM_STALE_S — на месте (сразу после ручного переопределения);
+  room.here=false дольше room_away_min минут — «в комнате нет» (но ночью, если HA не говорит «нет дома»
+  и телефон на зарядке, этот сигнал игнорируется — человек мог оставить телефон в другой комнате);
+  src=none или сообщений нет дольше ROOM_STALE_S — сигнал не используется.
 JARVIS_PRESENCE=off — колонка всегда «на месте», команда presence тоже ничего не меняет.
 """
 
@@ -26,22 +31,32 @@ import logging
 import time
 from typing import Any, Callable
 
+from . import protocol
+
 log = logging.getLogger(__name__)
 
 MODES = ("auto", "here", "away")
 PREF = "presence"
+BLE_PREF = "ble_scan"
 CACHE_S = 5.0            # here() зовут на каждый кусок звука — пересчитываем не чаще
 HA_REFRESH_S = 60.0
 HA_STALE_S = 600.0       # ответу HA старше 10 минут не верим
+ROOM_STALE_S = 120.0     # колонка шлёт room раз в 30 с; молчит дольше 2 минут — сигналу не верим
+ROOM_SOURCES = ("ble", "radar")
 
 
 class Presence:
     def __init__(self, mode: str = "auto", *, bridge: Any = None, ha: Any = None, brain: Any = None,
-                 pc_min: float = 10, phone_min: float = 10, idle_min: float = 180,
+                 pc_min: float = 10, phone_min: float = 10, idle_min: float = 180, room_away_min: float = 5, ble_uuid: str = "",
                  clock: Callable[[], float] = time.time):
         self.enabled = mode != "off"
         self.bridge, self.ha, self.brain = bridge, ha, brain
+        self.hub: Any = None                 # DeviceHub: для команды ble
         self.pc_s, self.phone_s, self.idle_s = pc_min * 60, phone_min * 60, idle_min * 60
+        self.room_away_s = room_away_min * 60
+        self.ble_uuid = ble_uuid
+        self._room: dict | None = None       # последнее room: here, rssi, src, at
+        self._room_away_since: float | None = None
         self._clock = clock
         self._last_signal = clock()          # старт сервера считаем признаком жизни
         self._home: bool | None = None       # по HA: None — не знаем
@@ -64,6 +79,48 @@ class Presence:
             self.brain.set_pref(PREF, value)
         self._cache = None
         return value
+
+    # ── сигнал колонки room ──
+
+    @property
+    def ble_scan(self) -> bool:
+        return self.brain is not None and self.brain.pref(BLE_PREF, "off") == "on"
+
+    async def on_connect(self, dev: Any) -> None:
+        """Колонка подключилась: сказать ей, сканировать ли BLE (в прошивке по умолчанию выключено)."""
+        if self.ble_scan:
+            await dev.send(protocol.ble_scan(True, self.ble_uuid))
+
+    async def on_room(self, dev: Any, msg: dict) -> None:
+        """Подписка на сообщения колонки: hub.on_message(presence.on_room)."""
+        if msg.get("type") != "room":
+            return
+        src = msg.get("src")
+        here = msg.get("here")
+        if not isinstance(here, bool):
+            return
+        rssi = msg.get("rssi")
+        now = self._clock()
+        self._room = {"here": here, "src": src if isinstance(src, str) else "none",
+                      "rssi": rssi if isinstance(rssi, int) and not isinstance(rssi, bool) else None,
+                      "at": now}
+        if self._room["src"] in ROOM_SOURCES and not here:
+            if self._room_away_since is None:
+                self._room_away_since = now
+        else:
+            self._room_away_since = None
+        self._cache = None
+
+    def _room_signal(self) -> bool | None:
+        """True — колонка видит человека; False — не видит дольше room_away_min; None — не знаем."""
+        r = self._room
+        if r is None or r["src"] not in ROOM_SOURCES or self._clock() - r["at"] > ROOM_STALE_S:
+            return None
+        if r["here"]:
+            return True
+        if self._room_away_since is not None and self._clock() - self._room_away_since >= self.room_away_s:
+            return False
+        return None
 
     # ── HA ──
 
@@ -124,6 +181,12 @@ class Presence:
         except Exception:
             return False
 
+    def _sleeping_at_home(self, home: bool | None) -> bool:
+        """Ночь, HA не говорит «нет дома», телефон на зарядке: «колонка не видит» не отключает."""
+        if not self._night() or home is False or self.bridge is None or self.bridge.phone is None:
+            return False
+        return bool(self.bridge.phone_state.get("charging"))
+
     def _decide(self) -> tuple[bool, str]:
         if not self.enabled:
             return True, "проверка присутствия выключена"
@@ -132,6 +195,12 @@ class Presence:
             return ov == "here", f"вручную: {'я на месте' if ov == 'here' else 'меня нет'}"
         pc, phone, connected = self._signals()
         home = self._ha_home()
+        room = self._room_signal()
+        if room is True:
+            self._last_signal = self._clock()
+            return True, f"колонка видит человека ({self._room['src']})"
+        if room is False and not self._sleeping_at_home(home):
+            return False, f"колонка не видит человека {round(self.room_away_s / 60)}+ мин"
         if pc:
             self._last_signal = self._clock()
             return True, "компьютер активен"
@@ -173,12 +242,31 @@ class Presence:
     def describe(self) -> str:
         ok, why = self.check()
         ha = {True: "дома", False: "нет дома", None: "нет данных"}[self._ha_home()]
+        r = self._room
+        if r is None:
+            room = "нет данных"
+        else:
+            age = round(self._clock() - r["at"])
+            rssi = "" if r["rssi"] is None else f", {r['rssi']} дБм"
+            room = f"{'здесь' if r['here'] else 'нет'} ({r['src']}{rssi}, {age} с назад)"
         return (f"{'на месте' if ok else 'НЕТ на месте'} ({why}); переопределение: {self.override}; "
-                f"HA: {ha}")
+                f"HA: {ha}; колонка: {room}")
 
     async def command(self, line: str) -> str | None:
         """Консоль и Telegram: presence [auto|here|away]."""
         parts = line.split()
+        if parts and parts[0].lower() == "room":
+            return self.describe()
+        if parts and parts[0].lower() == "ble":
+            if len(parts) != 2 or parts[1].lower() not in ("on", "off"):
+                return "ble on|off — BLE-сканирование маячка телефона на колонке (сейчас: "                        f"{'on' if self.ble_scan else 'off'}); смотри room"
+            on = parts[1].lower() == "on"
+            if self.brain is not None:
+                self.brain.set_pref(BLE_PREF, "on" if on else "off")
+            if self.hub is None or self.hub.get() is None:
+                return f"ble {'on' if on else 'off'} сохранено, колонка не подключена: применится при подключении"
+            await self.hub.get().send(protocol.ble_scan(on, self.ble_uuid))
+            return f"ble {'on' if on else 'off'}: отправлено колонке"
         if not parts or parts[0].lower() != "presence":
             return None
         if not self.enabled:

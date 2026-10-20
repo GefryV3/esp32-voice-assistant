@@ -33,4 +33,10 @@ constexpr gpio_num_t SPK_BCLK = GPIO_NUM_4;
 constexpr gpio_num_t SPK_LRC = GPIO_NUM_44;  // это UART0 RX — поэтому консоль только по USB
 constexpr gpio_num_t SPK_DIN = GPIO_NUM_5;
 
+// ── Радар присутствия LD2410C (запасной вариант, docs/room-presence.md) ──
+// 1 — читать радар по UART (256000 бод) и слать room с src=radar. По умолчанию не подключён.
+#define ROOM_RADAR 0
+constexpr gpio_num_t RADAR_RX = GPIO_NUM_7;  // сюда идёт TX радара
+constexpr gpio_num_t RADAR_TX = GPIO_NUM_8;  // отсюда в RX радара
+
 }  // namespace board

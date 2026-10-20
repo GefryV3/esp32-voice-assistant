@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "net/ota.h"
+#include "net/room.h"
 #include "net/wifi.h"
 #include "secrets.h"
 #include "ui/ui.h"
@@ -109,6 +110,15 @@ void report_ota(const char *state, int pct, const char *text) {
   else if (eq(state, "done")) snprintf(line, sizeof line, "Обновился, перезагружаюсь");
   else snprintf(line, sizeof line, "Обновиться не вышло");
   ui::set_caption(face::Caption::Reply, line, face::Icon::None);
+}
+
+void send_room_msg(bool here, int rssi, const char *src) {
+  cJSON *m = cJSON_CreateObject();
+  cJSON_AddStringToObject(m, "type", "room");
+  cJSON_AddBoolToObject(m, "here", here);
+  if (rssi != 0) cJSON_AddNumberToObject(m, "rssi", rssi);
+  cJSON_AddStringToObject(m, "src", src);
+  send_json(m);
 }
 
 void send_status() {
@@ -241,6 +251,8 @@ void on_message(const cJSON *m) {
     audio::set_volume(num(m, "level", 70));
   } else if (eq(type, "barge")) {
     audio::set_barge_in(num(m, "on", 0) != 0, num(m, "ratio_x10", 40) / 10.0f);
+  } else if (eq(type, "ble_scan")) {
+    room::set_ble(num(m, "on", 0) != 0, str(m, "uuid"));
   } else if (eq(type, "ota")) {
     if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {
@@ -317,7 +329,12 @@ void status_task(void *) {
 
 }  // namespace
 
+void send_room(bool here, int rssi, const char *src) {
+  if (s_online) send_room_msg(here, rssi, src);
+}
+
 void start() {
+  room::start();
   audio::start(send_mic, send_played, send_barge_in);
   xTaskCreatePinnedToCore(status_task, "link_status", 3072, nullptr, 3, &s_status_task, 0);
 

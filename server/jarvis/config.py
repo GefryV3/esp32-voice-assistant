@@ -45,6 +45,8 @@ class Settings:
     presence: str = "auto"                   # auto — решает сам; off — колонка всегда отзывается
     presence_pc_min: float = 10              # компьютер считается активным, если трогали за столько минут
     presence_phone_min: float = 10           # то же для экрана/разблокировки телефона
+    ble_uuid: str = ""                       # UUID iBeacon телефона (BLE Transmitter в приложении HA)
+    room_away_min: float = 5                 # столько минут колонка не видит человека (room) — «в комнате нет»
     presence_idle_min: float = 180           # столько минут без признаков при связи — «нет на месте»; 0 — не считать
     routines: bool = True                    # рутины: утренний брифинг, приветствие дома
     briefing_at: str = "08:00"               # брифинг по времени, если будильник не выключали
@@ -118,6 +120,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         presence_pc_min=minutes("JARVIS_PRESENCE_PC_MIN", "10"),
         presence_phone_min=minutes("JARVIS_PRESENCE_PHONE_MIN", "10"),
         presence_idle_min=minutes("JARVIS_PRESENCE_IDLE_MIN", "180"),
+        room_away_min=minutes("JARVIS_ROOM_AWAY_MIN", "5"),
+        ble_uuid=env.get("JARVIS_BLE_UUID", "").strip(),
         host=env.get("JARVIS_HOST", "0.0.0.0"),
         port=port,
         tz=env.get("JARVIS_TZ", VIENNA_TZ),
