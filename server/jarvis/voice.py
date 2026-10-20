@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 NO_SPEECH_S = 8.0       # после слова (или после ответа) никто не заговорил — закончить
 FOLLOW_UP_S = 6.0       # после ответа слушаем без слова пробуждения
+LONG_FOLLOW_UP_S = 14.0  # то же в немецком и играх: человек думает над ответом
 MAX_TURN_S = 60.0       # один ответ дольше этого — что-то не так
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
@@ -65,7 +66,7 @@ def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
                   tools: bool = False, home: bool = False,
                   history: list[tuple[datetime, str, str, str]] | None = None,
-                  history_lines: int = HISTORY_LINES) -> str:
+                  history_lines: int = HISTORY_LINES, language: str = "") -> str:
     freq = ("в каждом втором ответе" if sarcasm < 70 else "почти в каждом ответе" if sarcasm < 90 else
             "в каждом ответе, дерзко и жёстко, как токсичный друг-циник (без настоящих оскорблений и без мата)")
     tone = (f"Твой характер: язвительный, с сухим острым юмором. {freq[0].upper() + freq[1:]} едко подколи или "
@@ -92,9 +93,17 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         if tools else
         "Управлять светом, напоминаниями и телефоном ты пока не умеешь — "
         "если просят, честно скажи, что это скоро появится.")
+    if tools:
+        abilities += (" Тренировка немецкого: на «давай по-немецки», «тренируем немецкий» вызови "
+                      "set_language_mode (mode=german) и дальше строго следуй rules из ответа; «хватит "
+                      "немецкого» — mode=off, это не конец разговора. Игры («города», «20 вопросов», "
+                      "«викторина»): вызови game_start и следуй rules; счёт ведёт сервер (game_stop, game_scores).")
     exact_time = " (если спросят точное время — вызови current_time)" if tools else ""
     memory = ("\nТы помнишь о пользователе:\n" + "\n".join(f"- {f}" for f in facts)) if facts else ""
     recent = history_block(history, now, history_lines) if history else ""
+    language_rule = (language + " Объяснения правил и пояснения даёшь по-русски. " if language else
+                     "Говори только по-русски, даже если тебе послышался другой язык (микрофон в колонке "
+                     "простой, речь иногда звучит неразборчиво). ")
     return f"""\
 Ты голосовой ассистент в колонке с круглым экраном. Колонка стоит в спальне пользователя, у
 кровати и компьютера, в Вене. Сейчас {WEEKDAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]} \
@@ -110,8 +119,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 и сменить мысль. Фразы разной длины, разговорные, без канцелярита. Подстраивайся под манеру и
 настроение пользователя. Не монотонь и не зачитывай.
 
-Говори только по-русски, даже если тебе послышался другой язык (микрофон в колонке
-простой, речь иногда звучит неразборчиво). Коротко: обычно одно-два предложения, как в живом
+{language_rule}Коротко: обычно одно-два предложения, как в живом
 разговоре. Если не расслышал — так и скажи, не додумывай. Ответ звучит
 вслух — никаких списков, разметки, ссылок и смайлов; числа и время говори словами так, как
 их произносят. {tone}
@@ -318,7 +326,8 @@ class Conversation:
                                 self.mic.get_nowait()
                             self.listening = True
                             await dev.send(protocol.voice("listening"))
-                            deadline = v.clock() + FOLLOW_UP_S
+                            deadline = v.clock() + (LONG_FOLLOW_UP_S if v.brain and v.brain.long_talk
+                                                    else FOLLOW_UP_S)
                 finally:
                     pump.cancel()
                     reader.cancel()
@@ -399,7 +408,7 @@ class Voice:
         history = brain.recent_messages(HISTORY_LINES) if brain else None
         return self.live_factory(system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
                                                brain is not None, brain is not None and brain.ha is not None,
-                                               history))
+                                               history, language=brain.german.prompt_paragraph() if brain else ""))
 
     async def _open_live(self) -> LiveSession:
         live = self._new_live()
@@ -531,6 +540,8 @@ class Voice:
             log.exception("разговор с %s упал", dev.id)
         finally:
             del self._talks[dev.id]
+            if self.brain is not None:
+                self.brain.end_conversation()     # немецкий и игры живут на один разговор
             self._quiet_until[dev.id] = self.clock() + WAKE_COOLDOWN_S
             if dev.id in self._detectors:
                 self._detectors[dev.id].reset()
@@ -550,8 +561,10 @@ class Voice:
 
     async def command(self, line: str) -> str | None:
         parts = line.split(maxsplit=1)
-        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect"):
+        if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect", "de", "game"):
             return None
+        if parts[0].lower() in ("de", "game"):
+            return await self.brain.command(line) if self.brain else "нет мозга (brain)"
         if parts[0].lower() == "tts":
             if len(parts) < 2:
                 return (f"голос сейчас {self.voice_name}. tts <имя>: Puck, Fenrir, Zephyr, Charon, Orus, "
