@@ -182,7 +182,8 @@ class Telegram:
         history = b.recent_messages(HISTORY) if b else None
         return system_prompt(self.now(), self.sarcasm(), b.facts() if b else None,
                              b is not None, b is not None and b.ha is not None, history,
-                             history_lines=HISTORY) + CHAT_NOTE
+                             history_lines=HISTORY,
+                             learned=b.learning.prompt_section() if b and b.learning else "") + CHAT_NOTE
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
         """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
@@ -266,6 +267,16 @@ class Telegram:
             out = await self.skills.command(text)
             if out is not None:
                 await self.send(out, chat_id)
+                return
+        learning = self.brain.learning if self.brain is not None else None
+        if learning is not None:
+            low = text.casefold().strip(" .!")
+            if low in ("да", "нет", "yes", "no", "запомни") and learning.items("pending"):
+                r = learning.confirm(low in ("да", "yes", "запомни"))
+                await self.send("Запомнил." if r.get("accepted") else "Ладно, забыли.", chat_id)
+                return
+            if text.split()[0].lower().lstrip("/") in ("learned", "learn"):
+                await self.send(await learning.command("learned " + " ".join(text.split()[1:])) or "", chat_id)
                 return
         try:
             reply = await self.ask(chat_id, text)

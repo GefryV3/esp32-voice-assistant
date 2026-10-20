@@ -171,7 +171,7 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
             return reply
     for module in (hub.voice, hub.ota, hub.telegram, getattr(hub, "presence", None), hub.routines,
                    getattr(hub, "lights", None), getattr(hub, "offline", None), getattr(hub, "morning", None),
-                   getattr(hub, "skills", None), getattr(hub, "claude", None), *getattr(hub, "extras", ())):
+                   getattr(hub, "skills", None), getattr(hub, "claude", None), getattr(hub, "learning", None), *getattr(hub, "extras", ())):
         if module is not None:
             out = await module.command(line)
             if out is not None:

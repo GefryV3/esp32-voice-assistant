@@ -27,6 +27,7 @@ from .claude_status import ClaudeStatus
 from .ota import Ota
 from .presence import Presence
 from .morning import Morning, MorningConfig
+from .learning import Learning
 from .routines import Routines
 from .transit import Transit, TransitConfig
 from .umbrella import Umbrella, UmbrellaConfig
@@ -187,6 +188,17 @@ async def main() -> None:
         bridge.on_slept = digest.record_sleep
         extras.append(digest)
         digest.start()
+    if voice and settings.gemini_api_key:
+        from .agents import ask_model
+
+        async def learn_ask(prompt: str) -> str:
+            return await asyncio.to_thread(ask_model, settings.gemini_api_key, settings.agent_model, prompt)
+        learning = brain.learning = hub.learning = Learning(
+            brain, ask=learn_ask, notify=(tg.send if tg else None), announce=voice.announce,
+            presence=presence if presence.enabled else None, night=routines.night if routines else None)
+        learning.start()
+    else:
+        learning = None
     if voice or tg:
         async def remind(text: str) -> bool:
             # колонка не ответила (нет её или занята) — напоминание уходит в Telegram
@@ -212,6 +224,8 @@ async def main() -> None:
             for module in (habits, digest):
                 if module:
                     await module.stop()
+            if learning:
+                await learning.stop()
             if routines:
                 await routines.stop()
             if morning:

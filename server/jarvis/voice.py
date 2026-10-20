@@ -71,7 +71,7 @@ def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
 def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = None,
                   tools: bool = False, home: bool = False,
                   history: list[tuple[datetime, str, str, str]] | None = None,
-                  history_lines: int = HISTORY_LINES, night: bool = False, language: str = "") -> str:
+                  history_lines: int = HISTORY_LINES, night: bool = False, language: str = "", learned: str = "") -> str:
     base_sarcasm = sarcasm
     sarcasm = effective_sarcasm(now, sarcasm)     # время суток сдвигает ползунок
     freq = ("в каждом втором ответе" if sarcasm < 70 else "почти в каждом ответе" if sarcasm < 90 else
@@ -139,7 +139,7 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
 
 Тебя зовут Мага (ты мужского рода, говори о себе «я сделал», «я взялся»). На «Hey Jarvis»
 ты тоже откликаешься, но ты не Джарвис и не изображаешь его. {abilities}
-{memory}{recent}"""
+{memory}{learned}{recent}"""
 
 
 def tail_bytes(text: str, max_bytes: int = 120) -> str:
@@ -485,7 +485,8 @@ class Voice:
         system = system_prompt(self.now(), self.sarcasm(), brain.facts() if brain else None,
                                brain is not None, brain is not None and brain.ha is not None,
                                history, night=self.is_night(),
-                               language=brain.german.prompt_paragraph() if brain else "")
+                               language=brain.german.prompt_paragraph() if brain else "",
+                               learned=brain.learning.prompt_section() if brain and brain.learning else "")
         if self._overload_note and self._use_model != self.settings.gemini_model:
             self._overload_note = False         # сказать один раз: в этой сессии
             system += VOICE_NOTE
