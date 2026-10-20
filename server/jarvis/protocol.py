@@ -224,6 +224,17 @@ def barge(on: bool, ratio: float = 3.0) -> Message:
     return {"type": "barge", "on": int(on), "ratio_x10": _int_in("ratio_x10", round(ratio * 10), 12, 200)}
 
 
+def ble_scan(on: bool, uuid: str = "") -> Message:
+    """BLE-сканирование маячка телефона (в прошивке по умолчанию выключено). uuid — iBeacon, 32 hex."""
+    msg: Message = {"type": "ble_scan", "on": int(on)}
+    u = uuid.replace("-", "").strip().lower()
+    if u:
+        if not re.fullmatch(r"[0-9a-f]{32}", u):
+            raise ProtocolError("ble_scan: uuid должен быть 32 hex-символа (UUID iBeacon)")
+        msg["uuid"] = u
+    return msg
+
+
 def ping(ping_id: int) -> Message:
     return {"type": "ping", "id": ping_id}
 

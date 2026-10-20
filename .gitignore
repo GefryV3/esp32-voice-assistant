@@ -30,3 +30,6 @@ phone/build/
 phone/app/build/
 phone/local.properties
 phone/build.log
+
+firmware/build-ble/
+firmware/sdkconfig.ble.gen

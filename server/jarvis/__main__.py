@@ -146,7 +146,11 @@ async def main() -> None:
             device_send=lambda msg: _device_send(hub, msg), fallback_model=settings.fallback_text_model)
     presence = Presence(settings.presence, bridge=bridge, ha=ha, brain=brain,
                         pc_min=settings.presence_pc_min, phone_min=settings.presence_phone_min,
-                        idle_min=settings.presence_idle_min)
+                        idle_min=settings.presence_idle_min, room_away_min=settings.room_away_min,
+                        ble_uuid=settings.ble_uuid)
+    hub.on_message(presence.on_room)
+    hub.on_connect(presence.on_connect)
+    presence.hub = hub
     brain.presence = presence if presence.enabled else None
     # навыки: уведомления и команды в Telegram, задания навыкам уходят на ноутбук через мост ПК
     async def pc_send(msg) -> bool:

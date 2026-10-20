@@ -217,3 +217,115 @@ def test_settings():
         config.load_settings(environ={"JARVIS_DEVICE_TOKEN": "t", "JARVIS_PRESENCE": "x"}, env_file="n.env")
     with pytest.raises(config.ConfigError):
         config.load_settings(environ={"JARVIS_DEVICE_TOKEN": "t", "JARVIS_PRESENCE_PC_MIN": "x"}, env_file="n.env")
+
+
+# ── сигнал колонки room ──
+
+async def room(p, here, src="ble", rssi=-60):
+    await p.on_room(None, {"type": "room", "here": here, "rssi": rssi, "src": src})
+
+
+async def test_room_here_beats_ha_away(env):
+    p, _, _, clock = env
+    p.ha = FakeHA(("person.mag", "not_home"))
+    await p.refresh()
+    assert not p.here()
+    await room(p, True)
+    assert p.here() and "ble" in p.reason
+
+
+async def test_room_away_needs_delay(env):
+    p, bridge, _, clock = env
+    phone_online(bridge, screen=True)
+    pc_online(bridge, 5)
+    await room(p, False)
+    assert p.here()                       # ещё не 5 минут
+    clock.advance(4)
+    await room(p, False)                  # повтор раз в 30 с не сбрасывает отсчёт
+    assert p.here()
+    clock.advance(1.1)
+    await room(p, False)
+    assert not p.here() and "колонка не видит" in p.reason   # сильнее активного компьютера
+
+
+async def test_room_returns_clears_away(env):
+    p, *_, clock = env
+    await room(p, False)
+    clock.advance(6)
+    await room(p, False)
+    assert not p.here()
+    await room(p, True)
+    assert p.here()
+    await room(p, False)
+    clock.advance(1)
+    assert p.here()                       # отсчёт начался заново
+
+
+async def test_room_stale_or_none_is_ignored(env):
+    p, *_, clock = env
+    await room(p, False)
+    clock.advance(6)
+    await room(p, False)
+    assert not p.here()
+    clock.advance(3)                      # колонка замолчала дольше 2 минут
+    assert p.here()
+    await room(p, False, src="none")
+    clock.advance(10)
+    await room(p, False, src="none")
+    assert p.here()
+
+
+async def test_manual_override_beats_room(env):
+    p, *_, clock = env
+    p.set_override("here")
+    await room(p, False)
+    clock.advance(6)
+    await room(p, False)
+    assert p.here() and "вручную" in p.reason
+    p.set_override("away")
+    await room(p, True)
+    assert not p.here()
+
+
+async def test_night_charging_phone_at_home_ignores_room_away(env):
+    p, bridge, _, clock = env
+    bridge.is_night = True
+    phone_online(bridge, screen=False, charging=True)
+    await room(p, False)
+    clock.advance(6)
+    await room(p, False)
+    assert p.here() and "ночь" in p.reason
+    p.ha = FakeHA(("person.mag", "not_home"))        # по HA нет дома — тогда отключаем
+    await p.refresh()
+    clock.advance(0.1)
+    assert not p.here()
+    p.ha = FakeHA(("person.mag", "home"))
+    await p.refresh()
+    phone_online(bridge, screen=False, charging=False)  # телефон не на зарядке — не оправдание
+    clock.advance(0.1)
+    assert not p.here()
+
+
+async def test_room_and_ble_commands(env):
+    p, *_ = env
+    p.ble_uuid = "01234567-89ab-cdef-0123-456789abcdef"
+    assert "нет данных" in await p.command("room")
+    await room(p, True, rssi=-58)
+    out = await p.command("room")
+    assert "ble" in out and "-58" in out
+    sent = []
+
+    class Dev:
+        async def send(self, msg):
+            sent.append(msg)
+
+    p.hub = SimpleNamespace(get=lambda: Dev())
+    assert "отправлено" in await p.command("ble on")
+    assert sent == [{"type": "ble_scan", "on": 1, "uuid": "0123456789abcdef0123456789abcdef"}] and p.ble_scan
+    sent.clear()
+    await p.on_connect(Dev())
+    assert sent == [{"type": "ble_scan", "on": 1, "uuid": "0123456789abcdef0123456789abcdef"}]
+    await p.command("ble off")
+    sent.clear()
+    await p.on_connect(Dev())
+    assert sent == []

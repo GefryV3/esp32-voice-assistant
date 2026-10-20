@@ -15,10 +15,13 @@ idf_component_register(
         "net/uplink.cpp"
         "net/ota.cpp"
         "net/plan.cpp"
+        "net/room.cpp"
         "audio/audio.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         app_update
+        bt
+        esp_driver_uart
         esp_driver_gpio
         esp_driver_i2s
         esp_http_client
