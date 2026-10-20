@@ -62,6 +62,11 @@ TOOLS: list[dict[str, Any]] = [
      "Сначала скажи короткое прощание словами, потом вызови: колонка уйдёт в ожидание и не будет "
      "ждать продолжения. Не вызывай, если пользователь явно собирается продолжать.",
      "parameters": {"type": "OBJECT", "properties": {}}},
+    {"name": "mute_listening", "description": "Режим тишины «не слушай» на время: колонка совсем "
+     "перестаёт слушать и отвечать на слово, вернуть можно только словами «Мага, вернись» или по "
+     "истечении времени. minutes: на сколько минут (1…480), по умолчанию 60. Сначала скажи короткое "
+     "подтверждение, потом вызови.",
+     "parameters": {"type": "OBJECT", "properties": {"minutes": {"type": "NUMBER"}}}},
     {"name": "current_time", "description": "Точное текущее время и дата.",
      "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "forget", "description": "Забыть факты, в тексте которых есть эта подстрока.",
@@ -99,6 +104,7 @@ class Brain:
         self.agents = agents
         self.presence = None     # Presence, ставит __main__
         self.lights = None       # Lights (jarvis.lights), ставит __main__
+        self.mute_hook: Callable[[Any], Awaitable[dict]] | None = None   # Voice: режим тишины
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -252,6 +258,10 @@ class Brain:
                 return {"ok": False, "error": "mode: away, here или auto"}
             self.presence.set_override(mode)
             return {"ok": True, "mode": mode, "note": "away: колонка отзовётся снова после presence here из Telegram"}
+        if name == "mute_listening":
+            if self.mute_hook is None:
+                return {"ok": False, "error": "голоса нет, режим тишины недоступен"}
+            return await self.mute_hook(args.get("minutes"))
         if name == "current_time":
             return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":

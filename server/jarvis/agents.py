@@ -19,6 +19,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .gemini_fallback import Notice, is_overload
+
 log = logging.getLogger(__name__)
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -55,6 +57,7 @@ class Task:
     result: str = ""
     spoken: bool = False
     error: str = ""
+    fell_back: bool = False      # результат дала запасная модель: сказать об этом
     runner: asyncio.Task | None = field(default=None, repr=False)
 
 
@@ -196,7 +199,7 @@ def research_sync(api_key: str, model: str, goal: str, *,
 class Agents:
     def __init__(self, api_key: str, model: str, announce: Callable[[str], Awaitable[bool]], *,
                  generate: Callable[[str], Awaitable[str]] | None = None, clock=None,
-                 search: str = "web", search_fn=None):
+                 search: str = "web", search_fn=None, fallback_model: str = ""):
         """announce(prompt) → True, если колонка взялась озвучить (иначе повторим позже)."""
         self.announce = announce
         if search == "google":
@@ -205,6 +208,15 @@ class Agents:
             finder = search_fn or web_search
             self.generate = generate or (lambda goal: asyncio.to_thread(
                 research_sync, api_key, model, goal, search=finder))
+        # перегрузка (503): тот же запрос на запасной модели. Только для своих генераторов (не подменённых)
+        self.fallback: Callable[[str], Awaitable[str]] | None = None
+        if fallback_model and fallback_model != model and generate is None:
+            if search == "google":
+                self.fallback = lambda goal: asyncio.to_thread(generate_sync, api_key, fallback_model, goal)
+            else:
+                self.fallback = lambda goal: asyncio.to_thread(
+                    research_sync, api_key, fallback_model, goal, search=search_fn or web_search)
+        self._notice = Notice()
         self.tasks: list[Task] = []
         self._next = 1
         self._loop_task: asyncio.Task | None = None
@@ -252,14 +264,22 @@ class Agents:
     async def _work(self, task: Task) -> None:
         try:
             async with asyncio.timeout(TASK_TIMEOUT_S):
-                task.result = (await self.generate(task.goal)).strip()
+                try:
+                    task.result = (await self.generate(task.goal)).strip()
+                except Exception as e:
+                    if self.fallback is None or not is_overload(e):
+                        raise
+                    log.warning("задача «%s»: Gemini перегружен (%r), пробую запасную модель", task.title, e)
+                    task.result = (await self.fallback(task.goal)).strip()
+                    task.fell_back = self._notice.take(self._clock())     # скажем об этом раз за десять минут
             task.status = "done" if task.result else "failed"
         except asyncio.CancelledError:
             raise
         except Exception as e:
             log.warning("задача «%s»: %r", task.title, e)
             task.status = "failed"
-            task.error = "квота Gemini исчерпана" if "429" in repr(e) else str(e)[:120]
+            task.error = ("квота Gemini исчерпана" if "429" in repr(e) else
+                          "Gemini перегружен" if is_overload(e) else str(e)[:120])
         if task.status == "failed":
             task.result = ""
         log.info("задача «%s»: %s (%d симв.)", task.title, task.status, len(task.result))
@@ -282,8 +302,10 @@ class Agents:
             why = f" Причина: {task.error}." if task.error else ""
             return (f"Фоновая задача «{task.title}» не получилась.{why} Коротко и честно скажи "
                     "пользователю, что не вышло и почему, и не придумывай результат.")
+        note = (" В начале одной короткой фразой скажи, что основная модель была перегружена и ответила "
+                "запасная." if task.fell_back else "")
         return (f"Фоновая задача «{task.title}» готова. Результат:\n{task.result}\n"
-                "Перескажи пользователю суть своими словами, коротко и разговорно.")
+                f"Перескажи пользователю суть своими словами, коротко и разговорно.{note}")
 
     async def _deliver_loop(self) -> None:
         waiting_since: dict[int, float] = {}
