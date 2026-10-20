@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 530" width="960" height="530" role="img"
+     aria-label="Архитектура: колонка на ESP32-S3, приложение Android, агент на ПК и Telegram подключены к мозгу на Python, который говорит с Gemini Live, Home Assistant и веб-сервисами">
+<defs>
+  <marker id="ae" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0969da"/></marker>
+  <marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0969da"/></marker>
+  <marker id="ce" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#818b98"/></marker>
+  <marker id="cs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#818b98"/></marker>
+</defs>
+<style>
+  text { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif; text-anchor: middle; }
+  .t { font-size: 15px; font-weight: 600; fill: #1f2328; }
+  .g { font-size: 17px; font-weight: 700; fill: #1f2328; }
+  .s { font-size: 12.5px; fill: #59636e; }
+  .p { font-size: 12.5px; fill: #1f2328; }
+  .st { text-anchor: start; }
+  .l { font-size: 12px; fill: #59636e; font-style: italic; }
+  .ea { fill: none; stroke: #0969da; stroke-width: 2; }
+  .ec { fill: none; stroke: #818b98; stroke-width: 1.5; stroke-dasharray: 5 4; }
+</style>
+<rect x="20" y="20" width="250" height="250" rx="16" fill="#f6f8fa" stroke="#c8d1da"/>
+<text x="40" y="50" class="g st">Колонка</text>
+<text x="40" y="69" class="s st">ESP32-S3 · C++17 · ESP-IDF 5.5</text>
+<rect x="40" y="92" width="210" height="28" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/><text x="145.0" y="110.5" class="p">микрофон INMP441</text>
+<rect x="40" y="130" width="210" height="28" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/><text x="145.0" y="148.5" class="p">усилитель MAX98357A</text>
+<rect x="40" y="168" width="210" height="28" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/><text x="145.0" y="186.5" class="p">круглый экран GC9A01</text>
+<rect x="40" y="206" width="210" height="28" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/><text x="145.0" y="224.5" class="p">движок лица · 60 к/с</text>
+<rect x="20" y="300" width="250" height="58" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="145.0" y="325.0" class="t">Приложение Android</text>
+<text x="145.0" y="342.0" class="s">Kotlin · Jetpack Compose</text>
+<rect x="20" y="376" width="250" height="58" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="145.0" y="401.0" class="t">Агент на ПК</text>
+<text x="145.0" y="418.0" class="s">присутствие · заряд · ссылки</text>
+<rect x="20" y="452" width="250" height="58" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="145.0" y="477.0" class="t">Telegram-бот</text>
+<text x="145.0" y="494.0" class="s">тот же разговор, что голосом</text>
+<rect x="340" y="20" width="290" height="490" rx="16" fill="#f6f8fa" stroke="#c8d1da"/>
+<text x="360" y="50" class="g st">Мозг</text>
+<text x="360" y="69" class="s st">Python · asyncio · аддон Home Assistant</text>
+<rect x="365" y="84" width="240" height="56" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="485.0" y="108.0" class="t">Хаб устройств</text>
+<text x="485.0" y="125.0" class="s">WebSocket · OTA · экран</text>
+<rect x="365" y="172" width="240" height="56" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="485.0" y="196.0" class="t">Слово пробуждения</text>
+<text x="485.0" y="213.0" class="s">своё слово «Мага» · Vosk</text>
+<rect x="365" y="260" width="240" height="56" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="485.0" y="284.0" class="t">Голосовая сессия</text>
+<text x="485.0" y="301.0" class="s">поток · перебивание</text>
+<rect x="365" y="348" width="240" height="140" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="485.0" y="423.0" class="t"></text>
+<text x="485" y="376" class="t">Инструменты и память</text>
+<text x="485" y="400" class="s">напоминания · таймеры · свет</text>
+<text x="485" y="418" class="s">календарь · почта · задачи</text>
+<text x="485" y="436" class="s">поиск в интернете · рутины</text>
+<text x="485" y="454" class="s">присутствие · обучение</text>
+<text x="485" y="472" class="s">навыки-плагины</text>
+<text x="720" y="44" class="g st">Обозначения</text>
+<path d="M720 66 h44" class="ea" marker-end="url(#ae)"/>
+<text x="774" y="70" class="s st">поток звука (PCM)</text>
+<path d="M720 92 h44" class="ec" marker-end="url(#ce)"/>
+<text x="774" y="96" class="s st">команды · данные</text>
+<text x="720" y="128" class="s st">Один WebSocket на устройство:</text>
+<text x="720" y="146" class="s st">в текстовых кадрах JSON — команды,</text>
+<text x="720" y="164" class="s st">в бинарных — звук.</text>
+<text x="720" y="198" class="s st">Без сервера колонка не беспомощна:</text>
+<text x="720" y="216" class="s st">часы, будильник, таймеры и хлопки</text>
+<text x="720" y="234" class="s st">работают на ней самой.</text>
+<rect x="700" y="260" width="240" height="56" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="820.0" y="284.0" class="t">Gemini Live API</text>
+<text x="820.0" y="301.0" class="s">речь ⇄ речь, инструменты</text>
+<rect x="700" y="352" width="240" height="56" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="820.0" y="376.0" class="t">Home Assistant</text>
+<text x="820.0" y="393.0" class="s">свет · датчики · присутствие</text>
+<rect x="700" y="432" width="240" height="56" rx="10" fill="#ffffff" stroke="#d1d9e0" stroke-width="1"/>
+<text x="820.0" y="456.0" class="t">Веб-сервисы</text>
+<text x="820.0" y="473.0" class="s">Google · поиск · погода · транспорт</text>
+<path d="M270 112 C310 112 320 104 365 104" class="ea" marker-end="url(#ae)" marker-start="url(#as)"/>
+<path d="M270 190 C315 190 320 124 365 124" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M270 329 C320 329 330 136 365 132" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M270 405 C326 405 336 140 365 138" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M270 481 C320 481 330 430 365 430" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M485 140 V170" class="ea" marker-end="url(#ae)"/>
+<path d="M485 228 V258" class="ea" marker-end="url(#ae)"/>
+<path d="M485 316 V346" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M605 280 H698" class="ea" marker-end="url(#ae)"/>
+<path d="M698 296 H607" class="ea" marker-end="url(#ae)"/>
+<path d="M605 380 H698" class="ec" marker-end="url(#ce)" marker-start="url(#cs)"/>
+<path d="M605 460 H698" class="ec" marker-end="url(#ce)"/>
+</svg>
