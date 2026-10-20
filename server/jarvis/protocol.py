@@ -145,14 +145,32 @@ def agenda(accent: str = "", text: str = "") -> Message:
     return {"type": "agenda", "accent": _text("accent", accent, 47), "text": _text("text", text, 79)}
 
 
-def config(sleep_after: int | None = None, sleep_clock: str | None = None) -> Message:
-    """Настройки экрана: через сколько секунд тишины засыпать и где часы во сне."""
+def config(sleep_after: int | None = None, sleep_clock: str | None = None,
+           clap: bool | None = None, clap_sens: int | None = None) -> Message:
+    """Настройки колонки: через сколько секунд тишины засыпать и где часы во сне; хлопки на
+    устройстве (clap — вкл/выкл, clap_sens 1…10). Колонка применяет только присланные поля."""
     msg: Message = {"type": "config"}
     if sleep_after is not None:
         msg["sleep_after"] = _int_in("sleep_after", sleep_after, 10, 86_400)
     if sleep_clock is not None:
         msg["sleep_clock"] = _one_of("sleep_clock", sleep_clock, SLEEP_CLOCK)
+    if clap is not None:
+        msg["clap"] = int(bool(clap))
+    if clap_sens is not None:
+        msg["clap_sens"] = _int_in("clap_sens", clap_sens, 1, 10)
     return msg
+
+
+PLAN_MAX = 8   # столько ближайших сигналов колонка хранит
+
+
+def plan(alarms: list[tuple[int, str]], timers: list[tuple[int, str]]) -> Message:
+    """План на случай обрыва связи: сигналы (Unix-время, подпись), которые колонка отыграет
+    сама встроенным тоном. Подписи до 31 байта, не больше PLAN_MAX в каждом списке."""
+    def items(rows: list[tuple[int, str]]) -> list[Message]:
+        return [{"at": _int_in("at", at, 0, 4_000_000_000), "label": _text("label", label, 31)}
+                for at, label in rows[:PLAN_MAX]]
+    return {"type": "plan", "alarms": items(alarms), "timers": items(timers)}
 
 
 def coin(result: int) -> Message:

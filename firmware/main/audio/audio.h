@@ -18,6 +18,19 @@ void start(SendFn send_mic, DoneFn on_played, BargeFn on_barge_in);
 // ratio — во сколько раз выше обычного эха должен быть звук (по умолчанию 4).
 void set_barge_in(bool on, float ratio = 4.0f);
 
+// Хлопки: серия из двух хлопков распознаётся на колонке (audio/clap.h), без сети и без слова
+// пробуждения; пока колонка играет, детектор молчит. Обработчик зовётся из задачи микрофона:
+// не ждать, только пометить и отправить из другой задачи. sensitivity 1…10.
+using ClapFn = void (*)(int count);
+void set_clap_handler(ClapFn on_clap);
+void set_clap(bool on, int sensitivity);
+
+// Встроенный сигнал без сервера: тон «три гудка, пауза» на seconds секунд (alarm_stop или
+// play_stop обрывают). Идёт через обычный проигрыватель, так что слышна громкость и детектор
+// хлопков молчит. Если колонка уже говорит, подождёт её до 2 с.
+void alarm(int seconds);
+void alarm_stop();
+
 // Микрофон: кадры по 20 мс (16 кГц, 16 бит) уходят в send_mic, пока listen включён.
 void listen(bool on, int gain_db = 12);
 

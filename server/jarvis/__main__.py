@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from .audio import Audio
 from .brain import Brain
+from .offline import Offline
 from .agents import Agents, make_search
 from .google import Google
 from .ha import HomeAssistant
@@ -126,6 +127,7 @@ async def main() -> None:
                         idle_min=settings.presence_idle_min)
     brain.presence = presence if presence.enabled else None
     hub.presence = presence
+    Offline(hub, brain, clap_on=settings.clap, clap_sens=settings.clap_sens)   # хлопки и план без связи
     if voice:
         voice.presence = presence
     if tg:

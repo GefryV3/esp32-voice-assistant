@@ -35,7 +35,9 @@ class Settings:
     wake_words: str = "мага,jarvis"          # через запятую: «мага» (Vosk) и «jarvis» (openWakeWord)
     barge_in: bool = True                    # можно перебить колонку голосом
     barge_ratio: float = 4.0                 # во сколько раз голос должен быть громче эха ответа
-    vad_silence_ms: int = 650                # пауза, после которой Gemini считает фразу законченной
+    clap: bool = True                        # серия из двух хлопков на самой колонке (событие clap)
+    clap_sens: int = 5                       # чувствительность хлопков 1 (скупая) … 10 (острая)
+    vad_silence_ms: int = 650               # пауза, после которой Gemini считает фразу законченной
     agent_model: str = "gemini-flash-lite-latest"   # модель фоновых агентов (пересказ найденного)
     agent_search: str = "web"                       # web (DuckDuckGo), brave, searxng или google (поиск Gemini)
     tavily_key: str = ""                            # ключ Tavily для agent_search=tavily
@@ -99,6 +101,13 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     except ValueError as e:
         raise ConfigError(f"JARVIS_BARGE_RATIO должен быть числом (1.2…20): {e}") from None
 
+    try:
+        clap_sens = int(env.get("JARVIS_CLAP_SENS", "5"))
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_CLAP_SENS должен быть целым числом 1…10: {e}") from None
+    if not 1 <= clap_sens <= 10:
+        raise ConfigError("JARVIS_CLAP_SENS должен быть от 1 до 10")
+
     def minutes(key: str, default: str) -> float:
         try:
             return max(float(env.get(key, default)), 0.0)
@@ -135,6 +144,8 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         affective=env.get("JARVIS_AFFECTIVE", "0").strip() in ("1", "true", "on"),
         barge_in=env.get("JARVIS_BARGE_IN", "1").lower() not in ("0", "false", "no", "off"),
         barge_ratio=barge_ratio,
+        clap=env.get("JARVIS_CLAP", "1").strip().lower() not in ("0", "false", "no", "off"),
+        clap_sens=clap_sens,
         vad_silence_ms=vad_silence_ms,
         telegram_token=env.get("TELEGRAM_TOKEN", ""),
         telegram_chat_ids=env.get("TELEGRAM_CHAT_IDS", ""),

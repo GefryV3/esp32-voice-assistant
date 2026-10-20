@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "audio/clap.h"
 #include "board.h"
 #include "driver/i2s_std.h"
 #include "esp_heap_caps.h"
@@ -47,6 +48,7 @@ constexpr float BARGE_REF_MIN = 150.0f;       // эталон тише — па�
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;
 BargeFn s_barge = nullptr;
+ClapFn s_clap = nullptr;
 
 i2s_chan_handle_t s_rx = nullptr;
 i2s_chan_handle_t s_tx = nullptr;
@@ -66,6 +68,11 @@ std::atomic<bool> s_barge_on{false};
 std::atomic<bool> s_barge_armed{false};       // звук реально звучит (после накопления), а не ждёт начала
 std::atomic<int> s_barge_ratio_x100{300};
 std::atomic<float> s_ref_rms{0};              // громкость того, что сейчас играет (с задержкой затухания)
+std::atomic<bool> s_clap_on{true};
+std::atomic<int> s_clap_sens{5};
+std::atomic<bool> s_alarm_stop{false};
+std::atomic<bool> s_alarm_on{false};          // встроенный сигнал звучит
+TaskHandle_t s_alarm_task = nullptr;
 std::atomic<bool> s_ended{false};
 std::atomic<bool> s_stop{false};
 std::atomic<int> s_rate_req{16000};
@@ -222,10 +229,13 @@ void audio_barge_in(Barge &b);
 void mic_task(void *) {
   static int32_t raw[MIC_FRAME];
   static int16_t pcm[MIC_FRAME];
+  static int16_t flat[MIC_FRAME];               // тот же звук без усиления — для детектора хлопков
   static Barge barge;
   static Ear ear;
+  static clap::Detector claps;
   Highpass hpf(MIC_HIGHPASS_HZ, MIC_RATE);
   uint32_t dropped = 0;
+  int clap_sens = 0;
   for (;;) {
     size_t got = 0;
     if (i2s_channel_read(s_rx, raw, sizeof raw, &got, portMAX_DELAY) != ESP_OK) continue;
@@ -234,6 +244,16 @@ void mic_task(void *) {
     for (int i = 0; i < n; ++i) {
       const float y = hpf(static_cast<float>(raw[i] >> 8));
       pcm[i] = static_cast<int16_t>(std::clamp(y * gain, -32768.0f, 32767.0f));
+      flat[i] = static_cast<int16_t>(std::clamp(y / 256.0f, -32768.0f, 32767.0f));
+    }
+    // Хлопки: работают всегда, даже без сети и без слова пробуждения; пока играет динамик —
+    // молчат (сами себя же и услышим)
+    if (s_clap_on) {
+      if (const int sens = s_clap_sens; sens != clap_sens) {
+        clap_sens = sens;
+        claps.set_sensitivity(sens);
+      }
+      if (claps.process(flat, n, s_speaking) && s_clap) s_clap(2);
     }
     ear.step(pcm, n, s_speaking);
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
@@ -381,6 +401,44 @@ void play_once() {
            s_stop ? " (остановлен)" : "", (unsigned long)underruns, (unsigned long)overflow);
 }
 
+// Встроенный сигнал: три гудка по 150 мс и пауза, цикл 2 с, тон чередуется 880/1175 Гц. Рисуем
+// сэмплы прямо в буфер проигрывателя и ждём, когда в нём появится место: темп задаёт сам динамик.
+void alarm_task(void *) {
+  static int16_t chunk[320];
+  for (;;) {
+    int seconds = static_cast<int>(ulTaskNotifyTake(pdTRUE, portMAX_DELAY));
+    for (int i = 0; s_speaking && i < 200; ++i) vTaskDelay(pdMS_TO_TICKS(10));
+    if (s_speaking) continue;
+    s_alarm_stop = false;
+    s_alarm_on = true;
+    play_start(MIC_RATE);
+    const int64_t total = static_cast<int64_t>(seconds) * MIC_RATE;
+    float phase = 0;
+    for (int64_t n = 0; n < total && !s_alarm_stop && s_accept;) {
+      for (int i = 0; i < 320; ++i, ++n) {
+        const int t_ms = static_cast<int>((n * 1000 / MIC_RATE) % 2000);
+        const int slot = t_ms / 250, in_slot = t_ms % 250;
+        float env = 0;
+        if (slot < 3 && in_slot < 150) env = std::min({in_slot, 150 - in_slot, 8}) / 8.0f;   // плавные края
+        const float hz = (static_cast<int>(n / (2 * MIC_RATE)) & 1) ? 1175.0f : 880.0f;
+        phase += 2.0f * static_cast<float>(M_PI) * hz / MIC_RATE;
+        if (phase > 2.0f * static_cast<float>(M_PI)) phase -= 2.0f * static_cast<float>(M_PI);
+        chunk[i] = static_cast<int16_t>(std::sin(phase) * env * 22000.0f);
+      }
+      const uint8_t *p = reinterpret_cast<const uint8_t *>(chunk);
+      size_t left = sizeof chunk;
+      while (left && !s_alarm_stop && s_accept) {
+        const size_t sent = xStreamBufferSend(s_spk_sb, p, left, pdMS_TO_TICKS(100));
+        p += sent;
+        left -= sent;
+      }
+    }
+    if (!s_alarm_stop) play_end();
+    for (int i = 0; s_speaking && !s_alarm_stop && i < 800; ++i) vTaskDelay(pdMS_TO_TICKS(10));   // доиграть буфер
+    s_alarm_on = false;
+  }
+}
+
 void player_task(void *) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -404,7 +462,8 @@ void start(SendFn send_mic, DoneFn on_played, BargeFn on_barge_in) {
   init_mic();
   init_speaker();
   // ядро 0, выше отрисовки: звук всегда вытеснит помощника лица
-  xTaskCreatePinnedToCore(mic_task, "mic", 3072, nullptr, 8, &s_mic, 0);
+  xTaskCreatePinnedToCore(mic_task, "mic", 4096, nullptr, 8, &s_mic, 0);
+  xTaskCreatePinnedToCore(alarm_task, "alarm", 3072, nullptr, 4, &s_alarm_task, 0);
   xTaskCreatePinnedToCore(mic_send_task, "mic_send", 4096, nullptr, 6, nullptr, 0);
   xTaskCreatePinnedToCore(player_task, "player", 3072, nullptr, 8, &s_player, 0);
   ESP_LOGI(TAG, "микрофон и динамик готовы");
@@ -423,6 +482,25 @@ void set_barge_in(bool on, float ratio) {
   s_barge_ratio_x100 = static_cast<int>(std::clamp(ratio, 1.2f, 20.0f) * 100.0f);
   if (on != s_barge_on) ESP_LOGI(TAG, "перебивание %s (порог ×%.1f)", on ? "включено" : "выключено", ratio);
   s_barge_on = on;
+}
+
+void set_clap_handler(ClapFn on_clap) { s_clap = on_clap; }
+
+void set_clap(bool on, int sensitivity) {
+  s_clap_sens = std::clamp(sensitivity, 1, 10);
+  if (on != s_clap_on) ESP_LOGI(TAG, "хлопки %s (чувствительность %d)", on ? "включены" : "выключены", s_clap_sens.load());
+  s_clap_on = on;
+}
+
+void alarm(int seconds) {
+  if (!s_alarm_task) return;
+  xTaskNotify(s_alarm_task, static_cast<uint32_t>(std::clamp(seconds, 1, 120)), eSetValueWithOverwrite);
+}
+
+void alarm_stop() {
+  if (!s_alarm_on) return;      // говорит сервер, а не будильник — не трогаем
+  s_alarm_stop = true;
+  play_stop();
 }
 
 void play_start(int rate) {

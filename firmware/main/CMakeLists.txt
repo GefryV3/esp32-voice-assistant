@@ -14,6 +14,7 @@ idf_component_register(
         "net/wifi.cpp"
         "net/uplink.cpp"
         "net/ota.cpp"
+        "net/plan.cpp"
         "audio/audio.cpp"
     INCLUDE_DIRS "."
     REQUIRES
