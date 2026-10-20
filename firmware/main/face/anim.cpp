@@ -46,7 +46,7 @@ enum Param {
   GXL, GYL, GXR, GYR,  // взгляд у глаз чуть разный по скорости — живее синхронного робота
   FACE_Y, SCALE, CLOCK_Y, CLOCK_SIZE, CLOCK_A, WX_A, CAP_A, TIMER_A,
   RING, RING_W, THINK, ALERT, GLOW, BG, ARC_A, AURA, CARD_A, REVEAL, AURA_SPEED,
-  TASK_A, TASK_FRAC, GAME_A, REM_A,
+  TASK_A, TASK_FRAC, GAME_A, REM_A, QUIET_A,
   CR, CG, CB, GR, GG, GB, A0R, A0G, A0B, A1R, A1G, A1B, A2R, A2G, A2B, ACR, ACG, ACB,
   INKR, INKG, INKB, ALR, ALG, ALB,
   PARAM_N
@@ -230,6 +230,7 @@ void init_springs() {
   s_p[TASK_FRAC].init(0, .45f, 1);
   s_p[GAME_A].init(0, .4f, 1);
   s_p[REM_A].init(0, .4f, 1);
+  s_p[QUIET_A].init(0, .4f, 1);
   for (int c = 0; c < 3; c++) {
     s_p[CR + c].init(ICE[c], .5f, 1);
     s_p[GR + c].init(ICE_GLOW[c], .5f, 1);
@@ -402,6 +403,7 @@ void update(const Input &in, float dt) {
       }
       // пока на экране карточка или играет музыка — не засыпаем, но и не будим
       if (st.mode == Mode::Idle && (card_on(in, now) || in.player_on || game_on(in, now))) st.idle_since = now;
+      if (st.mode == Mode::Idle && in.quiet) st.idle_since = now;  // глаза не гаснут
       if (st.mode == Mode::Idle && (in.task == Task::NeedsInput || in.task == Task::NeedsPermission)) st.idle_since = now;
       if (st.mode == Mode::Idle && now - st.idle_since > in.sleep_after_ms) set_mode(Mode::Drowsy, now);
       else if (st.mode == Mode::Drowsy && now - st.mode_at > DROWSY_MS) set_mode(Mode::Sleep, now);
@@ -517,6 +519,7 @@ void targets(const Input &in) {
   T[TASK_FRAC] = 0;
   T[GAME_A] = 0;
   T[REM_A] = 0;
+  T[QUIET_A] = 0;
   float gx = 0, gy = 0;
   const float *alc = AL_AMBER;
   const bool late = in.have_time && (in.hour >= 23 || in.hour < 6) && !in.night;
@@ -971,6 +974,19 @@ void targets(const Input &in) {
     }
   }
 
+  // Тихий режим: спокойные глаза, точка и «Тишина»; ниже звонка/разговора/игры/задачи, ночью не рисуется
+  if (in.quiet && !in.night && st.mode <= Mode::Drowsy && !card && !game && !tvis) {
+    T[QUIET_A] = 1;
+    T[WX_A] = 0;
+    for (EyeT &e : E) {
+      e.lidT = fmaxf(e.lidT, .42f);
+      e.bright = .9f;
+    }
+    gx = st.jit_x;
+    gy = 3;
+    T[FACE_Y] += 4;
+    T[AURA] *= .6f;
+  }
   T[REM_A] = (in.reminders > 0 && T[CLOCK_A] > .5f && T[CLOCK_Y] < 180 && !tbig && !game) ? 1 : 0;
   if (T[CARD_A] > 0 && pal != &PAL_CALL) T[AURA] *= 0.7f;  // под текстом карточки фон тише
 
@@ -987,7 +1003,7 @@ void targets(const Input &in) {
     s[EBEND].target = E[e].bend;
     s[EBRIGHT].target = E[e].bright;
   }
-  for (int k = FACE_Y; k <= REM_A; k++) s_p[k].target = T[k];
+  for (int k = FACE_Y; k <= QUIET_A; k++) s_p[k].target = T[k];
   s_p[GXL].target = s_p[GXR].target = gx;
   s_p[GYL].target = s_p[GYR].target = gy;
   if (!pal) pal = &palette_for(in.have_time ? in.hour : 23);
@@ -1066,6 +1082,7 @@ void build_scene(const Input &in) {
   for (int i = 0; i < 9; i++) sc.cell_a[i] = clamp01((now - st.cell_at[i]) / 380.0f);
   sc.reminders = in.reminders;
   sc.rem_a = s_p[REM_A].v;
+  sc.quiet_a = s_p[QUIET_A].v;
   sc.reveal = s_p[REVEAL].v;
   sc.ring_rot = t * 0.35f;
   sc.comet = t * 4.4f - PI / 2;

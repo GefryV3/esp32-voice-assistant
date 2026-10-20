@@ -285,7 +285,10 @@ void on_message(const cJSON *m) {
     ui::set_night(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "on")));
   } else if (eq(type, "brightness")) {
     ui::set_brightness(num(m, "level", 255));
+  } else if (eq(type, "quiet")) {
+    ui::set_quiet(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "on")));
   } else if (eq(type, "listen_start")) {
+    ui::set_quiet(false);
     audio::listen(true, num(m, "gain", 12));
   } else if (eq(type, "listen_stop")) {
     audio::listen(false);

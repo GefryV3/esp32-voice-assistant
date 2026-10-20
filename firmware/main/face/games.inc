@@ -143,6 +143,16 @@ void draw_reminders(const Scene &s) {
   draw_text(text::kUiBold, n, x0 + 18, y + 5, 1, false, rgb(s.ink), a);
 }
 
+// ── Тихий режим: точка и подпись сверху ──
+
+void draw_quiet(const Scene &s) {
+  const float a = s.quiet_a;
+  if (a < 0.01f || s_y0 > 62 || s_y1 < 30) return;
+  const float tw = text::width(text::kUi, "Тишина"), total = 8 + 7 + tw, x0 = C - total / 2;
+  disc(x0 + 4, 44, 3.6f, rgb(s.accent), a * 0.9f);
+  draw_text(text::kUi, "Тишина", x0 + 15, 49, 1, false, rgb(s.ink), a * 0.7f);
+}
+
 // ── Монетка ──
 
 void game_coin(const Scene &s, float a) {

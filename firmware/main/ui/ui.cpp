@@ -237,6 +237,12 @@ void set_reminders(int count) {
   s_in.reminders = std::clamp(count, 0, 99);
 }
 
+void set_quiet(bool on) {
+  Lock lock;
+  s_in.quiet = on;
+  s_in.activity_at = now_ms();
+}
+
 uint32_t fps() { return s_fps; }
 
 }  // namespace ui
