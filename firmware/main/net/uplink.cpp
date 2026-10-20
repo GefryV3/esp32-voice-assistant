@@ -128,12 +128,18 @@ void on_clap(int count) {
   if (s_status_task) xTaskNotifyGive(s_status_task);
 }
 
-void send_room_msg(bool here, int rssi, const char *src) {
+void send_room_msg(bool here, int rssi, const char *src, const RoomExtra &x) {
   cJSON *m = cJSON_CreateObject();
   cJSON_AddStringToObject(m, "type", "room");
   cJSON_AddBoolToObject(m, "here", here);
   if (rssi != 0) cJSON_AddNumberToObject(m, "rssi", rssi);
   cJSON_AddStringToObject(m, "src", src);
+  if (x.heap_free >= 0) cJSON_AddNumberToObject(m, "heap_free", x.heap_free);
+  if (x.heap_min >= 0) cJSON_AddNumberToObject(m, "heap_min", x.heap_min);
+  if (x.has_raw) {
+    cJSON_AddNumberToObject(m, "raw", x.raw);
+    cJSON_AddNumberToObject(m, "heard", x.heard);
+  }
   send_json(m);
 }
 
@@ -250,6 +256,9 @@ void on_config(const cJSON *m) {
     on = num(m, "clap", on ? 1 : 0) != 0;
     audio::set_clap(on, sens);
   }
+  if (cJSON_GetObjectItemCaseSensitive(m, "ble_near") && cJSON_GetObjectItemCaseSensitive(m, "ble_far")) {
+    room::set_thresholds(num(m, "ble_near", -78), num(m, "ble_far", -85));
+  }
 }
 
 void on_message(const cJSON *m) {
@@ -292,7 +301,9 @@ void on_message(const cJSON *m) {
   } else if (eq(type, "weather")) {
     ui::set_weather(num(m, "cond", -1), num(m, "temp", 0));
   } else if (eq(type, "night")) {
-    ui::set_night(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "on")));
+    const bool night_on = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "on"));
+    ui::set_night(night_on);
+    room::set_night(night_on);  // ночью BLE-скан реже
   } else if (eq(type, "brightness")) {
     ui::set_brightness(num(m, "level", 255));
   } else if (eq(type, "quiet")) {
@@ -313,7 +324,14 @@ void on_message(const cJSON *m) {
   } else if (eq(type, "barge")) {
     audio::set_barge_in(num(m, "on", 0) != 0, num(m, "ratio_x10", 40) / 10.0f);
   } else if (eq(type, "ble_scan")) {
-    room::set_ble(num(m, "on", 0) != 0, str(m, "uuid"));
+    room::ScanParams p;  // не присланное остаётся -1 и берётся из значений по умолчанию room.cpp
+    p.win_ms = num(m, "win_ms", -1);
+    p.every_s = num(m, "every_s", -1);
+    p.stable_every_s = num(m, "stable_every_s", -1);
+    p.night_every_s = num(m, "night_every_s", -1);
+    p.silence_s = num(m, "silence_s", -1);
+    p.cal_s = num(m, "cal_s", -1);
+    room::set_ble(num(m, "on", 0) != 0, str(m, "uuid"), p);
   } else if (eq(type, "ota")) {
     if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {
@@ -395,8 +413,8 @@ void status_task(void *) {
 
 }  // namespace
 
-void send_room(bool here, int rssi, const char *src) {
-  if (s_online) send_room_msg(here, rssi, src);
+void send_room(bool here, int rssi, const char *src, const RoomExtra &extra) {
+  if (s_online) send_room_msg(here, rssi, src, extra);
 }
 
 void start() {
