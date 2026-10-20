@@ -26,6 +26,7 @@ CAPTION_KINDS = ("heard", "said", "reply", "none")
 ICONS = ("none", "light")
 SLEEP_CLOCK = ("top", "bottom")
 CAPS = ("display", "mic", "speaker", "wake", "phone", "pc")
+TASK_STATES = ("idle", "working", "needs_input", "needs_permission", "done", "failed")
 NOTIFY_KINDS = ("msg", "call", "battery", "info", "remark", "wake", "check")
 
 Message = dict[str, Any]
@@ -264,6 +265,12 @@ def notify(kind: str, title: str, text: str = "", app: str = "", ms: int = 8000,
     if level is not None:
         msg["level"] = _int_in("level", level, 0, 100)
     return msg
+
+
+def task_status(state: str, label: str = "", pct: int = -1) -> Message:
+    """Ход длинной задачи (Claude Code, агенты): кольцо по краю экрана. pct -1 — процент неизвестен."""
+    return {"type": "task_status", "state": _one_of("state", state, TASK_STATES),
+            "label": _text("label", label, 31), "pct": _int_in("pct", pct, -1, 100)}
 
 
 def notify_hide() -> Message:

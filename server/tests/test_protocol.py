@@ -87,13 +87,17 @@ def test_encode_keeps_cyrillic_compact():
     ("ttt x.o......", {"type": "game", "name": "ttt", "board": "X.O......"}),
     ("weather 3 -2", {"type": "weather", "cond": 3, "temp": -2}),
     ("night on", {"type": "night", "on": True}),
+    ("task working 40 Telegram-бот",
+     {"type": "task_status", "state": "working", "label": "Telegram-бот", "pct": 40}),
+    ("task working Без процента", {"type": "task_status", "state": "working", "label": "Без процента", "pct": -1}),
+    ("task needs_input", {"type": "task_status", "state": "needs_input", "label": "", "pct": -1}),
 ])
 def test_parse_command(line, expected):
     assert parse_command(line) == expected
 
 
 @pytest.mark.parametrize("line", ["", "dice", "dice x", "dice 9", "night maybe", "fly",
-                                  "emotion alarm", "timer soon", "say shout громко", "sleep 5"])
+                                  "emotion alarm", "timer soon", "task sleeping", "task working 101", "say shout громко", "sleep 5"])
 def test_parse_command_errors(line):
     with pytest.raises(CommandError):
         parse_command(line)
@@ -102,3 +106,12 @@ def test_parse_command_errors(line):
 def test_barge_message():
     assert protocol.barge(True, 4.0) == {"type": "barge", "on": 1, "ratio_x10": 40}
     assert protocol.barge(False, 2.5)["ratio_x10"] == 25
+
+
+def test_task_status_validates():
+    assert protocol.task_status("done", "Сборка", 100) == {
+        "type": "task_status", "state": "done", "label": "Сборка", "pct": 100}
+    for bad in (lambda: protocol.task_status("busy"), lambda: protocol.task_status("working", "x", 101),
+                lambda: protocol.task_status("working", "x", -2), lambda: protocol.task_status("working", "я" * 16)):
+        with pytest.raises(ValueError):
+            bad()
