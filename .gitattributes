@@ -1,0 +1,21 @@
+# Normalize text files to LF in the repository
+* text=auto
+
+# Windows scripts keep CRLF in the working tree
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.gif binary
+*.jpg binary
+*.ttf binary
+*.wav binary
+*.apk binary
+*.onnx binary
+*.tflite binary
+
+# GitHub language statistics
+firmware/main/face/fonts_data.cpp linguist-generated
+legacy/** linguist-vendored
+design/** linguist-documentation

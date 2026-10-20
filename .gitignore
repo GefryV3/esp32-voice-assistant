@@ -33,3 +33,6 @@ phone/build.log
 
 firmware/build-ble/
 firmware/sdkconfig.ble.gen
+
+# собранные приложения (внутри зашит токен)
+*.apk
