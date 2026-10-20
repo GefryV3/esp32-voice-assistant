@@ -3,6 +3,7 @@
 // любое движение можно прервать на полпути без рывка; глаза моргают и блуждают взглядом,
 // после тишины засыпают, а часы переезжают и остаются на экране. Поверх — карточки с
 // телефона и мини-плеер.
+#include "esp_log.h"
 #include <cmath>
 #include <cstring>
 
@@ -34,10 +35,27 @@ struct Spring {
     d = damping;
     k = (TAU / r) * (TAU / r);
   }
+  float good = 0;  // последнее конечное значение: NaN в пружине не должен прилипать навсегда
+  static bool fin(float f) {  // по битам: сборка с -ffast-math может выбросить isfinite
+    uint32_t u;
+    memcpy(&u, &f, sizeof u);
+    return ((u >> 23) & 0xFF) != 0xFF;
+  }
   void step(float dt) {
     const float a = -k * (v - target) - (2 * TAU * d / r) * vel;
     vel += a * dt;
     v += vel * dt;
+  }
+  // true — значение пришлось починить (v, vel или цель были нечислом)
+  bool sanitize() {
+    if (fin(v) && fin(vel) && fin(target)) {
+      good = v;
+      return false;
+    }
+    if (!fin(target)) target = good;
+    v = good;
+    vel = 0;
+    return true;
   }
 };
 
@@ -1165,6 +1183,19 @@ const Scene &animate(const Input &in, float dt) {
       for (Spring &s : eye) s.step(h);
     for (Spring &s : s_p) s.step(h);
   }
+  // нечисло в пружинах (ошибка в расчёте цели) раньше навсегда прятало глаза и ломало рисование
+  static bool warned = false;
+  for (int e = 0; e < 2; e++)
+    for (int i = 0; i < EYE_N; i++)
+      if (s_eye[e][i].sanitize() && !warned) {
+        warned = true;
+        ESP_LOGW("anim", "нечисло: глаз %d параметр %d исправлен", e, i);
+      }
+  for (int i = 0; i < PARAM_N; i++)
+    if (s_p[i].sanitize() && !warned) {
+      warned = true;
+      ESP_LOGW("anim", "нечисло: общий параметр %d исправлен", i);
+    }
   build_scene(in);
   return sc;
 }
