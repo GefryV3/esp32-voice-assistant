@@ -116,9 +116,10 @@ def test_character_shifts_with_time_of_day():
 
 # ── 2. эмоциональный режим ──
 
-def test_affective_is_on_by_default(tmp_path):
-    assert load_settings(tmp_path / "none", {"JARVIS_DEVICE_TOKEN": "t"}).affective is True
-    assert load_settings(tmp_path / "none", {"JARVIS_DEVICE_TOKEN": "t", "JARVIS_AFFECTIVE": "0"}).affective is False
+def test_affective_is_off_by_default(tmp_path):
+    # Gemini 3.8 Live убрал эмоциональный диалог (соединение закрывается с кодом 1007), поэтому по умолчанию выкл
+    assert load_settings(tmp_path / "none", {"JARVIS_DEVICE_TOKEN": "t"}).affective is False
+    assert load_settings(tmp_path / "none", {"JARVIS_DEVICE_TOKEN": "t", "JARVIS_AFFECTIVE": "1"}).affective is True
 
 
 class RecordingLive(FakeLive):
@@ -140,7 +141,7 @@ async def test_affective_failure_falls_back_for_ten_minutes(hub, tmp_path, caplo
     ref = []
     live = RecordingLive(ref, lambda aff, model: aff)
     now = [100.0]
-    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k", affective=True),
               live_factory=live, clock=lambda: now[0])
     ref.append(v)
     with caplog.at_level(logging.WARNING, logger="jarvis.voice"):
@@ -359,3 +360,19 @@ async def test_mute_console_and_tool_limits(hub, tmp_path):
         assert any(t["name"] == "mute_listening" for t in brain.tools())
     finally:
         await ws.close()
+
+
+async def test_affective_invalid_argument_turns_it_off_for_good(hub, tmp_path):
+    ref = []
+    live = RecordingLive(ref, lambda aff, model: aff, error="Gemini закрыл соединение: 1007 Request contains an invalid argument.")
+    brain = Brain(tmp_path / "b.db")
+    now = [100.0]
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k", affective=True),
+              brain=brain, live_factory=live, clock=lambda: now[0])
+    ref.append(v)
+    await v.take_live()
+    assert v.affective is False and brain.pref("affective") == "0"
+    now[0] += 5000                                           # и через часы больше не пробуем
+    live.opened.clear()
+    await v.take_live()
+    assert live.opened == [(False, "gemini-3.8-live")]

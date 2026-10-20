@@ -27,7 +27,7 @@ class Settings:
     gemini_model: str = "gemini-3.8-live"
     voice_name: str = "Charon"               # встроенный голос Gemini (мужской, спокойный)
     wake_threshold: float = 0.5
-    affective: bool = True                   # эмоциональный диалог Gemini (v1alpha); не подключился — обычный режим на 10 мин
+    affective: bool = False                  # эмоциональный диалог Gemini (v1alpha); не подключился — обычный режим на 10 мин
     gemini_fallback_model: str = "gemini-live-2.5-flash-preview"   # голос при 503: запасная Live-модель; пусто — без отката
     fallback_text_model: str = "gemini-flash-latest"   # агенты и Telegram при 503/перегрузке; пусто — без отката
     google_client_id: str = ""               # OAuth-клиент Google (docs/google.md); пусто — Google выключен
@@ -170,7 +170,7 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
         google_client_secret=env.get("GOOGLE_CLIENT_SECRET", ""),
         google_refresh_token=env.get("GOOGLE_REFRESH_TOKEN", ""),
         google_tz=env.get("JARVIS_GOOGLE_TZ", "Europe/Vienna"),
-        affective=env.get("JARVIS_AFFECTIVE", "1").strip().lower() in ("1", "true", "on"),
+        affective=env.get("JARVIS_AFFECTIVE", "0").strip().lower() in ("1", "true", "on"),
         gemini_fallback_model=env.get("JARVIS_GEMINI_FALLBACK_MODEL", "gemini-live-2.5-flash-preview"),
         fallback_text_model=env.get("JARVIS_FALLBACK_TEXT_MODEL", "gemini-flash-latest"),
         barge_in=env.get("JARVIS_BARGE_IN", "1").lower() not in ("0", "false", "no", "off"),

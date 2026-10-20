@@ -514,6 +514,12 @@ class Voice:
                     model = fb
                 elif used_aff and not is_overload(e):
                     self._affective_off_until = self.clock() + AFFECTIVE_OFF_S
+                    if "1007" in str(e) or "invalid argument" in str(e).lower():
+                        # модель не знает такого поля (в Gemini 3.8 Live эмоциональный диалог убран): навсегда выключаем
+                        self.affective = False
+                        if self.brain:
+                            self.brain.set_pref("affective", "0")
+                        log.warning("Gemini не принимает эмоциональный диалог: выключил насовсем (JARVIS_AFFECTIVE=0)")
                     log.warning("эмоциональный режим не подключился (%s): обычный режим на %.0f мин",
                                 e, AFFECTIVE_OFF_S / 60)
                     aff = False

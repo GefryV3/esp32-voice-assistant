@@ -52,7 +52,7 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "OBJECT", "properties": {"name": {"type": "STRING"}}, "required": ["name"]}},
     {"name": "set_affective", "description": "Включить или выключить эмоциональный режим голоса: "
      "модель слышит интонацию пользователя и отвечает в тон. enabled: on или off. Действует со "
-     "следующего разговора; если после включения связь с Gemini пропала, выключи.",
+     "следующего разговора. Внимание: Gemini 3.8 Live эту функцию убрал, при включении сервер сам вернёт выключенное.",
      "parameters": {"type": "OBJECT", "properties": {"enabled": {"type": "STRING"}}, "required": ["enabled"]}},
     {"name": "set_presence", "description": "Пользователь сказал, что ушёл или вернулся. mode: "
      "away — «я ушёл», «меня нет» (колонка перестаёт отзываться на слово, напоминания и будильник "
