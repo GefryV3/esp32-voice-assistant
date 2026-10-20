@@ -18,6 +18,7 @@ from .google import Google
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
+from .presence import Presence
 from .telegram import Telegram, parse_chat_ids
 from .voice import Voice
 from .wake import WakeWord, ensure_models
@@ -106,6 +107,15 @@ async def main() -> None:
             settings.telegram_token, chat_ids, api_key=settings.gemini_api_key,
             model=settings.telegram_model, brain=brain, sarcasm=voice.sarcasm,
             device_send=lambda msg: _device_send(hub, msg))
+    presence = Presence(settings.presence, bridge=bridge, ha=ha, brain=brain,
+                        pc_min=settings.presence_pc_min, phone_min=settings.presence_phone_min,
+                        idle_min=settings.presence_idle_min)
+    brain.presence = presence if presence.enabled else None
+    hub.presence = presence
+    if voice:
+        voice.presence = presence
+    if tg:
+        tg.presence = presence
     if voice or tg:
         async def remind(text: str) -> bool:
             # колонка не ответила (нет её или занята) — напоминание уходит в Telegram
@@ -115,6 +125,7 @@ async def main() -> None:
         brain.start(remind)
     async with hub:
         bridge.start()
+        presence.start()
         if tg:
             tg.start()
         try:
@@ -130,6 +141,7 @@ async def main() -> None:
             await brain.stop()
             if ha:
                 await ha.close()
+            await presence.stop()
             await bridge.stop()
 
 

@@ -41,6 +41,10 @@ class Settings:
     serper_key: str = ""                            # ключ Serper для agent_search=serper
     brave_key: str = ""                             # ключ Brave Search API для agent_search=brave
     searxng_url: str = ""                           # адрес SearXNG для agent_search=searxng
+    presence: str = "auto"                   # auto — решает сам; off — колонка всегда отзывается
+    presence_pc_min: float = 10              # компьютер считается активным, если трогали за столько минут
+    presence_phone_min: float = 10           # то же для экрана/разблокировки телефона
+    presence_idle_min: float = 180           # столько минут без признаков при связи — «нет на месте»; 0 — не считать
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
@@ -92,8 +96,22 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     except ValueError as e:
         raise ConfigError(f"JARVIS_BARGE_RATIO должен быть числом (1.2…20): {e}") from None
 
+    def minutes(key: str, default: str) -> float:
+        try:
+            return max(float(env.get(key, default)), 0.0)
+        except ValueError as e:
+            raise ConfigError(f"{key} должен быть числом (минуты): {e}") from None
+
+    presence = env.get("JARVIS_PRESENCE", "auto").strip().lower()
+    if presence not in ("auto", "off"):
+        raise ConfigError("JARVIS_PRESENCE: auto или off")
+
     return Settings(
         device_token=token,
+        presence=presence,
+        presence_pc_min=minutes("JARVIS_PRESENCE_PC_MIN", "10"),
+        presence_phone_min=minutes("JARVIS_PRESENCE_PHONE_MIN", "10"),
+        presence_idle_min=minutes("JARVIS_PRESENCE_IDLE_MIN", "180"),
         host=env.get("JARVIS_HOST", "0.0.0.0"),
         port=port,
         tz=env.get("JARVIS_TZ", VIENNA_TZ),

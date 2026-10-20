@@ -48,6 +48,11 @@ TOOLS: list[dict[str, Any]] = [
      "модель слышит интонацию пользователя и отвечает в тон. enabled: on или off. Действует со "
      "следующего разговора; если после включения связь с Gemini пропала, выключи.",
      "parameters": {"type": "OBJECT", "properties": {"enabled": {"type": "STRING"}}, "required": ["enabled"]}},
+    {"name": "set_presence", "description": "Пользователь сказал, что ушёл или вернулся. mode: "
+     "away — «я ушёл», «меня нет» (колонка перестаёт отзываться на слово, напоминания и будильник "
+     "работают); here — «я на месте»; auto — «определяй сам». Вернуть here голосом нельзя, пока "
+     "away: колонка молчит, это можно сделать из Telegram или консоли.",
+     "parameters": {"type": "OBJECT", "properties": {"mode": {"type": "STRING"}}, "required": ["mode"]}},
     {"name": "remember", "description": "Запомнить факт о пользователе или его просьбу надолго "
      "(имя, привычки, предпочтения, люди, планы). Один короткий факт на вызов.",
      "parameters": {"type": "OBJECT", "properties": {"fact": {"type": "STRING"}}, "required": ["fact"]}},
@@ -91,6 +96,7 @@ class Brain:
         self.google = google
         self.ha = ha
         self.agents = agents
+        self.presence = None     # Presence, ставит __main__
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -209,6 +215,15 @@ class Brain:
             on = str(args.get("enabled", "")).strip().casefold() in ("on", "true", "1", "да", "вкл")
             self.set_pref("affective", "1" if on else "0")
             return {"ok": True, "affective": on, "note": "со следующего разговора"}
+        if name == "set_presence":
+            if self.presence is None:
+                return {"ok": False, "error": "проверка присутствия выключена"}
+            mode = {"away": "away", "ушёл": "away", "here": "here", "на месте": "here", "auto": "auto"}.get(
+                str(args.get("mode", "")).strip().casefold(), "")
+            if not mode:
+                return {"ok": False, "error": "mode: away, here или auto"}
+            self.presence.set_override(mode)
+            return {"ok": True, "mode": mode, "note": "away: колонка отзовётся снова после presence here из Telegram"}
         if name == "current_time":
             return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
