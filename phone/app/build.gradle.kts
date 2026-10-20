@@ -30,8 +30,8 @@ android {
         applicationId = "dev.jarvis.bridge"
         minSdk = 31
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         val port = env.getProperty("JARVIS_PORT", "8765")
         buildConfigField("String", "SERVER_URL", "\"ws://$serverHost:$port/phone\"")
         buildConfigField("String", "TOKEN", "\"${env.getProperty("JARVIS_DEVICE_TOKEN", "")}\"")

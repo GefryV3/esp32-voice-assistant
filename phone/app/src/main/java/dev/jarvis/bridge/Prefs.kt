@@ -17,6 +17,11 @@ object Prefs {
 
     val token: String get() = BuildConfig.TOKEN
 
+    /** Виброотклик на слайдеры и кнопки. */
+    var haptics: Boolean
+        get() = sp.getBoolean("haptics", true)
+        set(v) = sp.edit().putBoolean("haptics", v).apply()
+
     /** Приложения, уведомления которых не дублируются на колонку. */
     var mutedApps: Set<String>
         get() = sp.getStringSet("muted", emptySet())!!.toSet()
