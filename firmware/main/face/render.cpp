@@ -77,7 +77,23 @@ inline void mix(uint8_t *p, const Rgb &c, float a) {
 inline Rgb rgb(const float *c) { return {c[0], c[1], c[2]}; }
 
 // Пересечение прямоугольника с текущей полосой; false — не пересекается.
+// Проверка по битам: сборка с -ffast-math может выбросить обычные isfinite/isnan
+inline bool finite_bits(float f) {
+  uint32_t u;
+  memcpy(&u, &f, sizeof u);
+  return ((u >> 23) & 0xFF) != 0xFF;
+}
+
 bool clip(float fx0, float fy0, float fx1, float fy1, int &x0, int &y0, int &x1, int &y1) {
+  // NaN/inf (например, из реакций глаз на звук) раньше давали отрицательную строку и запись мимо буфера (паника)
+  if (!(finite_bits(fx0) && finite_bits(fy0) && finite_bits(fx1) && finite_bits(fy1))) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      ESP_LOGW("face", "clip: нечисло в геометрии (%g %g %g %g), кадр пропущен", (double)fx0, (double)fy0, (double)fx1, (double)fy1);
+    }
+    return false;
+  }
   x0 = fx0 < 0 ? 0 : (int)fx0;
   y0 = fy0 < s_y0 ? s_y0 : (int)fy0;
   x1 = fx1 > W - 1 ? W - 1 : (int)ceilf(fx1);
