@@ -1,3 +1,3 @@
-# Заметки сессий о сделанном
+# Session Notes on Completed Work
 
-Каждая параллельная сессия кладёт сюда файл `<имя-сессии>.md`; координатор переносит их в CHANGELOG при слиянии.
+Each parallel session places a `<session-name>.md` file here (in English); the coordinator moves them to CHANGELOG upon merging.

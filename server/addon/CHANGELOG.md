@@ -1,234 +1,225 @@
-# Изменения
+# Changelog
 
 ## 0.13.1
-- **Лимит сборок навыков** (подписка Claude): по умолчанию 1 сборка в сутки, 3 в неделю, пауза 4 ч;
-  `/skills build on|off` и `SKILL_MAX_PER_DAY`, `SKILL_MAX_PER_WEEK`, `SKILL_MIN_GAP_H`. Одна сборка:
-  20 ходов, 1.5 $, 12 минут. Исполнитель сам находит `claude.exe` приложения Claude.
-- **Запасное расписание** для будильника: если WebUntis не пускает (вход через Microsoft), считается по
-  обычному: пн-пт первый урок 8:00 (`WAKE_SCHOOL_START`), подъём 6:20 при сборах 59 мин.
-- Приложение «Колонка» 0.4.0: виброотклик на слайдерах и кнопках (в APK), палитра обложки, будильник.
+- **Skill build limit** (Claude subscription): default 1 build per day, 3 per week, 4-hour pause;
+  `/skills build on|off` and `SKILL_MAX_PER_DAY`, `SKILL_MAX_PER_WEEK`, `SKILL_MIN_GAP_H`. Single build:
+  20 turns, $1.5, 12 minutes. The runner automatically finds the Claude application's `claude.exe`.
+- **Backup schedule** for the alarm clock: if WebUntis blocks access (login via Microsoft), it calculates as
+  usual: Mon-Fri first lesson at 8:00 (`WAKE_SCHOOL_START`), wake-up at 6:20 with 59 min prep time.
+- "Column" app 0.4.0: haptic feedback on sliders and buttons (in APK), cover art palette, alarm clock.
 
 ## 0.13.0
-Большое слияние десяти параллельных работ. Подробности по каждой: docs/changes/*.md.
-- **Свет** (`lights.py`, `lightstate.py`): «Мага, спокойной ночи» гасит весь свет плавно за ~30 с и говорит
-  сводку на утро; цвета ламп запоминаются и возвращаются после рассвета (HA-автоматизация не менялась); цвета
-  подсветки стола из обложки трека (`music_light on|off`, нужно приложение на телефоне 0.3+); два хлопка
-  переключают весь свет комнаты.
-- **Экран и звук** (нужна прошивка 0.6.0): кольцо прогресса и «Ждёт тебя» (`task_status`), игры и счётчик
-  напоминаний в новом стиле, реакции глаз на звук и музыку; хлопки на самой колонке, будильник и таймеры
-  без сервера (`plan`).
-- **Ночь и голос**: ночью тише и короче; эмоциональный режим Gemini по умолчанию; характер по времени суток;
-  «Мага, не слушай час» (`mute_listening`, возврат словом «вернись»); откат на запасную модель при 503.
-- **Немецкий и игры**: режим «давай по-немецки» со словарём и интервальным повторением, голосовые игры
-  (города, 20 вопросов, викторина).
-- **Утро**: будильник по расписанию WebUntis (`UNTIS_ICAL_URL`), мягкое пробуждение, школьный автобус
-  (`TRANSIT_STOP`, `TRANSIT_LINE`; ÖBB HAFAS), «возьми зонт».
-- **Привычки, идеи, сводки**: случайные вопросы по задачам Google, `save_idea` (список «Идеи» в Задачах),
-  чтение письма, недельная сводка и копия `brain.db` в Telegram, `health_report` («как ты?»),
+Major merge of ten parallel efforts. Details for each: docs/changes/*.md.
+- **Lighting** (`lights.py`, `lightstate.py`): «Мага, спокойной ночи» ("Maga, good night") smoothly turns off all lights in ~30 s and speaks
+  the morning briefing; lamp colors are remembered and restored after sunrise (HA automation unchanged); desk
+  backlight colors from track cover art (`music_light on|off`, requires phone app 0.3+); double clap
+  toggles all lights in the room.
+- **Screen and sound** (requires firmware 0.6.0): progress ring and «Ждёт тебя» ("Waiting for you") (`task_status`), games and reminder counter in a new style, eye reactions to sound and music; claps on the speaker itself, alarm and timers without server (`plan`).
+- **Night and voice**: quieter and shorter at night; Gemini emotional mode by default; character by time of day;
+  «Мага, не слушай час» ("Maga, don't listen for an hour") (`mute_listening`, return with word «вернись» ("come back")); fallback to backup model on 503.
+- **German and games**: "let's speak German" mode with vocabulary and spaced repetition, voice games
+  (cities, 20 questions, quiz).
+- **Morning**: alarm by WebUntis schedule (`UNTIS_ICAL_URL`), gentle wake-up, school bus
+  (`TRANSIT_STOP`, `TRANSIT_LINE`; ÖBB HAFAS), «возьми зонт» ("take an umbrella").
+- **Habits, ideas, summaries**: random questions on Google Tasks, `save_idea` ("Ideas" list in Tasks),
+  reading an email, weekly summary and copy of `brain.db` to Telegram, `health_report` («как ты?» ("how are you?")),
   `tools/wake_eval.py`.
-- **Навыки и Claude Code**: плагины-навыки (`skills/`), `propose_skill` с одобрением в Telegram и исполнитель
-  на ноутбуке (`tools/skill_runner.py`); хук прогресса Claude Code (`tools/claude_hook.py`).
-- **«Живой» Мага** (`learning.py`): ночная рефлексия, предпочтения в подсказке, обратная связь («слишком
-  язвительно»), журнал и откат, редкая инициатива.
-- `deploy_addon.py` теперь передаёт аддону все ключи из `server/.env`, кроме служебных.
+- **Skills and Claude Code**: skill plugins (`skills/`), `propose_skill` with approval in Telegram and runner
+  on laptop (`tools/skill_runner.py`); Claude Code progress hook (`tools/claude_hook.py`).
+- **"Living" Maga** (`learning.py`): night reflection, prompt preferences, feedback («слишком язвительно» ("too sarcastic")), log and rollback, rare initiative.
+- `deploy_addon.py` now passes all keys from `server/.env` to the addon, except service ones.
 
 
 ## 0.12.0
-- Присутствие (`jarvis/presence.py`): пока тебя нет на месте, колонка не отзывается на слово
-  пробуждения и на `ask`. Напоминания, таймеры, будильник и фоновые задачи звучат как раньше.
-  «На месте»: компьютер активен; ночью (окно сна) — если дома или HA молчит; телефон в руках;
-  «нет»: по HA никого нет дома, либо 3 часа без признаков. Нет данных — считается «на месте».
-- Вручную: `presence auto|here|away` в консоли и в Telegram (также `/presence here`), голосом
-  «Мага, я ушёл» (`set_presence`). Выбор хранится в `brain.db`. Выключить совсем: `JARVIS_PRESENCE=off`;
-  пороги `JARVIS_PRESENCE_PC_MIN/PHONE_MIN/IDLE_MIN`.
-- Рутины (`jarvis/routines.py`): колонка сама начинает разговор, а Gemini в нём зовёт нужные
-  инструменты (время, погода, календарь, задачи). Утренний брифинг раз в день: когда на телефоне
-  выключили будильник, а если не выключали, то в `JARVIS_BRIEFING_AT` (08:00); не раньше конца
-  ночи, колонка занята разговором — повторы до часа. Приветствие, когда человек (HA `person.*`)
-  вернулся домой после часа и дольше: не чаще раза в 3 часа и не ночью. Выключатель
-  `JARVIS_ROUTINES=off`. Консоль: `routine briefing|home`.
-- `tools/import_memory.py memory.json`: перенос памяти старого ассистента в `brain.db`
-  (профиль и факты, будущие напоминания, без дублей и просроченного).
+- Presence (`jarvis/presence.py`): while you are away, the speaker does not respond to the wake word
+  and to `ask`. Reminders, timers, alarm, and background tasks sound as usual.
+  "Here": computer is active; at night (sleep window) — if at home or HA is silent; phone in hands;
+  "away": no one is home according to HA, or 3 hours without activity. No data — considered "here".
+- Manually: `presence auto|here|away` in console and in Telegram (also `/presence here`), by voice
+  «Мага, я ушёл» ("Maga, I left") (`set_presence`). Choice is stored in `brain.db`. Turn off completely: `JARVIS_PRESENCE=off`;
+  thresholds `JARVIS_PRESENCE_PC_MIN/PHONE_MIN/IDLE_MIN`.
+- Routines (`jarvis/routines.py`): the speaker starts a conversation itself, and Gemini calls the necessary
+  tools in it (time, weather, calendar, tasks). Morning briefing once a day: when the alarm on the phone
+  is turned off, or if not turned off, at `JARVIS_BRIEFING_AT` (08:00); not earlier than the end of
+  the night, speaker busy with conversation — repeats up to an hour. Greeting when a person (HA `person.*`)
+  returned home after an hour or longer: no more than once every 3 hours and not at night. Switch
+  `JARVIS_ROUTINES=off`. Console: `routine briefing|home`.
+- `tools/import_memory.py memory.json`: migration of the old assistant's memory to `brain.db`
+  (profile and facts, future reminders, without duplicates and expired ones).
 
 ## 0.11.0
-- Google напрямую, без HA (`jarvis/google.py`, инструкция docs/google.md): календарь (все
-  календари), Gmail только чтение, Задачи. Функции `google_calendar_list/add`, `google_mail_unread`,
-  `google_tasks_list/add/done`. Работают в голосе и в Telegram. Вход один раз:
-  `tools/google_auth.py` (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN в .env).
-  Без этих ключей Google выключен.
+- Google directly, without HA (`jarvis/google.py`, instructions docs/google.md): calendar (all
+  calendars), Gmail read-only, Tasks. Functions `google_calendar_list/add`, `google_mail_unread`,
+  `google_tasks_list/add/done`. Work in voice and in Telegram. One-time login:
+  `tools/google_auth.py` (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in .env).
+  Without these keys, Google is disabled.
 
 ## 0.10.5
-- Живее и реальнее: подсказка про манеру речи переписана (реакция сразу, смех, вздохи,
-  «ага/хм/слушай», разная длина фраз, без «конечно» и пересказа вопроса).
-- Голос меняется голосом: «Мага, смени голос» / «говори бодрее» (`set_voice`, 30 голосов Gemini),
-  эмоциональный режим по просьбе (`set_affective`). Выбор запоминается в `brain.db`, консольные
-  `tts` и `affect` тоже.
+- More lively and real: speech manner prompt rewritten (immediate reaction, laughter, sighs,
+  «ага/хм/слушай» ("uh-huh/hm/listen"), varied sentence length, no «конечно» ("of course") and question retellings).
+- Voice changes by voice: «Мага, смени голос» ("Maga, change voice") / «говори бодрее» ("speak more briskly") (`set_voice`, 30 Gemini voices),
+  emotional mode on request (`set_affective`). Choice is remembered in `brain.db`, console
+  `tts` and `affect` commands too.
 
 ## 0.10.4
-- Меньше навязчивости про сон: колкость «Подъём через… ч» теперь только когда реально сидишь
-  глубокой ночью (с 01:30 до подъёма, время remark_from) и один раз за ночь, а не каждые
-  полчаса с 23:30. Вечерняя проверка перед сном (23:00) без изменений.
+- Less nagging about sleep: the jab «Подъём через… ч» ("Wake-up in... h") is now only when you are really sitting
+  deep at night (from 01:30 until wake-up time, `remark_from` time) and once per night, not every
+  half hour from 23:30. Evening check before sleep (23:00) unchanged.
 
 ## 0.10.3
-- Ползунок «Язвительность» в приложении снова что-то значит на всей шкале: до 45 спокойный,
-  45-70 колкость в каждом втором ответе, 70-90 почти в каждом, от 90 дерзко и жёстко (без
-  оскорблений и мата). Применяется в Telegram сразу, в голосе до 2,5 минут (обновление заготовки).
+- The "Sarcasm" slider in the app means something again across the entire scale: up to 45 calm,
+  45-70 sarcasm in every second answer, 70-90 in almost every one, from 90 daring and harsh (without
+  insults and profanity). Applied in Telegram immediately, in voice up to 2.5 minutes (template update).
 
 ## 0.10.2
-- Характер: Мага и бот в Telegram одинаково язвительные. В общей подсказке характер описан прямо
-  (сначала ответ по делу, потом короткая колкость, с примером; мягче, когда человеку плохо),
-  а не намёком «можешь пошутить», который голосовая модель почти игнорировала.
+- Character: Maga and the Telegram bot are equally sarcastic. In the general prompt, the character
+  is described directly (answer to the point first, then a short sarcastic remark, with an example;
+  softer when a person feels bad), rather than by a hint «можешь пошутить» ("you can joke"), which the voice model almost ignored.
 
 ## 0.10.1
-- Поиск без карты: добавлены Tavily (TAVILY_API_KEY) и Serper (SERPER_API_KEY); выбор —
-  JARVIS_AGENT_SEARCH=tavily|serper|brave|searxng|web|google.
+- Search without a map: Tavily (TAVILY_API_KEY) and Serper (SERPER_API_KEY) added; choice —
+  `JARVIS_AGENT_SEARCH=tavily|serper|brave|searxng|web|google`.
 
 ## 0.10.0
-- Общая история разговоров: Мага (голос) и Telegram-бот теперь знают, о чём говорили друг с
-  другом. Реплики обоих каналов пишутся в таблицу messages (brain.db) сразу по ходу разговора;
-  служебные подсказки (напоминания, фоновые задачи) не пишутся. В подсказку обоих попадает блок
-  «Недавний разговор» (последние реплики за сутки с пометкой источника и времени). Заготовленная
-  сессия Gemini после каждой новой реплики пересоздаётся, чтобы история в ней была свежей.
+- Shared conversation history: Maga (voice) and the Telegram bot now know what they talked about
+  with each other. Utterances of both channels are written to the messages table (`brain.db`) as the conversation goes;
+  service prompts (reminders, background tasks) are not written. Both prompts receive a
+  "Recent conversation" block (last utterances for 24 hours with source and time marks). The prepared
+  Gemini session is recreated after each new utterance so that its history is fresh.
 
 ## 0.9.2
-- Telegram снова отвечает: «большая» модель gemini-flash-latest на бесплатном ключе даёт
-  20 запросов в сутки и отвечала 429. По умолчанию теперь gemini-flash-lite-latest, а при
-  суточной квоте бот сам переходит на запасную модель, а не ждёт.
+- Telegram responds again: the "large" `gemini-flash-latest` model on a free key gives
+  20 requests per day and responded with 429. By default, it is now `gemini-flash-lite-latest`, and upon
+  hitting the daily quota, the bot automatically switches to the backup model instead of waiting.
 
 ## 0.9.1
-- Поиск для фоновых задач: DuckDuckGo теперь показывает капчу (боты ему не нравятся), поэтому
-  добавлены Brave Search API (JARVIS_AGENT_SEARCH=brave, BRAVE_API_KEY) и свой SearXNG
-  (JARVIS_AGENT_SEARCH=searxng, JARVIS_SEARXNG_URL). Разбор запросов от модели чище.
-- Погода: целые градусы («от 6 до 18»), иначе Gemini при чтении вслух путал десятичные.
-- В выкладку теперь едут JARVIS_AGENT_*, BRAVE_API_KEY, JARVIS_SEARXNG_URL, JARVIS_BARGE_*.
+- Search for background tasks: DuckDuckGo now shows a CAPTCHA (it doesn't like bots), so
+  Brave Search API (`JARVIS_AGENT_SEARCH=brave`, `BRAVE_API_KEY`) and own SearXNG
+  (`JARVIS_AGENT_SEARCH=searxng`, `JARVIS_SEARXNG_URL`) have been added. Model query parsing is cleaner.
+- Weather: whole degrees («от 6 до 18» ("from 6 to 18")), otherwise Gemini confused decimals when reading aloud.
+- `JARVIS_AGENT_*`, `BRAVE_API_KEY`, `JARVIS_SEARXNG_URL`, `JARVIS_BARGE_*` now go into the build.
 
 ## 0.9.0
-- Календарь и погода из Home Assistant: `home_calendar` («что у меня завтра?») собирает события
-  из всех календарей, `home_weather` («какая погода, брать ли зонт?») отвечает по `weather.*`
-  с прогнозом на пять дней и заодно обновляет значок погоды и температуру на экране колонки.
+- Calendar and weather from Home Assistant: `home_calendar` («что у меня завтра?» ("what do I have tomorrow?")) collects events
+  from all calendars, `home_weather` («какая погода, брать ли зонт?» ("what's the weather, should I take an umbrella?")) answers via `weather.*`
+  with a five-day forecast and simultaneously updates the weather icon and temperature on the speaker screen.
 
 ## 0.8.5
-- После фоновой задачи не повторяет «уже ищу»: Gemini говорит одну короткую фразу, а разговор
-  сразу уходит в ожидание (не ждёт продолжения 6 с и не вставляет «жду данные»). Результат
-  колонка озвучит сама.
+- After a background task, does not repeat «уже ищу» ("already searching"): Gemini says one short phrase, and the conversation
+  immediately goes into standby (does not wait for continuation for 6 s and does not insert «жду данные» ("waiting for data")). The speaker will voice the result itself as soon as it is free.
 
 ## 0.8.4
-- Поиск в интернете без квоты Google: бесплатный ключ даёт 20 запросов в сутки на gemini-flash
-  (и поиск Google при этом закрывается ошибкой 429). Теперь фоновые агенты берут выдачу
-  DuckDuckGo и пересказывают её дешёвой моделью (JARVIS_AGENT_MODEL, по умолчанию
-  gemini-flash-lite-latest; JARVIS_AGENT_SEARCH=google вернёт поиск Gemini). Если задача не
-  вышла, Gemini называет причину («квота исчерпана»).
-- Меньше обрывов на полуслове: пауза конца фразы 650 мс вместо 450, чувствительность к концу
-  речи низкая (JARVIS_SILENCE_MS).
-- Перебивание строже (прошивка 0.5.1): порог ×4 вместо ×3, голос от 200 мс подряд, пауза в ответе
-  и хвост эха не считаются, пока звук не заиграл. Настройка: `barge on <порог>`.
+- Internet search without Google quota: the free key gives 20 requests per day for `gemini-flash`
+  (and Google search closes with a 429 error). Now background agents take DuckDuckGo results
+  and retell them with a cheap model (`JARVIS_AGENT_MODEL`, defaults to
+  `gemini-flash-lite-latest`; `JARVIS_AGENT_SEARCH=google` restores Gemini search). If the task failed, Gemini states the reason («квота исчерпана» ("quota exhausted")).
+- Fewer mid-word cutoffs: sentence end pause 650 ms instead of 450, speech end sensitivity
+  low (`JARVIS_SILENCE_MS`).
+- Barge-in stricter (firmware 0.5.1): threshold ×4 instead of ×3, voice from 200 ms continuously, pause in answer
+  and echo tail are not counted until sound starts playing. Setting: `barge on <threshold>`.
 
 ## 0.8.3
-- Слово пробуждения «Мага»: своё русское слово на Vosk (распознавание речи с грамматикой из
-  «мага» и похожих слов-приманок, срабатывает по частичному результату, без ожидания конца
-  фразы). «Hey Jarvis» работает параллельно. Список — JARVIS_WAKE_WORDS (по умолчанию
-  `мага,jarvis`). Модель Vosk (~45 МБ) скачивается при первом запуске.
-- Ассистента зовут Мага (мужской род). Манера речи живее: интонация по настроению, паузы,
-  «ага/хм/ой». Команды консоли `tts <имя>` (сменить голос на лету) и `affect on|off`
-  (эмоциональный диалог Gemini) — послушать и выбрать; навсегда JARVIS_VOICE и JARVIS_AFFECTIVE.
+- Wake word «Мага» ("Maga"): custom Russian word on Vosk (speech recognition with grammar from
+  "maga" and similar decoy words, triggers on partial result, without waiting for the end of
+  the phrase). "Hey Jarvis" works in parallel. List — `JARVIS_WAKE_WORDS` (default
+  `мага,jarvis`). The Vosk model (~45 MB) is downloaded on first launch.
+- The assistant's name is Maga (male grammatical gender). Speech manner is more lively: intonation by mood, pauses,
+  «ага/хм/ой» ("uh-huh/hm/oh"). Console commands `tts <name>` (change voice on the fly) and `affect on|off`
+  (Gemini emotional dialogue) — listen and choose; permanently via `JARVIS_VOICE` and `JARVIS_AFFECTIVE`.
 
 ## 0.7.2
-- Перебивание голосом (нужна прошивка 0.5.0): пока колонка говорит, она слушает микрофон
-  локально и сравнивает его с громкостью своего ответа; голос заметно громче эха дольше 160 мс -
-  колонка сразу замолкает, шлёт `barge_in`, и разговор продолжается с вашей фразы (начало
-  фразы колонка отдаёт серверу вслед). Остаток старого ответа Gemini выбрасывается.
-  Настройки: JARVIS_BARGE_IN=0 выключает, JARVIS_BARGE_RATIO (по умолчанию 3) - чувствительность;
-  на лету: консольная команда `barge on|off [порог]`.
+- Voice barge-in (requires firmware 0.5.0): while the speaker is talking, it listens to the microphone
+  locally and compares it with the volume of its response; voice noticeably louder than echo for longer than 160 ms —
+  the speaker immediately shuts up, sends `barge_in`, and the conversation continues from your phrase (the speaker sends the beginning
+  of the phrase to the server afterwards). The rest of Gemini's old response is discarded.
+  Settings: `JARVIS_BARGE_IN=0` disables, `JARVIS_BARGE_RATIO` (default 3) - sensitivity;
+  on the fly: console command `barge on|off [threshold]`.
 
 ## 0.8.3
-- Telegram: до пяти попыток при перегрузке Gemini, паузы растут.
+- Telegram: up to five attempts on Gemini overload, pauses grow.
 
 ## 0.8.2
-- Telegram: при перегрузке Gemini (429/503) запрос повторяется до трёх раз.
+- Telegram: on Gemini overload (429/503), the request is retried up to three times.
 
 ## 0.8.1
-- Telegram: исправлена модель по умолчанию (gemini-flash-latest), прежняя закрыта Google.
+- Telegram: fixed default model (`gemini-flash-latest`), the previous one was closed by Google.
 
 ## 0.8.0
-- Telegram-бот: пишешь текст в чат — Gemini отвечает текстом с теми же инструментами, что у
-  голоса (память, напоминания, таймеры, умный дом). Чужим chat_id бот не отвечает. Если колонка
-  не смогла сказать напоминание (нет или занята), оно приходит в Telegram. Включается
-  переменными TELEGRAM_TOKEN и TELEGRAM_CHAT_IDS в .env; в консоли — команда `tg <текст>`.
+- Telegram bot: type text in chat — Gemini responds with text using the same tools as voice
+  (memory, reminders, timers, smart home). Does not respond to alien `chat_id`s. If the speaker
+  failed to speak a reminder (absent or busy), it arrives in Telegram. Enabled by
+  `TELEGRAM_TOKEN` and `TELEGRAM_CHAT_IDS` variables in `.env`; in console — command `tg <text>`.
 
 ## 0.7.1
-- Отзывчивость: сессия Gemini теперь всегда открыта заранее (как только колонка на связи) и
-  обновляется каждые 150 с и после каждого разговора. После слова пробуждения разговор
-  начинается сразу, без 1,1-1,5 с на подключение. Закрывшуюся сессию заменяет новая.
-- Время в подсказке теперь «около»; точное время Gemini берёт функцией `current_time`.
-- В журнале на каждый ответ: сколько занял захват сессии и через сколько пошёл звук.
+- Responsiveness: the Gemini session is now always open in advance (as soon as the speaker is online) and
+  refreshed every 150 s and after each conversation. After the wake word, the conversation
+  starts immediately, without 1.1-1.5 s for connection. A closed session is replaced by a new one.
+- Time in the prompt is now "about"; precise time Gemini takes via the `current_time` function.
+- In the log for each response: how long session capture took and when sound started.
 
 ## 0.7.0
-- Фоновые агенты (`jarvis/agents.py`): долгие задачи (поиск в интернете, новости, подборки)
-  уходят в фон функцией `start_task`; с колонкой можно говорить дальше, готовый результат
-  она озвучит сама, как только свободна. До 3 задач одновременно, `list_tasks`, `cancel_task`.
-  Модель агентов: JARVIS_AGENT_MODEL (по умолчанию gemini-flash-latest).
-- Режим ожидания по смыслу: Gemini сам завершает разговор (`end_conversation`), когда
-  пользователь поблагодарил или попрощался, и колонка не ждёт продолжения 6 секунд.
+- Background agents (`jarvis/agents.py`): long tasks (internet search, news, selections)
+  go to the background via the `start_task` function; you can continue talking to the speaker, and it will voice the ready result
+  itself as soon as it is free. Up to 3 tasks simultaneously, `list_tasks`, `cancel_task`.
+  Agents model: `JARVIS_AGENT_MODEL` (defaults to `gemini-flash-latest`).
+- Semantic standby mode: Gemini itself ends the conversation (`end_conversation`) when
+  the user thanked or said goodbye, and the speaker does not wait 6 seconds for continuation.
 
 ## 0.6.4
 
-- Голос отзывчивее: соединение с Gemini открывается, пока слово пробуждения ещё договаривают.
-- Конец фразы Gemini определяет после 450 мс тишины вместо 700 (JARVIS_SILENCE_MS в .env), чувствительность к речи высокая.
+- Voice more responsive: connection to Gemini opens while the wake word is still being pronounced.
+- Gemini determines the end of a phrase after 450 ms of silence instead of 700 (`JARVIS_SILENCE_MS` in `.env`), speech sensitivity high.
 
 ## 0.6.3
-- Исправлено: «подсветка стола фиолетовая» попадала на соседнюю сущность number («Подсветка
-  стола Скорость») и падала с `number.turn_on not found`. Теперь точное имя важнее частичного,
-  light важнее number/select/scene, недоступные устройства — в последнюю очередь, а для цвета
-  ищутся только лампы.
+- Fixed: «подсветка стола фиолетовая» ("desk backlight purple") fell on a neighboring number entity ("Desk backlight speed") and crashed with `number.turn_on not found`. Now exact name is more important than partial, light is more important than number/select/scene, unavailable devices go last, and only lamps are searched for color.
 
 ## 0.6.2
-- Список света показывает, что умеет каждая лампа (цвет, только белый, только яркость,
-  эффекты). Если просят цвет, а лампа не умеет, Gemini получает точную причину и список
-  цветных ламп в той же комнате, а не отказывает наугад. В подсказку добавлено «не отказывай
-  заранее, вызови функцию».
+- Light list shows what each lamp can do (color, white only, brightness only,
+  effects). If color is requested and the lamp cannot do it, Gemini receives the exact reason and a list
+  of colored lamps in the same room, rather than refusing at random. "Do not refuse in advance, call the function" added to the prompt.
 
 ## 0.6.1
-- Умный дом без ограничений: цвет света (названия и #RRGGBB), эффекты, плавность, и любой
-  сервис HA над любым устройством (`home_service`): климат, плееры, замки, пылесосы, сцены,
-  скрипты, автоматизации, number/select.
+- Smart home without limits: light color (names and `#RRGGBB`), effects, smoothness, and any
+  HA service over any device (`home_service`): climate, players, locks, vacuums, scenes,
+  scripts, automations, number/select.
 
 ## 0.6.0
-- Умный дом: Gemini управляет светом, розетками, шторами и читает датчики через HA
-  (`home_set`, `home_state`, `home_list`). Понимает комнату целиком («свет в спальне»),
-  яркость и теплоту. Аддону нужен доступ к API ядра HA — при обновлении HA может
-  попросить подтвердить.
+- Smart home: Gemini controls lights, sockets, curtains, and reads sensors via HA
+  (`home_set`, `home_state`, `home_list`). Understands the room as a whole («свет в спальне» ("light in the bedroom")),
+  brightness and warmth. The addon needs access to the HA core API — when updating, HA may
+  ask to confirm.
 
 ## 0.5.0
-- Мозг: Gemini теперь зовёт функции — запомнить факт (SQLite `brain.db`), поставить
-  напоминание или таймер. Напоминание в срок колонка произносит сама; факты попадают
-  в начало каждого разговора.
+- Brain: Gemini now calls functions — remember a fact (SQLite `brain.db`), set
+  a reminder or timer. The speaker pronounces reminders on time itself; facts get
+  into the beginning of each conversation.
 
 ## 0.4.0
-- Обновление колонки по воздуху: команда `ota` (`ota info` — версии), образ прошивки едет
-  в аддоне. Нужна прошивка колонки 0.4.0 — первый раз её заливают по проводу.
+- Over-the-air speaker update: `ota` command (`ota info` — versions), firmware image travels
+  in the addon. Speaker firmware 0.4.0 is required — it is flashed via wire for the first time.
 
 ## 0.3.3
-- Приложение видит, что сейчас на экране колонки: ждёт, спит, слушает, думает, говорит,
-  таймер, ночь, карточка, плеер (сообщение settings → speaker.screen).
+- The app sees what is currently on the speaker screen: waiting, sleeping, listening, thinking,
+  speaking, timer, night, card, player (`settings` message -> `speaker.screen`).
 
 ## 0.3.2
-- Кнопка «Проверить звук» в приложении 0.2.0 (короткий сигнал на колонке).
-- Громкость по умолчанию 50 (новая шкала колонки 0.3.0: 50 % — громко и чисто).
+- "Check sound" button in app 0.2.0 (short beep on the speaker).
+- Default volume 50 (new speaker scale 0.3.0: 50% — loud and clean).
 
 ## 0.3.1
-- Команды `last` (весь последний разговор) и `log` (последние строки журнала).
-- Отвечает только по-русски, даже если послышался другой язык.
+- Commands `last` (entire last conversation) and `log` (last lines of the log).
+- Responds only in Russian, even if another language was heard.
 
 ## 0.3.0
-- Голос: слово пробуждения «Hey Jarvis» на сервере, разговор через Gemini Live —
-  ответ голосом сразу, расшифровка фразы на экране, продолжение без слова 6 с.
-- Команды: `ask <вопрос>` (спросить без слова), `wake` (как слышит слово).
-- Образ на Debian (onnxruntime), модели слова скачиваются при первом запуске.
+- Voice: wake word "Hey Jarvis" on the server, conversation via Gemini Live —
+  voice response immediately, phrase transcription on the screen, continuation without word for 6 s.
+- Commands: `ask <question>` (ask without the word), `wake` (how it hears the word).
+- Image on Debian (onnxruntime), word models downloaded on first launch.
 
 ## 0.2.0
-- Звук: запись с микрофона колонки и воспроизведение на её динамике.
-- Команды проверки: `rec`, `echo`, `beep`, `play`, `stop`, `vol`, `gain`.
-- Громкость колонки хранится в настройках вместе с яркостью.
+- Sound: recording from the speaker microphone and playback on its speaker.
+- Check commands: `rec`, `echo`, `beep`, `play`, `stop`, `vol`, `gain`.
+- Speaker volume is stored in settings along with brightness.
 
 ## 0.1.0
-- Первая версия: экран колонки, мост с телефоном и компьютером.
+- First version: speaker screen, bridge with phone and computer.

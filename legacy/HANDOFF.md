@@ -1,289 +1,286 @@
-# HANDOFF — передача проекта другому ассистенту
+# HANDOFF — Project Handover to Another Assistant
 
-Документ для ассистента, который продолжит проект. Здесь — что это, в каком
-состоянии код, что уже сделано, что осталось, и какие конкретные баги/недоделки
-есть в текущих файлах. Читать вместе с `01_architecture.md` (полная архитектура)
-и `TUTORIAL.md` (пошаговая установка). Дата составления: 2026-07-22.
+Document for the assistant who will continue the project. Here is what it is, what state the code is in, what has already been done, what remains, and what specific bugs/shortcomings exist in the current files. Read together with `01_architecture.md` (full architecture) and `TUTORIAL.md` (step-by-step installation). Date of creation: 2026-07-22.
 
-> **ОБНОВЛЕНИЕ 2026-07-22 (следующий агент):** пункты из §6 закрыты в коде:
-> A (атрибут `due_texts` в sensor.py), B (сервис `gemini_assistant.mark_reminder_done`
-> + вызовы в automations.yaml), C (условия DND в блоках 1 и 4), D (сервис
-> `gemini_assistant.compact_history` + ночная автоматизация 03:30), E (профиль
-> и текущее время с таймзоной в промпте), F (проактивный опрос каждые 30 мин,
-> блок 6 automations.yaml), G (таймзона Europe/Vienna: profile → get_now(),
-> timeZone в create_event, aware-время в list_upcoming_events), H (диагностика
-> убрана, logger INFO). Осталось: I (плейсхолдеры manifest.json) и раскатка на
-> живую систему (скопировать код в /config, обновить automations, перепрошить
-> ESP32 OTA) — см. переписку с пользователем. Пользователь подтвердил: железо
-> работает (отвечало голосом, управляло светом), живёт в Вене, Keep нужен.
+> **UPDATE 2026-07-22 (next agent):** items from §6 are closed in the code:
+> A (`due_texts` attribute in sensor.py), B (`gemini_assistant.mark_reminder_done` service
+> + calls in automations.yaml), C (DND conditions in blocks 1 and 4), D (service
+> `gemini_assistant.compact_history` + night automation at 03:30), E (profile
+> and current time with timezone in the prompt), F (proactive polling every 30 min,
+> block 6 of automations.yaml), G (Europe/Vienna timezone: profile → get_now(),
+> timeZone in create_event, aware-time in list_upcoming_events), H (diagnostics
+> removed, logger INFO). Remaining: I (`manifest.json` placeholders) and deployment
+> to the live system (copy code to /config, update automations, reflash
+> ESP32 OTA) — see chat history with the user. User confirmed: hardware
+> works (answered by voice, controlled lights), lives in Vienna, Keep is needed.
 
 ---
 
-## 1. Что это за проект (в двух абзацах)
+## 1. What This Project Is (in Two Paragraphs)
 
-Домашний голосовой ИИ-ассистент. Железо — самодельный спутник на ESP32-S3
-(круглый дисплей GC9A01 240x240, микрофон INMP441, динамик через MAX98357A).
-Мозг — Home Assistant (на ноутбуке пользователя) + собственный conversation-агент
-на Gemini. Голос обрабатывается локально (Whisper STT + Piper TTS), «ум» —
-облачный Gemini. Ассистент говорит по-русски.
+A home voice AI assistant. Hardware — a custom ESP32-S3 satellite
+(round GC9A01 240x240 display, INMP441 microphone, speaker via MAX98357A).
+Brain — Home Assistant (on the user's laptop) + a custom conversation agent
+on Gemini. Voice is processed locally (Whisper STT + Piper TTS), the "mind" is
+cloud Gemini. The assistant speaks Russian.
 
-Три ключевые способности задумки: (1) живой диалог с доступом к Google Calendar /
-Gmail / Tasks / Keep и к устройствам умного дома через function-calling; (2)
-проактивность — сам напоминает о делах, не дожидаясь wake word; (3) presence-роутинг
-— дома отвечает голосом на колонку, вне дома пишет в Telegram. Долгосрочная память
-хранится в плоском `memory.json`.
+Three key capabilities of the design: (1) live dialogue with access to Google Calendar /
+Gmail / Tasks / Keep and smart home devices via function calling; (2)
+proactivity — it reminds about tasks on its own without waiting for a wake word; (3) presence
+routing — at home it speaks out loud to the speaker, away from home it writes to Telegram. Long-term memory
+is stored in a flat `memory.json`.
 
-Главное архитектурное решение: не писать аудио-конвейер с нуля, а сесть на родной
-Home Assistant Assist Pipeline (спутник выглядит для HA почти как официальный
+Main architectural decision: not to write an audio pipeline from scratch, but to ride on the native
+Home Assistant Assist Pipeline (the satellite looks to HA almost like the official
 Voice Preview Edition).
 
 ---
 
-## 2. Карта репозитория
+## 2. Repository Map
 
 ```
 assistant_project/
-├── 01_architecture.md          Полная архитектура и обоснование решений
-├── README.md                   Краткий порядок установки
-├── TUTORIAL.md                 Подробная пошаговая установка (20 разделов)
-├── HANDOFF.md                  ← этот файл
-├── secrets.yaml.example        Шаблон секретов (wifi, gemini, telegram)
+├── 01_architecture.md          Full architecture and justification of decisions
+├── README.md                   Quick installation guide
+├── TUTORIAL.md                 Detailed step-by-step installation (20 sections)
+├── HANDOFF.md                  ← this file
+├── secrets.yaml.example        Secrets template (wifi, gemini, telegram)
 │
 ├── esphome/
-│   ├── voice-satellite.yaml    Прошивка ESP32-S3 (готова, много выстраданных нюансов — см. §5)
-│   └── images/                 idle/listening/thinking/speaking.gif (placeholder-анимации, BINARY)
+│   ├── voice-satellite.yaml    ESP32-S3 firmware (ready, many hard-earned nuances — see §5)
+│   └── images/                 idle/listening/thinking/speaking.gif (placeholder animations, BINARY)
 │
 ├── homeassistant/
-│   ├── automations.yaml        5 блоков автоматизаций (проактивность, presence, Telegram, DND)
-│   └── configuration_snippet.yaml   Что вставить в configuration.yaml
+│   ├── automations.yaml        5 automation blocks (proactivity, presence, Telegram, DND)
+│   └── configuration_snippet.yaml   What to insert into configuration.yaml
 │
-├── custom_component/gemini_assistant/   КОД агента (копируется в /config/custom_components/)
-│   ├── __init__.py             Setup интеграции из YAML, создание config entry
-│   ├── config_flow.py          Технический import-flow (без UI)
-│   ├── conversation.py         ★ Сам агент: цикл function-calling с Gemini
-│   ├── google_tools.py         Обёртки Calendar / Gmail / Tasks (OAuth Desktop app)
-│   ├── keep_tools.py           Неофициальный Google Keep через gkeepapi (опционально)
-│   ├── memory.py               MemoryStore — чтение/запись memory.json
-│   ├── sensor.py               Сенсор числа активных напоминаний (для бейджа на дисплее)
-│   ├── get_keep_master_token.py   Разовый скрипт получения токена Keep
-│   └── manifest.json           Зависимости pip, метаданные интеграции
+├── custom_component/gemini_assistant/   AGENT CODE (copied to /config/custom_components/)
+│   ├── __init__.py             Integration setup from YAML, creating config entry
+│   ├── config_flow.py          Technical import-flow (without UI)
+│   ├── conversation.py         ★ The agent itself: Gemini function-calling loop
+│   ├── google_tools.py         Calendar / Gmail / Tasks wrappers (OAuth Desktop app)
+│   ├── keep_tools.py           Unofficial Google Keep via gkeepapi (optional)
+│   ├── memory.py               MemoryStore — reading/writing memory.json
+│   ├── sensor.py               Active reminders count sensor (for the badge on the display)
+│   ├── get_keep_master_token.py   One-time Keep master token retrieval script
+│   └── manifest.json           Pip dependencies, integration metadata
 │
 └── memory/
-    └── memory_template.json    Стартовая память (профиль уже с именем Inokentiy)
+    └── memory_template.json    Starting memory (profile already with the name Inokentiy)
 ```
 
-Разнесение кода и данных сделано намеренно: код живёт в
-`/config/custom_components/gemini_assistant/`, а память — в
-`/config/gemini_assistant/memory.json`, чтобы обновление кода не затирало память.
+Separation of code and data is done intentionally: code lives in
+`/config/custom_components/gemini_assistant/`, while memory is in
+`/config/gemini_assistant/memory.json`, so that code updates do not overwrite memory.
 
 ---
 
-## 3. Поток данных (как это работает вживую)
+## 3. Data Flow (How It Works Live)
 
-1. На ESP32 локально крутится `micro_wake_word` (фраза «Окей Набу»). До срабатывания
-   аудио не покидает устройство.
-2. По фразе `on_wake_word_detected` → `voice_assistant.start` → стрим микрофона в HA
-   по ESPHome API.
-3. HA Assist Pipeline: Whisper (STT) → **conversation-агент `gemini_assistant`** → Piper (TTS).
-4. Агент (`conversation.py::async_process`) собирает историю + контекст памяти +
-   декларации инструментов, гоняет ручной цикл function-calling с `gemini-2.0-flash`
-   (до 4 раундов), вызывает инструменты (`_dispatch_tool`), возвращает текст.
-5. HA прогоняет ответ через Piper → аудио уходит обратно на динамик спутника.
-6. Дисплей рисует состояние (`listening`/`thinking`/`speaking`/`idle`) + часы + бейдж
-   напоминаний. Число напоминаний прилетает text_sensor'ом из
+1. `micro_wake_word` runs locally on ESP32 (the phrase «Окей Набу» ("Okay Nabu")). Before triggering,
+   audio does not leave the device.
+2. Upon `on_wake_word_detected` → `voice_assistant.start` → microphone stream to HA
+   via ESPHome API.
+3. HA Assist Pipeline: Whisper (STT) → **`gemini_assistant` conversation agent** → Piper (TTS).
+4. The agent (`conversation.py::async_process`) gathers history + memory context +
+   tool declarations, runs a manual function-calling loop with `gemini-2.0-flash`
+   (up to 4 rounds), calls tools (`_dispatch_tool`), returns text.
+5. HA passes the response through Piper → audio goes back to the satellite's speaker.
+6. The display draws the state (`listening`/`thinking`/`speaking`/`idle`) + clock +
+   reminders badge. The reminder count arrives as a text_sensor from
    `sensor.assistant_pending_reminders`.
 
-Проактивность и presence — отдельно, через `automations.yaml` (не через агента).
+Proactivity and presence work separately, via `automations.yaml` (not through the agent).
 
 ---
 
-## 4. Состояние по изначальным целям проекта
+## 4. Status Against Initial Project Goals
 
-Изначальные цели — из `01_architecture.md`, раздел 1. Сверка с фактической реализацией:
+Initial goals are from `01_architecture.md`, section 1. Verification against actual implementation:
 
-| Изначальная цель | Статус | Комментарий |
+| Initial Goal | Status | Comment |
 |---|---|---|
-| Слушает и говорит (мик/динамик/дисплей) | ✅ Код готов | Прошивка написана и вылизана; **не проверена на живом железе** пользователем |
-| Живой собеседник на Gemini | ✅ Готов | `conversation.py` — полный цикл function-calling |
-| Доступ к Google (Calendar/Gmail/Tasks/Keep) | ✅ Код готов | Требует ручной OAuth-настройки пользователем (ключи/токены) |
-| Управление умным домом голосом | ✅ Готов | Инструмент `call_ha_service` |
-| **Сам обращается (проактивность)** | ⚠️ Частично | Утренний брифинг — есть. Напоминания — **сломаны** (см. §6, баг A). Проактивный «есть что сказать?» планировщик из арх. 4.4 п.1 — **не реализован** |
-| Понимает дома/не дома, пишет в Telegram | ✅ Готов | presence-роутинг в `automations.yaml` (блоки 1, 3, 4) |
-| Долгосрочная память, переживающая перезагрузки | ✅ В основном | `memory.json` работает; но профиль не отдаётся модели и суточная компакция не реализована (см. §6, баги D, E) |
+| Listens and speaks (mic/speaker/display) | ✅ Code ready | Firmware written and polished; **not tested on live hardware** by the user |
+| Live conversationalist on Gemini | ✅ Ready | `conversation.py` — full function-calling loop |
+| Access to Google (Calendar/Gmail/Tasks/Keep) | ✅ Code ready | Requires manual OAuth setup by the user (keys/tokens) |
+| Smart home control by voice | ✅ Ready | `call_ha_service` tool |
+| **Initiates contact on its own (proactivity)** | ⚠️ Partially | Morning briefing — present. Reminders — **broken** (see §6, bug A). Proactive "is there anything to say?" scheduler from arch. 4.4 p.1 — **not implemented** |
+| Understands home/away, writes to Telegram | ✅ Ready | Presence routing in `automations.yaml` (blocks 1, 3, 4) |
+| Long-term memory surviving reboots | ✅ Mostly | `memory.json` works; but profile is not passed to the model and daily compaction is not implemented (see §6, bugs D, E) |
 
-Вывод: ядро (диалог + Google + умный дом + presence + Telegram) готово на уровне
-кода. **Недоделана именно проактивная часть** — то, ради чего затевалась «инициатива
-ассистента»: реальные напоминания голосом не сработают из-за конкретного бага, а
-периодический самоопрос Gemini вообще не написан.
+Conclusion: the core (dialogue + Google + smart home + presence + Telegram) is ready at the code level.
+**Specifically, the proactive part is incomplete** — the very thing the "assistant initiative"
+was conceived for: real voice reminders will not work due to a specific bug, and
+periodic Gemini self-polling is not written at all.
 
 ---
 
-## 5. Что требует ручных действий пользователя (не автоматизируется)
+## 5. What Requires Manual User Actions (Cannot Be Automated)
 
-Это не баги — это принципиально ручные шаги (аккаунты, ключи, пайка). Подробно — в
-`TUTORIAL.md`, здесь чек-лист, чтобы новый ассистент понимал, что вне его контроля:
+These are not bugs — these are fundamentally manual steps (accounts, keys, soldering). Details are in
+`TUTORIAL.md`, here is a checklist so the new assistant understands what is beyond its control:
 
-1. Спаять и прошить ESP32-S3 по USB (первый раз), дальше OTA.
-2. Ключ Gemini API (Google AI Studio) → `secrets.yaml` HA как `gemini_api_key`.
-3. OAuth-клиент **Desktop app** (Google Cloud Console) → `credentials.json` +
-   разовый локальный вход → `token.json`, оба в `/config/gemini_assistant/`.
-   Скоупы: calendar, gmail.readonly, tasks.
-4. Отдельный OAuth-клиент **Web application** для интеграции Google Calendar
-   *внутри самого HA* (нужен только для `calendar`-триггера в automations).
-5. (Опционально) Google Keep через gkeepapi: 2FA + App Password →
+1. Solder and flash ESP32-S3 via USB (first time), then OTA.
+2. Gemini API key (Google AI Studio) → HA `secrets.yaml` as `gemini_api_key`.
+3. OAuth client **Desktop app** (Google Cloud Console) → `credentials.json` +
+   one-time local login → `token.json`, both in `/config/gemini_assistant/`.
+   Scopes: calendar, gmail.readonly, tasks.
+4. Separate OAuth client **Web application** for Google Calendar integration
+   *inside HA itself* (needed only for the `calendar` trigger in automations).
+5. (Optional) Google Keep via gkeepapi: 2FA + App Password →
    `get_keep_master_token.py` → `keep_token.json`.
-6. Telegram-бот у @BotFather + свой chat_id (@userinfobot) → `secrets.yaml`.
-7. В HA: установить аддоны Whisper и Piper, собрать Assist Pipeline, привязать спутник.
-8. Создать helper `input_boolean.assistant_dnd`.
-9. В `automations.yaml` заменить плейсхолдеры под реальную систему:
-   - `person.you` → реальный `person.<имя>`;
-   - `calendar.your_google_calendar` → реальный calendar entity;
-   - `assist_satellite.jarvis_hub_assist_satellite` — **уже подставлен реальный**
-     entity спутника пользователя (найден через Developer Tools → States).
+6. Telegram bot via @BotFather + your chat_id (@userinfobot) → `secrets.yaml`.
+7. In HA: install Whisper and Piper addons, build Assist Pipeline, link the satellite.
+8. Create helper `input_boolean.assistant_dnd`.
+9. In `automations.yaml`, replace placeholders with your actual system entities:
+   - `person.you` → real `person.<name>`;
+   - `calendar.your_google_calendar` → real calendar entity;
+   - `assist_satellite.jarvis_hub_assist_satellite` — **already replaced with the user's real**
+     satellite entity (found via Developer Tools → States).
 
 ---
 
-## 6. Незавершённые задачи и баги в текущем коде (главное для преемника)
+## 6. Unfinished Tasks and Bugs in Current Code (Crucial for Successor)
 
-Отсортировано по важности. Это то, что реально стоит доделать.
+Sorted by importance. These are things that really need to be finished.
 
-### БАГ A — реальные напоминания голосом не сработают (несоответствие sensor ↔ automation) 🔴
+### BUG A — Real Voice Reminders Will Not Work (Mismatch Between Sensor and Automation) 🔴
 
-`automations.yaml`, блок 1 читает атрибут:
+`automations.yaml`, block 1 reads the attribute:
 ```yaml
 due: "{{ state_attr('sensor.assistant_pending_reminders', 'due_texts') | default([]) }}"
 ```
-Но `sensor.py` отдаёт **только число** (`native_value = pending_reminder_count()`),
-атрибута `due_texts` там нет вообще. Значит `due` всегда `[]`, условие
-`due | length > 0` всегда ложно → **напоминание никогда не произносится и не уходит
-в Telegram**. Работает только бейдж-число на дисплее.
+However, `sensor.py` returns **only a number** (`native_value = pending_reminder_count()`),
+and the `due_texts` attribute is completely missing there. Thus `due` is always `[]`, the condition
+`due | length > 0` is always false → **reminders are never spoken aloud and never sent
+to Telegram**. Only the badge number on the display works.
 
-Что сделать: в `PendingRemindersSensor` добавить `extra_state_attributes` с
-`due_texts` — список текстов из `MemoryStore.get_due_reminders()`. В `memory.py`
-метод `get_due_reminders()` уже есть, надо только пробросить его тексты в атрибут
-сенсора. (И решить, что показывает бейдж: все pending или только «наступившие» due.)
+What to do: in `PendingRemindersSensor`, add `extra_state_attributes` with
+`due_texts` — a list of texts from `MemoryStore.get_due_reminders()`. In `memory.py`,
+the `get_due_reminders()` method already exists; you just need to pass its texts into the sensor attribute.
+(And decide what the badge shows: all pending or only "due" ones.)
 
-### БАГ B — напоминания не помечаются выполненными → зациклятся 🔴
+### BUG B — Reminders Are Not Marked as Done → Will Loop Infinitely 🔴
 
-`memory.py::mark_reminder_done()` есть, но **не вызывается нигде**. Как только баг A
-починят, блок 1 (`time_pattern: /5`) будет повторять одно и то же напоминание
-каждые 5 минут вечно. Нужно после успешного announce/Telegram вызывать
-`mark_reminder_done(text)` — либо через инструмент агента, либо через доп. сервис
-HA, который дёрнет `hass.data[DOMAIN]["memory"].mark_reminder_done(...)`.
-Сейчас такого сервиса/инструмента нет — это надо дописать.
+`memory.py::mark_reminder_done()` exists, but **is not called anywhere**. As soon as bug A
+is fixed, block 1 (`time_pattern: /5`) will repeat the exact same reminder
+every 5 minutes forever. After a successful announce/Telegram, you need to call
+`mark_reminder_done(text)` — either via an agent tool or via an additional HA
+service that calls `hass.data[DOMAIN]["memory"].mark_reminder_done(...)`.
+Currently, there is no such service/tool — this needs to be written.
 
-### НЕДОДЕЛКА C — режим «не беспокоить» ни к чему не подключён 🟡
+### SHORTCOMING C — "Do Not Disturb" Mode Is Not Connected to Anything 🟡
 
-`automations.yaml`, блоки 5 включают/выключают `input_boolean.assistant_dnd` по
-времени (23:00 / 08:00). Но **ни одна автоматизация не проверяет этот флаг** перед
-озвучкой. В конце файла явный TODO-комментарий: «Не забудь добавить в шаг 1 условие
-input_boolean.assistant_dnd == off». То есть DND пока декоративный. Нужно добавить
-условие в блок 1 (и, возможно, в блок 4 — календарные напоминания), чтобы ночью
-голосовой announce глушился, а Telegram проходил.
+`automations.yaml`, blocks 5 turn `input_boolean.assistant_dnd` on/off based
+on time (23:00 / 08:00). However, **not a single automation checks this flag** before
+speaking out loud. At the end of the file, there is an explicit TODO comment: "Don't
+forget to add `input_boolean.assistant_dnd == off` condition to step 1." That is, DND is currently decorative.
+You need to add a condition to block 1 (and possibly block 4 — calendar reminders) so that at night
+voice announcements are muted, while Telegram messages still go through.
 
-### НЕДОДЕЛКА D — суточная компакция диалогов не реализована 🟡
+### SHORTCOMING D — Daily Dialogue Compaction Is Not Implemented 🟡
 
-`conversation.py::_trim_history` в комментарии ссылается на «ежедневную задачу
-(см. automations.yaml)», которая сворачивает старые разговоры в
-`conversation_summary`. **Такой автоматизации в `automations.yaml` нет.**
-`memory.py::update_conversation_summary()` есть, но **не вызывается нигде**.
-В рамках сессии история просто обрезается до 20 реплик и старое теряется
-безвозвратно. Нужно дописать ежедневную automation (или отдельную scheduled-задачу),
-которая просит Gemini сжать старые реплики и кладёт результат в summary.
+`conversation.py::_trim_history` refers in a comment to a "daily task
+(see automations.yaml)" that folds old conversations into
+`conversation_summary`. **There is no such automation in `automations.yaml`.**
+`memory.py::update_conversation_summary()` exists, but **is not called anywhere**.
+Within a session, history is simply trimmed to 20 turns and old ones are lost
+forever. You need to write a daily automation (or a separate scheduled task)
+that asks Gemini to summarize old turns and stores the result in summary.
 
-### НЕДОДЕЛКА E — профиль пользователя не отдаётся модели 🟡
+### SHORTCOMING E — User Profile Is Not Passed to the Model 🟡
 
-`memory.py::as_prompt_context()` рендерит `facts`, `reminders`,
-`conversation_summary`, но **не `profile`** (имя, часовой_пояс, заметки).
-В `memory_template.json` уже прописано `"имя": "Inokentiy"`, но модель его не
-видит. Стоит добавить профиль в контекст промпта (как минимум имя и часовой пояс —
-последнее ещё и важно для корректных `due_iso`/дат событий).
+`memory.py::as_prompt_context()` renders `facts`, `reminders`,
+`conversation_summary`, but **not `profile`** (name, timezone, notes).
+`memory_template.json` already defines `"name": "Inokentiy"`, but the model doesn't
+see it. It is worth adding the profile to the prompt context (at least the name and timezone —
+the latter is also important for correct `due_iso`/event dates).
 
-### НЕДОДЕЛКА F — проактивный «есть что сказать сейчас?» планировщик не написан 🟡
+### SHORTCOMING F — Proactive "Is There Anything to Say Now?" Scheduler Is Not Written 🟡
 
-Арх. 4.4 п.1 описывает периодический (каждые 15–30 мин) самоопрос: «исходя из
-памяти и календаря, есть что сказать?». В `automations.yaml` есть только утренний
-брифинг (фикс. 07:30) и проверка напоминаний по времени. Полноценного проактивного
-опроса Gemini — нет. Это заметная часть замысла «он сам ко мне обращается».
+Arch. 4.4 p.1 describes periodic (every 15–30 min) self-polling: "based on
+memory and calendar, is there anything to say?". In `automations.yaml`, there is only a morning
+briefing (fixed at 07:30) and reminder checking by time. A full-fledged proactive
+Gemini poll does not exist. This is a noticeable part of the "it reaches out to me on its own" concept.
 
-### БАГ G — таймзоны в Google-инструментах 🟠
+### BUG G — Timezones in Google Tools 🟠
 
-`google_tools.py::create_event` строит `dateTime` из `datetime.fromisoformat(start_iso)`
-без указания таймзоны. Google Calendar API обычно требует offset или отдельное поле
-`timeZone` — событие может уехать/отклониться. `list_upcoming_events` использует
-`utcnow()`. А `memory.get_due_reminders` сравнивает с наивным `datetime.now()`
-(локальное время). Смешение naive/UTC стоит привести к единому подходу с явной
-таймзоной (её же можно взять из profile, см. недоделку E).
+`google_tools.py::create_event` builds `dateTime` from `datetime.fromisoformat(start_iso)`
+without specifying a timezone. Google Calendar API usually requires an offset or a separate
+`timeZone` field — the event might shift/be rejected. `list_upcoming_events` uses
+`utcnow()`. And `memory.get_due_reminders` compares against naive `datetime.now()`
+(local time). Mixing naive/UTC should be unified with an explicit timezone
+(which can be taken from the profile, see shortcoming E).
 
-### ЧИСТКА H — диагностика и логи в прошивке 🟢
+### CLEANUP H — Diagnostics and Logs in Firmware 🟢
 
 `voice-satellite.yaml`:
-- блок `interval: 2s` (строки ~326–330) — явно помечен «ВРЕМЕННО для диагностики,
-  убрать». Спамит лог, надо удалить.
-- `logger: level: DEBUG` с DEBUG по microphone/micro_wake_word/voice_assistant —
-  на боевом устройстве стоит понизить до INFO, когда всё заработает.
+- `interval: 2s` block (lines ~326–330) — explicitly marked "TEMPORARY for diagnostics,
+  remove". It spams the log, needs to be deleted.
+- `logger: level: DEBUG` with DEBUG on microphone/micro_wake_word/voice_assistant —
+  on a production device, this should be lowered to INFO once everything works.
 
-### КОСМЕТИКА I — плейсхолдеры метаданных 🟢
+### COSMETICS I — Metadata Placeholders 🟢
 
-`manifest.json`: `codeowners: ["@you"]`, `documentation: github.com/you`. Не влияет
-на работу, но стоит поправить, если проект пойдёт в git.
-
----
-
-## 7. Тонкие места, которые НЕ баги (не трогать, если не понимаешь зачем)
-
-Прошивка `voice-satellite.yaml` содержит десяток неочевидных решений, каждое из
-которых лечит конкретный симптом — они подробно закомментированы прямо в файле.
-Кратко, чтобы преемник не «починил» рабочее:
-
-- `cpu_frequency: 240MHz` — иначе wake word не успевает за микрофоном.
-- Блок `psram:` — без него не хватает RAM на тензоры wake word, «Окей Набу» молча не реагирует.
-- `wifi: hidden: true` внутри `networks:` — у пользователя скрытый SSID.
-- `power_save_mode: none` — лечит случайные обрывы Wi-Fi на S3.
-- Анимации `type: BINARY` — RGB565 переполняет flash-раздел (~1.8MB лимит).
-- Модель wake word по **прямой ссылке на V1** (`okay_nabu.json@main`), не короткое
-  имя `okay_nabu` — короткое резолвится в V2, а V2 падает по памяти (баг ESPHome #15603).
-- `speaker: buffer_duration: 8000ms` — HA отдаёт TTS залпом быстрее реального времени;
-  меньший буфер режет ответ.
-- `speaker: timeout: 500ms` (не `never`) — иначе VA застревает в RESPONSE_FINISHED.
-- Запуск ассистента через `on_wake_word_detected` + `micro_wake_word.start` в
-  `on_end`/`on_error`/`on_client_connected` — единственная рабочая связка; не заменять
-  на `start_continuous` / `use_wake_word`.
-- Adaptive-перерисовка дисплея (`interval: 40ms` с делением по состоянию) — быстрый
-  фикс. update ломает звук («Cannot receive audio, buffer is full»).
-
-В `conversation.py`: агент — именно `conversation.ConversationEntity` (не устаревший
-`AbstractConversationAgent`), иначе не появится в списке диалоговых агентов пайплайна.
-Config entry создаётся import-flow'ом из YAML — это тоже намеренно.
+`manifest.json`: `codeowners: ["@you"]`, `documentation: github.com/you`. Does not affect
+operation, but should be fixed if the project goes to git.
 
 ---
 
-## 8. С чего начать преемнику
+## 7. Subtle Details That Are NOT Bugs (Do Not Touch Unless You Understand Why)
 
-Рекомендованный порядок (от самого ценного):
+The `voice-satellite.yaml` firmware contains a dozen non-obvious solutions, each of
+which fixes a specific symptom — they are commented in detail directly in the file.
+Briefly, so the successor doesn't "fix" what works:
 
-1. **Починить напоминания** (баги A + B) — это разблокирует основную проактивную
-   фичу. Правки в `sensor.py` (атрибут `due_texts`) и добавить механизм
-   `mark_reminder_done` после отправки.
-2. **Подключить DND** (недоделка C) — одно условие в automations, быстро.
-3. **Отдать профиль модели** (недоделка E) — одна правка в `memory.py`, заодно
-   разобраться с таймзоной (баг G).
-4. **Дописать суточную компакцию** (недоделка D) и **проактивный опрос** (недоделка F)
-   — это уже новые автоматизации/scheduled-задачи.
-5. **Почистить прошивку** (H) — когда железо подтверждённо работает.
+- `cpu_frequency: 240MHz` — otherwise wake word cannot keep up with the microphone.
+- `psram:` block — without it, there is not enough RAM for wake word tensors, "Okay Nabu" silently ignores triggers.
+- `wifi: hidden: true` inside `networks:` — the user has a hidden SSID.
+- `power_save_mode: none` — cures random Wi-Fi drops on S3.
+- `type: BINARY` animations — RGB565 overflows the flash partition (~1.8MB limit).
+- Wake word model by **direct link to V1** (`okay_nabu.json@main`), not the short
+  name `okay_nabu` — the short name resolves to V2, and V2 crashes due to memory limits (ESPHome bug #15603).
+- `speaker: buffer_duration: 8000ms` — HA sends TTS in a burst faster than real-time;
+  a smaller buffer cuts off the response.
+- `speaker: timeout: 500ms` (not `never`) — otherwise VA gets stuck in RESPONSE_FINISHED.
+- Starting the assistant via `on_wake_word_detected` + `micro_wake_word.start` in
+  `on_end`/`on_error`/`on_client_connected` — the only working combination; do not replace
+  with `start_continuous` / `use_wake_word`.
+- Adaptive display redrawing (`interval: 40ms` with state division) — quick
+  fix. `update` breaks sound ("Cannot receive audio, buffer is full").
 
-Важно: почти всё выше — правки в коде и YAML, которые можно сделать без железа.
-Но **финальная проверка требует реального устройства и настроенных пользователем
-ключей** (§5) — этого ассистент за пользователя сделать не может. Стоит явно
-попросить пользователя прогнать раздел 18 TUTORIAL (тестирование) после правок.
+In `conversation.py`: the agent is specifically `conversation.ConversationEntity` (not the obsolete
+`AbstractConversationAgent`), otherwise it will not appear in the pipeline's dialog agents list.
+The config entry is created via import-flow from YAML — this is also intentional.
 
 ---
 
-## 9. Открытые вопросы к пользователю (стоит уточнить в начале)
+## 8. Where to Start for the Successor
 
-- Железо уже прошито и хоть раз отвечало голосом, или проект пока только в коде?
-  (От этого зависит, чистить ли диагностику в прошивке и можно ли вообще тестировать.)
-- Google OAuth и Telegram уже настроены (есть `token.json`, бот отвечает)?
-- Нужен ли вообще Google Keep (gkeepapi), или Google Tasks достаточно?
-- Какой часовой пояс у пользователя (нужен для напоминаний и событий, поле
-  `profile.часовой_пояс` в memory.json сейчас пустое).
+Recommended order (from most valuable):
+
+1. **Fix reminders** (bugs A + B) — this unlocks the main proactive
+   feature. Edits in `sensor.py` (add `due_texts` attribute) and add the
+   `mark_reminder_done` mechanism after sending.
+2. **Connect DND** (shortcoming C) — one condition in automations, quick.
+3. **Pass profile to the model** (shortcoming E) — one edit in `memory.py`, along with
+   handling the timezone (bug G).
+4. **Write daily compaction** (shortcoming D) and **proactive polling** (shortcoming F)
+   — these are new automations/scheduled tasks.
+5. **Clean up firmware** (H) — when hardware operation is confirmed.
+
+Important: almost everything above consists of code and YAML edits that can be done without hardware.
+However, **final verification requires a real device and user-configured
+keys** (§5) — an assistant cannot do this for the user. You should explicitly
+ask the user to run section 18 of the TUTORIAL (testing) after making the edits.
+
+---
+
+## 9. Open Questions for the User (Worth Clarifying at the Start)
+
+- Has the hardware already been flashed and answered by voice at least once, or is the project still in code only?
+  (This determines whether to clean up diagnostics in the firmware and whether testing is even possible.)
+- Are Google OAuth and Telegram already set up (is `token.json` present, does the bot respond)?
+- Is Google Keep (`gkeepapi`) actually needed, or is Google Tasks sufficient?
+- What is the user's timezone (needed for reminders and events, the
+  `profile.timezone` field in memory.json is currently empty).

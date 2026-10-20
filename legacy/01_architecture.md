@@ -1,162 +1,162 @@
-# Домашний ИИ-ассистент на ESP32-S3 + Home Assistant + Gemini
+# Home AI Assistant on ESP32-S3 + Home Assistant + Gemini
 
-## 1. Цель проекта
+## 1. Project Goal
 
-Голосовой ассистент на круглом дисплее, который:
+A voice assistant on a round display that:
 
-- слушает и говорит через встроенный микрофон/динамик;
-- работает как "живой" собеседник на базе Gemini (по твоему выбору), с доступом к Google-сервисам (Calendar, Gmail и т.д.);
-- сам обращается к тебе — напоминает о домашках, записях к врачу и прочем — без необходимости его будить каждый раз;
-- понимает, дома ты или нет (через штатный трекер устройств Home Assistant), и если нет — пишет в Telegram вместо того, чтобы говорить в пустую комнату;
-- хранит долгосрочную память о тебе в отдельном файле, который переживает перезагрузки и обновления.
+- listens and speaks via the built-in microphone/speaker;
+- acts as a "live" conversational partner based on Gemini (by your choice), with access to Google services (Calendar, Gmail, etc.);
+- initiates conversations with you on its own — reminds you about homework, doctor appointments, and other things without requiring you to wake it up every time;
+- understands whether you are at home or not (via the standard Home Assistant device tracker), and if not, writes to Telegram instead of speaking into an empty room;
+- stores long-term memory about you in a separate file that survives reboots and updates.
 
-Ключевое архитектурное решение: **не писать всё с нуля**, а опереться на Home Assistant Assist Pipeline — родной голосовой конвейер HA, для которого твоя связка микрофон/динамик/дисплей на ESP32-S3 — это почти точная копия официального устройства "Home Assistant Voice Preview Edition". Экономит месяцы разработки на аудио-стриминге, VAD, wake word и синхронизации.
+Key architectural decision: **not to write everything from scratch**, but to rely on the Home Assistant Assist Pipeline — HA's native voice pipeline, for which your ESP32-S3 microphone/speaker/display bundle is an almost exact replica of the official "Home Assistant Voice Preview Edition" device. This saves months of development on audio streaming, VAD, wake word, and synchronization.
 
-## 2. Железо (для справки, из твоей спецификации)
+## 2. Hardware (for reference, from your specification)
 
-| Узел | Модель | Интерфейс | Пины |
+| Node | Model | Interface | Pins |
 |---|---|---|---|
 | MCU | ESP32-S3 Lolin Mini | — | Dual-core, Wi-Fi/BLE 5.0 |
-| Дисплей | GC9A01, круглый IPS 240x240 | SPI | CLK=12, MOSI=13, CS=16, DC=15, RST=14, MISO не исп. |
-| Микрофон | INMP441 | I2S (вход) | SCK=9, WS=10, SD=11, LR→GND (левый канал) |
-| Усилитель+динамик | MAX98357A | I2S (выход) | BCLK=4, LRC=44, DIN=5, GAIN и SD не подключены |
+| Display | GC9A01, round IPS 240x240 | SPI | CLK=12, MOSI=13, CS=16, DC=15, RST=14, MISO not used |
+| Microphone | INMP441 | I2S (input) | SCK=9, WS=10, SD=11, LR→GND (left channel) |
+| Amp+Speaker | MAX98357A | I2S (output) | BCLK=4, LRC=44, DIN=5, GAIN and SD not connected |
 
-Микрофон и динамик работают на **раздельных** линиях I2S — у ESP32-S3 два аппаратных I2S-периферала, так что это ровно то, что нужно: параллельная запись и воспроизведение без конфликтов на шине.
+The microphone and speaker operate on **separate** I2S lines — the ESP32-S3 has two hardware I2S peripherals, so this is exactly what is needed: parallel recording and playback without bus conflicts.
 
-## 3. Общая схема
+## 3. General Architecture
 
 ```
-[ESP32-S3 satellite]                         [Ноутбук: Home Assistant, 500GB]
- микрофон INMP441 ──┐                          ┌─ Assist Pipeline (STT → Agent → TTS)
-                     │  Wi-Fi, ESPHome API      │
- micro_wake_word ────┼───── audio stream ──────►│
- (локально, "Ok Nabu")                          │
-                     │                          ├─ Custom Conversation Agent (Gemini)
- динамик MAX98357A ◄─┼───── audio stream ◄──────┤    ├─ Google Calendar / Gmail (tools)
-                     │                          │    ├─ HA entities (tools: свет, датчики…)
- дисплей GC9A01 ◄────┼───── статус/уведомления ─┤    └─ memory.json (факты, напоминания)
-                     │                          │
-                     │                          ├─ person.<ты> (штатный device_tracker)
-                     │                          │     ├─ home  → announce на ESP32
-                     │                          │     └─ away  → Telegram bot
-                     │                          │
-                     └──────────────────────────┴─ Проактивный планировщик
-                                                     (проверяет календарь/память по таймеру,
-                                                      решает "надо ли сейчас что-то сказать")
+[ESP32-S3 satellite]                         [Laptop: Home Assistant, 500GB]
+ microphone INMP441 ──┐                        ┌─ Assist Pipeline (STT → Agent → TTS)
+                      │  Wi-Fi, ESPHome API    │
+ micro_wake_word ─────┼─── audio stream ──────►│
+ (local, "Ok Nabu")     │                        │
+                      │                        ├─ Custom Conversation Agent (Gemini)
+ speaker MAX98357A ◄──┼─── audio stream ◄──────┤    ├─ Google Calendar / Gmail (tools)
+                      │                        │    ├─ HA entities (tools: lights, sensors…)
+ display GC9A01 ◄─────┼─── status/notices ─────┤    └─ memory.json (facts, reminders)
+                      │                        │
+                      │                        ├─ person.<you> (standard device_tracker)
+                      │                        │     ├─ home  → announce on ESP32
+                      │                        │     └─ away  → Telegram bot
+                      │                        │
+                      └────────────────────────┴─ Proactive scheduler
+                                                      (checks calendar/memory on a timer,
+                                                       decides "whether to say something now")
 ```
 
-## 4. Компоненты и почему именно так
+## 4. Components and Why It Is Done This Way
 
-### 4.1 Прошивка ESP32-S3 — ESPHome, не Arduino-скетч с нуля
+### 4.1 ESP32-S3 Firmware — ESPHome, Not a Scratch Arduino Sketch
 
-ESPHome уже умеет:
-- поднимать I2S микрофон и I2S динамик на разных пинах одновременно (`i2s_audio` компонент, два независимых bus'а — ровно твой случай);
-- держать локальный wake word (`micro_wake_word`) прямо на ESP32-S3 — до срабатывания слова аудио никуда не уходит с устройства, это плюс к приватности и задержке;
-- стримить аудио в Home Assistant по внутреннему API (`voice_assistant` компонент) — не нужен отдельный сервер приёма аудио;
-- рисовать на GC9A01 через `display` + `ili9xxx` (модель `GC9A01A`) — статус ассистента (слушаю/думаю/говорю), часы, значок непрочитанного напоминания.
+ESPHome already knows how to:
+- set up the I2S microphone and I2S speaker on different pins simultaneously (`i2s_audio` component, two independent buses — exactly your case);
+- run a local wake word (`micro_wake_word`) right on the ESP32-S3 — audio does not leave the device until the word is triggered, which is a plus for privacy and latency;
+- stream audio to Home Assistant via the internal API (`voice_assistant` component) — no separate audio intake server is needed;
+- draw on the GC9A01 via `display` + `ili9xxx` (`GC9A01A` model) — assistant status (listening/thinking/speaking), clock, unread reminder icon.
 
-Файл: `esphome/voice-satellite.yaml` (готов, см. ниже).
+File: `esphome/voice-satellite.yaml` (ready, see below).
 
-### 4.2 Голосовой конвейер — Home Assistant Assist Pipeline
+### 4.2 Voice Pipeline — Home Assistant Assist Pipeline
 
-У тебя HA уже настроен, значит: Settings → Voice Assistants → создать pipeline, где:
-- **Wake word**: on-device (micro_wake_word на самом ESP32);
-- **STT**: Whisper (аддон `Whisper` локально на ноутбуке — приватно и бесплатно, диск 500GB более чем достаточно для модели) или облачный вариант, если нужна точность выше;
-- **Conversation agent**: наш кастомный компонент `gemini_assistant` (см. 4.3) вместо стандартного HA Assist;
-- **TTS**: Piper (локально, бесплатно) — на выбор голос попроще/побыстрее, т.к. "ум" всё равно у Gemini, а не у голоса.
+Your HA is already set up, meaning: Settings → Voice Assistants → create a pipeline where:
+- **Wake word**: on-device (`micro_wake_word` on the ESP32 itself);
+- **STT**: Whisper (`Whisper` addon locally on the laptop — private and free, 500GB disk is more than enough for the model) or a cloud option if higher accuracy is needed;
+- **Conversation agent**: our custom `gemini_assistant` component (see 4.3) instead of standard HA Assist;
+- **TTS**: Piper (locally, free) — choice of a simpler/faster voice, since the "brain" belongs to Gemini anyway, not the voice.
 
-### 4.3 "Живой" собеседник — кастомный Conversation Agent на Gemini
+### 4.3 "Live" Conversational Partner — Custom Conversation Agent on Gemini
 
-Стандартный агент HA — это template-движок для команд ("включи свет"). Чтобы получить полноценный диалог, ставим свой `custom_component` (`custom_components/gemini_assistant`), который:
+The standard HA agent is a template engine for commands ("turn on the light"). To get a full-fledged dialogue, we install our own `custom_component` (`custom_components/gemini_assistant`) which:
 
-1. Регистрируется в HA как `conversation` entity — тогда его можно выбрать в pipeline как обычный агент;
-2. При каждом запросе собирает контекст: последние реплики + релевантные факты из `memory.json` + список доступных инструментов;
-3. Даёт модели **function calling** на:
-   - Google Calendar (создать/прочитать события — через официальный Google Calendar API, отдельный OAuth-клиент проекта, не путать с моими коннекторами в чате);
-   - Gmail (прочитать/резюмировать письма, тем же способом);
-   - Google Tasks (записать заметку — "запиши, что мне нужно купить хлеба", видна потом в приложении Google Tasks на телефоне; у Google Keep для обычных аккаунтов нет публичного API, поэтому используем Tasks как ближайший рабочий аналог);
-   - HA-сущности (включить свет, спросить датчик — через `hass.services.async_call`);
-   - "запомнить факт" / "поставь напоминание" — пишет в `memory.json`;
-4. Возвращает текст → HA прогоняет через TTS → звук уходит на ESP32.
+1. Registers in HA as a `conversation` entity — then it can be selected in the pipeline as a regular agent;
+2. Collects context on each request: recent utterances + relevant facts from `memory.json` + list of available tools;
+3. Gives the model **function calling** for:
+   - Google Calendar (create/read events — via official Google Calendar API, separate OAuth client of the project, not to be confused with my connectors in the chat);
+   - Gmail (read/summarize emails, using the same method);
+   - Google Tasks (write a note — "write down that I need to buy bread" (запиши, что мне нужно купить хлеб), visible later in the Google Tasks app on your phone; Google Keep has no public API for regular accounts, so we use Tasks as the closest working alternative);
+   - HA entities (turn on light, query sensor — via `hass.services.async_call`);
+   - "remember fact" / "set reminder" — writes to `memory.json`;
+4. Returns text → HA passes through TTS → sound goes to the ESP32.
 
-Ключ Gemini API нужно будет получить в Google AI Studio и положить в `secrets.yaml` HA — это единственный шаг, который тебе придётся сделать руками (я не могу создавать аккаунты/ключи за тебя).
+You will need to get a Gemini API key in Google AI Studio and put it in HA's `secrets.yaml` — this is the only step you will have to do manually (I cannot create accounts/keys for you).
 
-### 4.4 Проактивность — "он сам ко мне обращается"
+### 4.4 Proactivity — "It Initiates Conversation with Me"
 
-Три источника инициативы, все реализуются через HA automations + service `assist_satellite.announce` (актуальный сервис для проактивной озвучки на assist_satellite entity начиная с HA 2024.10; альтернатива — `tts.speak` на media_player спутника):
+Three sources of initiative, all implemented via HA automations + service `assist_satellite.announce` (the current service for proactive speech on an assist_satellite entity starting from HA 2024.10; alternative is `tts.speak` on the satellite's media_player):
 
-1. **По расписанию** (`time_pattern`, например каждые 15–30 минут): скрипт спрашивает у Gemini-агента "исходя из памяти и календаря, есть что сказать сейчас?" — если да, произносится вслух/пишется в Telegram.
-2. **По событию календаря** (`calendar` trigger в HA, привязанный к Google Calendar): за N минут до события — напоминание.
-3. **По записи в память** ("напомни мне завтра сдать домашку") — отдельный тип напоминания с своим временем, хранится прямо в `memory.json`, проверяется тем же скриптом.
+1. **On a schedule** (`time_pattern`, for example every 15–30 minutes): the script asks the Gemini agent "based on memory and calendar, is there anything to say now?" — if yes, it is spoken aloud / written to Telegram.
+2. **By calendar event** (`calendar` trigger in HA, linked to Google Calendar): N minutes before the event — a reminder.
+3. **By memory entry** ("remind me tomorrow to submit my homework" (напомни мне завтра сдать домашку)) — a separate reminder type with its own time, stored directly in `memory.json`, checked by the same script.
 
-### 4.5 "Дома или нет" — штатный трекер HA
+### 4.5 "At Home or Not" — Standard HA Tracker
 
-Ты уже подтвердил, что HA-трекер устройств настроен — значит используем `person.<твоё_имя>.state`:
-- `home` → голосовое объявление на ESP32 (`announce`);
-- `not_home` → `notify.telegram` + при ответе в Telegram событие `telegram_text` заводится в того же Gemini-агента, чтобы диалог был тем же самым, а не отдельным ботом-заглушкой.
+You already confirmed that the HA device tracker is configured — so we use `person.<your_name>.state`:
+- `home` → voice announcement on ESP32 (`announce`);
+- `not_home` → `notify.telegram` + upon reply in Telegram, the `telegram_text` event is forwarded to the same Gemini agent so the conversation remains the same rather than being a separate stub bot.
 
-### 4.6 Telegram как канал вне дома
+### 4.6 Telegram as an Out-of-Home Channel
 
-Используем встроенную интеграцию HA `telegram_bot` (не нужен отдельный процесс/сервер):
-- отправка: `notify.telegram_<имя>`;
-- приём: automation на событие `telegram_text`, текст пробрасывается в `gemini_assistant` conversation agent тем же кодом, что и голос — единая память, единая логика.
+We use the built-in HA `telegram_bot` integration (no separate process/server needed):
+- sending: `notify.telegram_<name>`;
+- receiving: automation on the `telegram_text` event, text is forwarded to the `gemini_assistant` conversation agent using the same code as the voice — single memory, single logic.
 
-Нужно будет создать бота через @BotFather в самом Telegram и вставить токен в HA — это тоже шаг, который делаешь ты сам (ввод токена/учётных данных я не выполняю за тебя).
+You will need to create a bot via @BotFather in Telegram itself and insert the token into HA — this is also a step you do yourself (I do not input tokens/credentials for you).
 
-### 4.7 Память/контекст
+### 4.7 Memory/Context
 
-`memory.json` на диске ноутбука (500GB с запасом хватит на годы текстовых заметок):
+`memory.json` on the laptop's disk (500GB is more than enough for years of text notes):
 ```json
 {
-  "profile": { "имя": "...", "часовой_пояс": "...", "заметки": [] },
+  "profile": { "name": "...", "timezone": "...", "notes": [] },
   "facts": [ { "text": "...", "added": "2026-07-07" } ],
-  "reminders": [ { "text": "сдать домашку по матеше", "due": "2026-07-08T18:00", "done": false } ],
-  "conversation_summary": "сжатая сводка старых разговоров, чтобы не раздувать промпт"
+  "reminders": [ { "text": "submit math homework", "due": "2026-07-08T18:00", "done": false } ],
+  "conversation_summary": "compressed summary of old conversations to avoid bloating the prompt"
 }
 ```
-Раз в сутки — скрипт-компактор сворачивает старые диалоги в `conversation_summary`, чтобы файл не рос бесконечно и промпт не раздувался.
+Once a day — a compactor script condenses old dialogues into `conversation_summary` so that the file does not grow infinitely and the prompt does not bloat.
 
-## 5. Что нужно от тебя руками (не автоматизируется)
+## 5. What Is Required from You Manually (Cannot Be Automated)
 
-1. Ключ Gemini API (Google AI Studio) → `secrets.yaml`.
-2. OAuth credentials для Google Calendar/Gmail/Tasks API (Google Cloud Console, отдельный проект, "Desktop app" или "Service account") → `secrets.yaml`.
-3. Токен Telegram-бота от @BotFather → `secrets.yaml`.
-4. Прошить ESP32-S3 (ESPHome CLI или ESPHome Dashboard в HA — просто указать конфиг, дальше по USB/OTA).
-5. В HA: Settings → Devices → добавить голосового спутника, создать Assist pipeline, указать наш conversation agent.
+1. Gemini API Key (Google AI Studio) → `secrets.yaml`.
+2. OAuth credentials for Google Calendar/Gmail/Tasks API (Google Cloud Console, separate project, "Desktop app" or "Service account") → `secrets.yaml`.
+3. Telegram bot token from @BotFather → `secrets.yaml`.
+4. Flash ESP32-S3 (ESPHome CLI or ESPHome Dashboard in HA — just specify the config, then via USB/OTA).
+5. In HA: Settings → Devices → add voice satellite, create Assist pipeline, specify our conversation agent.
 
-## 6. Идеи на будущее (сверх того, что просил)
+## 6. Future Ideas (Beyond What Was Requested)
 
-### Проактивность и рутины
-- **Утренний брифинг**: в заданное время — погода, ближайшие события календаря, важные непрочитанные письма, кратко "что сегодня по плану" — без запроса, сразу как будильник.
-- **Вечерний дайджест**: что не сделано за день (просроченные напоминания), что стоит в календаре на завтра.
-- **Режим "не беспокоить"**: ночные часы — не озвучивать, а копить непрочитанные напоминания и показывать бейджем на дисплее к утру; экстренные исключения (см. ниже) всё равно проходят.
-- **Напоминания по контексту, а не только по времени**: например "напомни, когда я в следующий раз включу свет на кухне" — не только `time_pattern`, а триггеры на HA-события.
+### Proactivity and Routines
+- **Morning briefing**: at a set time — weather, upcoming calendar events, important unread emails, briefly "what's on the schedule today" — without a request, right like an alarm clock.
+- **Evening digest**: what wasn't done during the day (overdue reminders), what's on the calendar for tomorrow.
+- **"Do Not Disturb" mode**: night hours — do not speak aloud, but accumulate unread reminders and show a badge on the display by morning; emergency exceptions (see below) still go through.
+- **Context-based reminders, not just time-based**: for example "remind me the next time I turn on the kitchen light" — not just `time_pattern`, but triggers on HA events.
 
-### Безопасность и приватность
-- **Экстренные слова**: если в разговоре звучит что-то похожее на угрозу здоровью/тревогу — сразу пуш в Telegram, даже если ты дома и режим "не беспокоить" включён.
-- **Voice-команда "забудь про это"**: удаление конкретного факта/напоминания из `memory.json` по запросу, без правки файла руками.
-- **Локальный офлайн-фолбэк**: если пропал интернет (Gemini недоступен) — маленькая локальная модель через Ollama отвечает на базовые команды ("который час", "включи свет"), полноценный диалог возвращается при восстановлении сети.
+### Security and Privacy
+- **Emergency words**: if something resembling a health threat/alert is uttered in conversation — push to Telegram immediately, even if you are at home and "Do Not Disturb" is on.
+- **Voice command "forget about this"**: deleting a specific fact/reminder from `memory.json` on request, without manually editing the file.
+- **Local offline fallback**: if the internet is lost (Gemini unavailable) — a small local model via Ollama answers basic commands ("what time is it", "turn on the light"), full conversation returns when network is restored.
 
-### Умный дом
-- **Реальные действия, не только разговор**: раз уже есть HA — агент может дёргать `light.turn_on`, термостат, розетки и т.д. по голосу, а не только болтать.
-- **Погодозависимые советы**: "возьми зонт" при дожде в прогнозе на день, привязано к утреннему брифингу.
+### Smart Home
+- **Real actions, not just talk**: since HA is already there — the agent can pull `light.turn_on`, thermostat, sockets, etc., by voice, instead of just chatting.
+- **Weather-dependent advice**: "take an umbrella" if rain is in the daily forecast, tied to the morning briefing.
 
-### Персонализация
-- **Разные голоса/интонации**: Piper поддерживает разные TTS-голоса — тише и мягче для ночных напоминаний, обычный днём.
-- **Multi-user (на будущее)**: если в доме не только ты — распознавание говорящего по голосу, чтобы напоминания и память были персональными, а не общими на всех.
+### Personalization
+- **Different voices/intonations**: Piper supports different TTS voices — quieter and softer for night reminders, regular during the day.
+- **Multi-user (for the future)**: if there is more than one person in the house — speaker recognition by voice, so that reminders and memory are personal rather than shared by everyone.
 
-### Инфраструктура
-- **Экран как мини-дашборд**: по умолчанию часы/погода, при активном разговоре — анимация (слушаю/думаю/говорю), бейдж при неразобранном напоминании.
-- **Мульти-комната**: HA Assist из коробки поддерживает несколько voice satellite — если потом добавишь такое же устройство в другую комнату, весь бэкенд (агент, память, Telegram) переиспользуется без изменений.
-- **Гибрид приватность/цена**: локальный Whisper+Piper для голоса + Gemini только для "мозгов" — дешевле и приватнее, чем гонять сырое аудио в облако.
-- **Резервное копирование памяти**: `memory.json` + конфиги HA стоит бэкапить (git-репозиторий на том же диске или синк в Google Drive — благо доступ к Google уже будет).
-- **Сеть**: HA наружу в интернет не пробрасывать; Telegram работает по исходящему polling/webhook, порт наружу открывать не нужно.
-- **Непрерывность разговора**: если Wi-Fi моргнул и голосовая сессия оборвалась — тот же диалог (с той же памятью) можно продолжить в Telegram одной кнопкой "продолжить в чате".
+### Infrastructure
+- **Screen as a mini-dashboard**: clock/weather by default, active conversation animation (listening/thinking/speaking), badge for unprocessed reminder.
+- **Multi-room**: HA Assist supports multiple voice satellites out of the box — if you add a similar device in another room later, the entire backend (agent, memory, Telegram) is reused without changes.
+- **Privacy/price hybrid**: local Whisper+Piper for voice + Gemini only for the "brain" — cheaper and more private than sending raw audio to the cloud.
+- **Memory backup**: `memory.json` + HA configs should be backed up (git repository on the same disk or Google Drive sync — fortunately Google access will already be available).
+- **Network**: do not expose HA to the outside internet; Telegram works via outgoing polling/webhook, no need to open external ports.
+- **Conversation continuity**: if Wi-Fi blinks and the voice session drops — the same dialogue (with the same memory) can be continued in Telegram with a single "continue in chat" button.
 
-## 7. Файлы в этом проекте
+## 7. Files in This Project
 
-- `esphome/voice-satellite.yaml` — прошивка под твою точную распиновку.
-- `homeassistant/automations.yaml` — presence-роутинг, Telegram fallback, проверка напоминаний.
-- `homeassistant/configuration_snippet.yaml` — что добавить в основной `configuration.yaml` (telegram_bot, intent_script и т.д.).
-- `custom_component/gemini_assistant/` — сам conversation agent.
-- `memory/memory_template.json` — стартовый файл памяти.
+- `esphome/voice-satellite.yaml` — firmware for your exact pinout.
+- `homeassistant/automations.yaml` — presence routing, Telegram fallback, reminder checking.
+- `homeassistant/configuration_snippet.yaml` — what to add to the main `configuration.yaml` (telegram_bot, intent_script, etc.).
+- `custom_component/gemini_assistant/` — the conversation agent itself.
+- `memory/memory_template.json` — starting memory file.

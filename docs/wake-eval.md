@@ -1,39 +1,41 @@
-# Проверка слова пробуждения на записях
+# Wake Word Evaluation on Recordings
 
-Зачем: после смены порога, модели или микрофона быстро узнать, не стала ли колонка глуше («Мага»
-не услышала) или болтливее (слышит слово там, где его нет). Скрипт `server/tools/wake_eval.py`
-прогоняет WAV-файлы через те же детекторы, что работают на сервере: Vosk («Мага») и openWakeWord
-(«Hey Jarvis»).
+Why: After changing the threshold, model, or microphone, quickly check whether the smart speaker has
+become deaf (failed to hear «Мага» ("Maga")) or overly talkative (detects the word where it isn't).
+The `server/tools/wake_eval.py` script runs WAV files through the same detectors used on the server:
+Vosk («Мага» ("Maga")) and openWakeWord («Hey Jarvis»).
 
-## Как записать с колонки
+## How to Record from the Speaker
 
-Сервер должен работать, колонка на связи. Из папки `server`:
+The server must be running, and the speaker connected. From the `server` folder:
 
 ```
 python tools/send.py rec 5
 ```
 
-Колонка пишет 5 секунд микрофона, файл ложится в `server/recordings/` (имя печатается). Дальше
-перенеси и назови файл так, чтобы скрипт понял, что от него ждут:
+The speaker records 5 seconds of microphone audio, the file is saved to `server/recordings/` (its name
+is printed). Next, move and name the file so the script knows what is expected of it:
 
-- `data/eval/yes_01.wav` — в записи сказано слово («Мага, включи свет»), детектор должен сработать;
-- `data/eval/no_01.wav` — слова нет: обычный разговор, телевизор, музыка, твоя речь без слова,
-  шум, тишина. Срабатывать нельзя.
+- `data/eval/yes_01.wav` — the recording contains the word («Мага, включи свет» ("Maga, turn on the light")),
+  the detector must trigger;
+- `data/eval/no_01.wav` — no word: normal conversation, TV, music, your speech without the word,
+  noise, silence. It must not trigger.
 
-Советы: слово говори с разных мест (с кровати, от компьютера), тихо и громко, с фоном (музыка,
-вентилятор). Для `no_` особенно полезны слова-соседи («мама», «магазин», «сага», «ага») и
-длинные записи обычного разговора (`rec 30`). Хватит 10–20 записей каждого вида; частота и
-формат те же, что у колонки (16 кГц, 16 бит), другие файлы скрипт приведёт сам.
+Tips: say the word from different locations (from the bed, from the computer), quietly and loudly,
+with background noise (music, fan). For `no_`, neighbor words («мама» ("mom"), «магазин» ("store"),
+«сага» ("saga"), «ага» ("aha")) and long recordings of normal conversation (`rec 30`) are especially
+useful. 10–20 recordings of each type are enough; the sample rate and format are the same as the
+speaker's (16 kHz, 16 bit), the script will convert any other files itself.
 
-## Запуск
+## Running
 
 ```
-python tools/wake_eval.py                       # оба детектора
-python tools/wake_eval.py --detectors vosk      # только «Мага»
-python tools/wake_eval.py --threshold 0.6       # другой порог
+python tools/wake_eval.py                       # both detectors
+python tools/wake_eval.py --detectors vosk      # «Мага» ("Maga") only
+python tools/wake_eval.py --threshold 0.6       # different threshold
 ```
 
-Пример вывода:
+Example output:
 
 ```
 vosk (Мага): порог 0.5, записей со словом 12, без слова 20
@@ -41,8 +43,8 @@ vosk (Мага): порог 0.5, записей со словом 12, без с�
   ложные срабатывания: 0 из 20
 ```
 
-Код выхода 0 — всё чисто, 1 — есть пропуски или ложные срабатывания, 2 — в папке нет записей.
-У Vosk оценка 0 или 1 (слово услышано или нет), поэтому порог на него не влияет; у
-openWakeWord оценка плавная 0…1 и порог важен (его же задаёт `JARVIS_WAKE_THRESHOLD`).
+Exit code 0 — all clean, 1 — there are misses or false positives, 2 — no recordings in the folder.
+Vosk has a score of 0 or 1 (word heard or not), so the threshold does not affect it; openWakeWord has
+a smooth score of 0…1 and the threshold matters (it is set by `JARVIS_WAKE_THRESHOLD`).
 
-Записи личные, поэтому `server/data/` в git не попадает.
+Recordings are personal, so `server/data/` is not tracked in git.

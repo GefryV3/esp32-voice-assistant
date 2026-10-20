@@ -1,46 +1,32 @@
-# german-games: тренинг немецкого (#4) и голосовые игры (#25)
+# german-games: German training (#4) and voice games (#25)
 
-## Что сделано
+## What was done
 
-**Новые модули** `server/jarvis/german.py`, `server/jarvis/games.py`; правки в `brain.py` (подключение,
-диспетчер, `end_conversation`, `long_talk`, `command`), `voice.py` (подсказка, пауза, сброс, команды), `console.py` (справка).
+**New modules** `server/jarvis/german.py`, `server/jarvis/games.py`; edits in `brain.py` (wiring, dispatcher, `end_conversation`, `long_talk`, `command`), `voice.py` (prompt, pause, reset, commands), `console.py` (help).
 
-### Немецкий
-- Функция Gemini `set_language_mode(mode=german|off, level, situation)`. Правила режима модель получает
-  в **результате функции** (подсказку открытой сессии Gemini Live не поменять) и следует им до конца
-  разговора. Если сессия открывается уже при включённом режиме (консоль `de on`), те же правила идут в
-  системную подсказку: `system_prompt(language=...)` заменяет «Говори только по-русски» на двуязычный абзац.
-- Режим живёт на один разговор: `Voice._run` зовёт `brain.end_conversation()`. «Хватит немецкого» = `mode=off`,
-  это не конец разговора.
-- Уровень по умолчанию A2-B1 (pref `de_level`, меняется голосом: «проще/сложнее»).
-- Исправление ошибок с коротким правилом по-русски, «слово дня» (раз в день, pref `de_wotd`), сценки
-  (школа, магазин, транспорт, телефон…), подсказка про задачу «Поучить немецкий» и закрытие через
-  `google_tasks_done` только после согласия (если Google подключён).
-- Таблица `de_words(word, translation, misses, last_seen, due)` + `key`, `hits`, `box`. Ящики Лейтнера
-  0/1/3/7/14/30 дней; ошибка → ящик 0 и повтор через 10 минут; в вопросы идут сначала самые путаные.
-  Функции: `de_word_save`, `de_word_review`, `de_words_due`.
-- Паузы между репликами в немецком и играх длиннее (`LONG_FOLLOW_UP_S` = 14 с вместо 6).
+### German
+- Gemini function `set_language_mode(mode=german|off, level, situation)`. The model receives mode rules in the **function result** (the prompt of an open Gemini Live session cannot be modified) and follows them until the end of the conversation. If the session opens with the mode already enabled (console `de on`), the same rules go into the system prompt: `system_prompt(language=...)` replaces «Говори только по-русски» ("Speak only in Russian") with a bilingual paragraph.
+- The mode lasts for one conversation: `Voice._run` calls `brain.end_conversation()`. «Хватит немецкого» ("Enough German") = `mode=off`, this is not the end of the conversation.
+- Default level is A2-B1 (pref `de_level`, changed by voice: «проще/сложнее» ("simpler/harder")).
+- Error correction with a short rule in Russian, "word of the day" (once a day, pref `de_wotd`), roleplay scenarios (school, shop, transport, phone…), hint about the «Поучить немецкий» ("Learn German") task and completing it via `google_tasks_done` only after consent (if Google is connected).
+- Table `de_words(word, translation, misses, last_seen, due)` + `key`, `hits`, `box`. Leitner boxes 0/1/3/7/14/30 days; error → box 0 and repeat after 10 minutes; questions prioritize the most confusing words first. Functions: `de_word_save`, `de_word_review`, `de_words_due`.
+- Pauses between turns in German and games are longer (`LONG_FOLLOW_UP_S` = 14 s instead of 6).
 
-### Игры
-- `game_start` (cities / twenty / quiz, `source=de` для викторины по словам из `de_words`), `game_move`, `game_answer`,
-  `game_stop`, `game_scores`. Игру ведёт модель; сервер хранит названные города (повтор, «не на ту букву»),
-  считает вопросы в «20 вопросов» и очки викторины, пишет общий счёт в `game_scores` (brain.db).
-- Экран: только существующие сообщения: `caption reply` («Города: Анапа → А», «Викторина 2:1», итоговый счёт) и `emotion`.
-  Новых типов нет.
+### Games
+- `game_start` (cities / twenty / quiz, `source=de` for a quiz on words from `de_words`), `game_move`, `game_answer`, `game_stop`, `game_scores`. The game is run by the model; the server tracks named cities (duplicates, "wrong letter"), counts questions in "20 questions" and quiz points, and writes the overall score to `game_scores` (brain.db).
+- Screen: existing messages only: `caption reply` («Города: Анапа → А» ("Cities: Anapa → A"), «Викторина 2:1» ("Quiz 2:1"), final score) and `emotion`. No new types.
 
-### Консоль
-`de on [уровень]|off|words|due|add слово = перевод|ok|miss слово|level|prompt`, `game score|reset|win|lose|draw <игра>`.
+### Console
+`de on [level]|off|words|due|add word = translation|ok|miss word|level|prompt`, `game score|reset|win|lose|draw <game>`.
 
-## Новых переменных `.env` нет.
+## No new `.env` variables.
 
-## Тесты
-`tests/test_german.py`, 23 теста: хранение слов, интервальное повторение, подсказки режима, игры, счёт. Весь набор: 218 прошло, 2 пропущено.
+## Tests
+`tests/test_german.py`, 23 tests: word storage, spaced repetition, mode prompts, games, score. Full suite: 218 passed, 2 skipped.
 
-## Не проверено вживую
-Как реально поведёт себя Gemini Live: следует ли правилам из результата функции, различает ли «хватит
-немецкого» и «хватит», держит ли в уме «загаданное» в 20 вопросах, произношение немецкого выбранным голосом
-(возможно, нужен другой голос). Паузы 14 с тоже подбирать на слух. Выкладка и прошивка не делались.
+## Not tested live
+How Gemini Live will actually behave: whether it follows rules from a function result, whether it distinguishes «хватит немецкого» ("enough German") from «хватит» ("enough"), whether it keeps the "hidden secret" in mind in 20 questions, German pronunciation with the chosen voice (another voice might be needed). The 14 s pauses also need to be tuned by ear. Deployment and flashing have not been done.
 
-## Осталось / идеи
-- Случайные вопросы по расписанию (делает другая сессия): могут звать `brain.german.due_words()`.
-- Показ слова на экране новым типом (не придумывал, ждёт сессию display).
+## Left to do / ideas
+- Random scheduled questions (handled by another session): can call `brain.german.due_words()`.
+- Displaying words on screen using a new message type (not designed yet, waiting for the display session).

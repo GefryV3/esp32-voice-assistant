@@ -1,100 +1,100 @@
-# Этапы
+# Stages
 
-Каждый этап заканчивается тем, что можно увидеть или услышать.
-Отметки: ✅ сделано · 🔨 в работе · ⬜ не начато.
+Each stage ends with something that can be seen or heard.
+Marks: ✅ done · 🔨 in progress · ⬜ not started.
 
-## 1. Каркас 🔨
-- ✅ Репозиторий, документация, протокол v1.
-- ✅ Сервер: WebSocket-хаб для колонок, рукопожатие, команды экрану, консоль, тесты (33),
-  фейковая колонка.
-- ✅ Прошивка: GC9A01 через `esp_lcd`, перенос движка лица, Wi-Fi, WebSocket-клиент,
-  часы по времени от сервера. Собирается: 973 КБ из 1.75 МБ слота.
-- ✅ Заливка на колонку по USB: Wi-Fi и связь с сервером работают.
-- 🔨 Новый экран по макету [design/screen-mockup.html](../design/screen-mockup.html):
-  глаза с часами, засыпание, сияние в разговоре, таймер, подписи, выражения характера,
-  шрифт Inter. Залит; ждёт проверки глазами (цвета, зеркало, читаемость).
-- ⬜ Игры и счётчик напоминаний в новом стиле.
-- ✅ Сервер постоянно на ноутбуке с HA — локальный аддон `server/addon`, выкладка
-  `python tools/deploy_addon.py`. Колонка, компьютер и телефон ходят на 192.168.178.86.
+## 1. Skeleton 🔨
+- ✅ Repository, documentation, v1 protocol.
+- ✅ Server: WebSocket hub for speakers, handshake, screen commands, console, tests (33),
+  fake speaker.
+- ✅ Firmware: GC9A01 via `esp_lcd`, facial engine port, Wi-Fi, WebSocket client,
+  clock synced from server. Built: 973 KB out of 1.75 MB slot.
+- ✅ Flashing to the speaker via USB: Wi-Fi and server connection work.
+- 🔨 New screen according to the mockup [design/screen-mockup.html](../design/screen-mockup.html):
+  eyes with a clock, sleep mode, glow during speech, timer, captions, personality expressions,
+  Inter font. Flashed; awaiting visual inspection (colors, mirroring, readability).
+- ⬜ Games and reminder counter in the new style.
+- ✅ Server permanently on a laptop with HA — local addon `server/addon`, deployment via
+  `python tools/deploy_addon.py`. Speaker, computer, and phone connect to 192.168.178.86.
 
-**Результат:** глаза на экране от своей прошивки; с сервера можно показать выражение,
-таймер, погоду, подписи разговора.
+**Result:** eyes on the screen driven by its own firmware; the server can display expressions,
+timers, weather, and conversation captions.
 
-## 2. Звук ✅
-- ✅ I2S-микрофон (INMP441) → сервер, запись в WAV (`rec`, файл приходит и на ноутбук
-  через `tools/send.py`). Чисто, речь −18 дБFS при усилении 12 дБ.
-- ✅ Сервер → I2S-динамик (MAX98357A), буфер 4 с в PSRAM, сервер шлёт не дальше 1 с
-  вперёд, колонка отвечает `played`. Громкость в настройках (`vol`).
-- ✅ Проверка целиком: `echo 5` — записать и проиграть на колонке.
-- ✅ Запасная сеть Wi-Fi (ретранслятор): колонка переключается сама.
-- ✅ Хрип в динамике: звук приходил медленнее реального времени — окно TCP по умолчанию
-  (5.7 КБ) при скачках задержки через ретранслятор (до 300 мс). Окно 32 КБ, накопление
-  400 мс: 3 с звука доигрываются за 3.2 с вместо 6.4, запись во время звука без потерь.
-- ✅ Помехи «как на старом радио»: каждый пакет Wi-Fi — бросок тока, питание микрофона
-  проседает, в звуке щелчок (почти весь ниже 150 Гц). Микрофон шлёт пачками по 100 мс
-  (щелчков в 5 раз меньше) и режет всё ниже 100 Гц: фон в тишине −45 дБFS вместо −33.
-- ⬜ По желанию, железо: конденсатор 10 мкФ + 100 нФ прямо на VDD–GND у INMP441.
+## 2. Audio ✅
+- ✅ I2S microphone (INMP441) → server, WAV recording (`rec`, file also reaches the laptop
+  via `tools/send.py`). Clean, speech −18 dBFS at 12 dB gain.
+- ✅ Server → I2S speaker (MAX98357A), 4 s buffer in PSRAM, server sends no more than 1 s
+  ahead, speaker replies with `played`. Volume in settings (`vol`).
+- ✅ Full pipeline check: `echo 5` — record and play back on the speaker.
+- ✅ Backup Wi-Fi network (range extender): speaker switches automatically.
+- ✅ Distortion in the speaker: audio arrived slower than real-time — default TCP window
+  (5.7 KB) during latency spikes through the extender (up to 300 ms). Window 32 KB, accumulation
+  400 ms: 3 s of audio finish playing in 3.2 s instead of 6.4, recording during audio playback without losses.
+- ✅ Interference "like on an old radio": every Wi-Fi packet is a current surge, microphone
+  power sags, causing a click in the audio (almost all below 150 Hz). Microphone sends data in 100 ms
+  batches (5 times fewer clicks) and cuts everything below 100 Hz: background in silence −45 dBFS instead of −33.
+- ⬜ Optional hardware: 10 µF + 100 nF capacitor directly on VDD–GND at the INMP441.
 
-**Результат:** сервер слышит колонку и может проиграть на ней звук.
+**Result:** the server hears the speaker and can play audio on it.
 
-## 3. Первый разговор 🔨
-- ✅ Слово пробуждения на сервере: модели openWakeWord «Hey Jarvis» на onnxruntime
-  (`jarvis/wake.py`, без пакета openwakeword), 1.4 мс на 80 мс звука.
-- ✅ Разговор через Gemini Live (`gemini-3.8-live`, голос Charon): звук туда, голос
-  обратно, конец фразы определяет сам Gemini, расшифровка фразы на экране. Первый звук
-  ответа через 0.3–1 с. Продолжение без слова 6 с. Команды `ask`, `wake`, `last`, `log`.
-- ✅ Пока колонка говорит, микрофон в сеть не шлёт (иначе усилитель трещит от пакетов
-  Wi-Fi); басы ниже 160 Гц и пики срезаются, шкала громкости с потолком.
-- ⬜ Проверить вживую со словом «Hey Jarvis» (пока проверено `ask` и записями).
+## 3. First Conversation 🔨
+- ✅ Wake word on the server: openWakeWord models "Hey Jarvis" on onnxruntime
+  (`jarvis/wake.py`, without the openwakeword package), 1.4 ms per 80 ms of audio.
+- ✅ Conversation via Gemini Live (`gemini-3.8-live`, Charon voice): audio out, voice
+  back, end of phrase determined by Gemini itself, transcription of the phrase on screen. First response
+  audio in 0.3–1 s. Continuation without wake word for 6 s. Commands `ask`, `wake`, `last`, `log`.
+- ✅ While the speaker is talking, the microphone does not send data to the network (otherwise the amplifier crackles from Wi-Fi packets);
+  basses below 160 Hz and peaks are cut, volume scale with a ceiling.
+- ⬜ Test live with the wake word "Hey Jarvis" (currently tested with `ask` and recordings).
 
-**Результат:** «Hey Jarvis, привет» → ответ голосом.
+**Result:** "Hey Jarvis, привет" ("Hey Jarvis, hello") → voice response.
 
-## 4. Перенос мозга 🔨
-- ✅ Gemini зовёт функции (`jarvis/brain.py`): запомнить/забыть факт, напоминание в срок
-  (колонка говорит сама), список и отмена, таймер на экране. База `brain.db`, факты
-  подставляются в начало разговора. Сервер 0.5.0 выложен в аддон; проверить вживую.
-- ✅ Умный дом через HA WebSocket (`jarvis/ha.py`): свет/розетки/шторы по имени или
-  комнате, яркость и теплота, чтение датчиков. Сервер 0.6.0; проверить вживую.
-- 🔨 (0.11.0 готов, ждёт ключей Google: docs/google.md) Google-сервисы (календарь, почта, задачи) напрямую через Google API, отдельно от
-  HA: свой OAuth на сервере (старый код: legacy/custom_component/gemini_assistant/google_tools.py
-  и keep_tools.py). Календарь из HA (ветка claude/calendar-weather-bfc6ce) тогда не нужен,
-  погода из неё остаётся.
-- ✅ (0.12.0, проверить вживую) Колонка игнорирует запросы, пока пользователя нет на месте: ни слово
-  пробуждения, ни ask не запускают разговор (`jarvis/presence.py`). Признаки: компьютер, телефон,
-  person.* в HA; ночью у кровати не отключается. Переопределение `presence auto|here|away`
-  (консоль, Telegram, голосом «я ушёл»). Открыто: что значит «место» — компьютер, дом или комната.
-- ✅ (0.10.0, проверить вживую) Полная синхронизация чата в Telegram с ассистентом: один общий диалог на голос и
-  текст. Сказанное колонке видно в чате (запрос и ответ), написанное в Telegram ассистент
-  помнит в голосовом разговоре и наоборот; общая история в `brain.db`, а не отдельные
-  сессии у бота и колонки. Ответ на сообщение из Telegram при желании озвучивается на колонке.
-- 🔨 (0.12.0, проверить вживую) Перенос старой памяти: `server/tools/import_memory.py memory.json`
-  (нужен реальный memory.json из HA). Рутины на новом сервере: утренний брифинг (по выключенному
-  будильнику или в JARVIS_BRIEFING_AT) и приветствие дома (`jarvis/routines.py`). Остальные старые
-  рутины: напоминание о событии календаря за 15 минут и проактивный опрос — не перенесены, ждут решения.
-- Умный дом через HA WebSocket API (свет, кто дома, погода, календарь).
-- Telegram-бот, утренний брифинг, проактивность, новости, игры, мимика.
-- Удалить старый `gemini_assistant` и YAML-автоматизации из HA.
+## 4. Brain Migration 🔨
+- ✅ Gemini calls functions (`jarvis/brain.py`): remember/forget fact, timed reminder
+  (speaker speaks on its own), list and cancel, timer on screen. `brain.db` database, facts
+  injected at the beginning of the conversation. Server 0.5.0 deployed to addon; test live.
+- ✅ Smart home via HA WebSocket (`jarvis/ha.py`): lights/outlets/curtains by name or
+  room, brightness and color temperature, reading sensors. Server 0.6.0; test live.
+- 🔨 (0.11.0 ready, awaiting Google keys: docs/google.md) Google services (calendar, mail, tasks) directly via Google API, separate from
+  HA: custom OAuth on the server (legacy code: legacy/custom_component/gemini_assistant/google_tools.py
+  and keep_tools.py). Calendar from HA (branch claude/calendar-weather-bfc6ce) is then not needed,
+  weather from it remains.
+- ✅ (0.12.0, test live) Speaker ignores requests while the user is not present: neither wake
+  word nor ask triggers a conversation (`jarvis/presence.py`). Indicators: computer, phone,
+  person.* in HA; does not turn off at night near the bed. Override via `presence auto|here|away`
+  (console, Telegram, by voice «я ушёл» ("I'm leaving")). Open question: what does "place" mean — computer, home, or room.
+- ✅ (0.10.0, test live) Full synchronization of Telegram chat with the assistant: one shared dialogue for voice and
+  text. What is said to the speaker is visible in the chat (request and response), what is written in Telegram the assistant
+  remembers in voice conversation and vice versa; shared history in `brain.db`, not separate
+  sessions for the bot and the speaker. Replying to a message from Telegram can be voiced on the speaker if desired.
+- 🔨 (0.12.0, test live) Migration of old memory: `server/tools/import_memory.py memory.json`
+  (requires real memory.json from HA). Routines on the new server: morning briefing (upon alarm dismissal
+  or at `JARVIS_BRIEFING_AT`) and home greeting (`jarvis/routines.py`). Other old
+  routines: calendar event reminder 15 minutes prior and proactive polling — not migrated, pending decision.
+- Smart home via HA WebSocket API (lights, who is home, weather, calendar).
+- Telegram bot, morning briefing, proactivity, news, games, expressions.
+- Delete old `gemini_assistant` and YAML automations from HA.
 
-**Результат:** всё, что умел старый ассистент, работает без нашего кода в HA.
+**Result:** everything the old assistant could do works without our code in HA.
 
-## 5. Слово пробуждения на колонке ⬜
-- microWakeWord на TFLite Micro: колонка шлёт звук только после слова.
-- Своё русское слово: сбор данных и обучение модели.
+## 5. Wake Word on the Speaker ⬜
+- microWakeWord on TFLite Micro: speaker sends audio only after the wake word.
+- Custom Russian wake word: data collection and model training.
 
-## 6. Доводка ⬜
-- 🔨 Обновление прошивки по воздуху с сервера: прошивка 0.4.0 и сервер 0.4.0 готовы
-  (`send.py ota`, откат, если новая не связалась с сервером). Первый раз 0.4.0 — по проводу.
-- 🔨 Удалённый доступ к дому — Tailscale, инструкция [remote-access.md](remote-access.md).
-- Сервер как аддон HA (Docker), автозапуск — сделано раньше, на этапе 1.
-- Перебивание ответа словом пробуждения, ночной режим, тихие часы.
+## 6. Fine-Tuning ⬜
+- 🔨 Over-the-air firmware update from the server: firmware 0.4.0 and server 0.4.0 are ready
+  (`send.py ota`, rollback if the new one fails to connect to the server). First time 0.4.0 — via wire.
+- 🔨 Remote access to home — Tailscale, instructions in [remote-access.md](remote-access.md).
+- Server as an HA addon (Docker), auto-start — done earlier, in stage 1.
+- Interrupting the response with a wake word, night mode, quiet hours.
 
-## 7. Волна 2026-10-20 (0.13.0, всё собрано, ждёт выкладки и проверки вживую)
-Подробности по каждой работе: [changes/](changes/), решения по идеям: [ideas.md](ideas.md).
-- ✅ Свет: «спокойной ночи», возврат цветов после рассвета, свет под музыку, хлопки → весь свет.
-- ✅ Экран: прогресс задач и «ждёт тебя», игры, глаза, «Тишина». Звук: хлопки на колонке, план без сервера.
-- ✅ Ночь и голос: тише ночью, эмоции всегда, характер по времени суток, «не слушай», откат при 503.
-- ✅ Немецкий и голосовые игры. Утро: WebUntis, мягкое пробуждение, автобус, зонт.
-- ✅ Привычки, идеи, письмо, недельная сводка и резерв, «как ты?», проверка слова.
-- ✅ Навыки-плагины и исполнитель на Claude Code, хук прогресса. «Живой» Мага: рефлексия, обратная связь.
-- 🔨 В комнате: BLE за флагом (отдельная сборка), радар как запасной вариант: нужны ключи и решение.
-- ⬜ Потом: #30 (датчики температуры/CO₂), #32 (конденсатор на микрофон).
+## 7. Wave 2026-10-20 (0.13.0, all gathered, awaiting deployment and live testing)
+Details on each task: [changes/](changes/), decisions on ideas: [ideas.md](ideas.md).
+- ✅ Lights: «спокойной ночи» ("good night"), restoring colors after dawn, lights to music, claps → all lights.
+- ✅ Screen: task progress and "waiting for you", games, eyes, "Silence". Sound: claps on the speaker, plan without server.
+- ✅ Night and voice: quieter at night, emotions always, character by time of day, «не слушай» ("don't listen"), rollback on 503.
+- ✅ German and voice games. Morning: WebUntis, gentle wake-up, bus, umbrella.
+- ✅ Habits, ideas, letter, weekly summary and reserve, «как ты?» ("how are you?"), check word.
+- ✅ Skills-plugins and executor on Claude Code, progress hook. "Alive" Maga: reflection, feedback.
+- 🔨 In room: BLE behind a flag (separate build), radar as a fallback: keys and decision needed.
+- ⬜ Later: #30 (temperature/CO₂ sensors), #32 (capacitor on microphone).

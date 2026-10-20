@@ -1,115 +1,115 @@
-# Архитектура
+# Architecture
 
-## Схема
+## Diagram
 
 ```
-┌──────────── Колонка (ESP32-S3, своя прошивка) ────────────┐
-│ микрофон ─► слово пробуждения ─► поток звука ─────┐       │
-│ динамик  ◄─ звук ответа ◄─────────────────────┐   │       │
-│ экран    ◄─ глаза / эмоции / игры / погода ◄─┐│   │       │
-└──────────────────────────────────────────────┼┼───┼───────┘
-                    WebSocket (один канал)     ││   │
-┌──────────────── Сервер (Python) ─────────────┼┼───┼───────┐
-│ device hub ── команды экрану ────────────────┘│   │       │
-│            ── голос ответа (24 кГц) ──────────┘   │       │
-│            ◄─ микрофон → слово пробуждения ◄──────┘       │
-│                  └─► Gemini Live: звук ⇄ голос, расшифровка│
-│ мозг: Gemini + инструменты (память, напоминания, игры,    │
-│       новости, умный дом)                                 │
-│ планировщик: брифинг, напоминания, проактивность          │
-│ Telegram-бот                                              │
-└──────────────┬───────────────────────────┬────────────────┘
-               │ WebSocket API + токен     │ HTTPS
+┌──────────── Speaker (ESP32-S3, custom firmware) ────────────┐
+│ microphone ─► wake word ─► audio stream ──────────┐         │
+│ speaker    ◄─ reply audio ◄───────────────────┐   │         │
+│ display    ◄─ eyes / emotions / games / weather ◄─┐│   │    │
+└───────────────────────────────────────────────┼┼───┼────────┘
+                    WebSocket (single channel)  ││   │
+┌──────────────── Server (Python) ──────────────┼┼───┼────────┐
+│ device hub ── screen commands ────────────────┘│   │        │
+│            ── reply voice (24 kHz) ────────────┘   │        │
+│            ◄─ microphone → wake word ──────────────┘        │
+│                  └─► Gemini Live: audio ⇄ voice, transcript │
+│ brain: Gemini + tools (memory, reminders, games,            │
+│        news, smart home)                                    │
+│ scheduler: briefing, reminders, proactivity                 │
+│ Telegram bot                                                │
+└──────────────┬───────────────────────────┬──────────────────┘
+               │ WebSocket API + token     │ HTTPS
         Home Assistant                Gemini, Edge TTS,
-   (свет, датчики, кто дома,          Telegram, Google
-    погода, календарь)
+   (lights, sensors, who's home,      Telegram, Google
+    weather, calendar)
 ```
 
-## Принципы
+## Principles
 
-1. **Вся логика — в обычном коде.** Никаких YAML-автоматизаций и шаблонов Jinja: расписание,
-   реакции на события и диалог — это Python-код с тестами. HA не содержит нашего кода вообще.
-2. **Колонка «тонкая», но живая.** Прошивка умеет: слышать слово пробуждения, гонять звук,
-   рисовать лицо и анимации. Решения (что сказать, что показать) принимает сервер.
-   Анимации считаются на самой колонке — сервер шлёт только «покажи кубик, выпало 5».
-3. **Один канал связи.** Колонка — клиент WebSocket. Текстовые кадры — команды в JSON,
-   бинарные — звук. Протокол описан в [protocol.md](protocol.md) и версионируется.
-4. **HA — посредник, а не мозг.** Сервер ходит в HA через WebSocket API с долгоживущим
-   токеном: читает состояния, вызывает сервисы, подписывается на события. Если HA
-   недоступен, ассистент всё равно разговаривает — просто не управляет домом.
-5. **Каждый этап заканчивается рабочим результатом**, см. [roadmap.md](roadmap.md).
+1. **All logic is in plain code.** No YAML automations or Jinja templates: schedules,
+   event reactions, and dialogue are Python code with tests. HA contains no code of ours whatsoever.
+2. **The speaker is "thin", but alive.** The firmware can: listen for the wake word, stream audio,
+   draw the face and animations. Decisions (what to say, what to show) are made by the server.
+   Animations are computed on the speaker itself — the server only sends "show the die, rolled a 5".
+3. **A single communication channel.** The speaker is a WebSocket client. Text frames are JSON commands,
+   binary frames are audio. The protocol is described in [protocol.md](protocol.md) and versioned.
+4. **HA is a proxy, not the brain.** The server accesses HA via WebSocket API with a long-lived
+   token: reads states, calls services, subscribes to events. If HA
+   is unavailable, the assistant still talks — it just doesn't control the home.
+5. **Every stage ends with a working result**, see [roadmap.md](roadmap.md).
 
-## Прошивка (`firmware/`)
+## Firmware (`firmware/`)
 
-C++17 на ESP-IDF 5.5, без Arduino и ESPHome. Модули:
+C++17 on ESP-IDF 5.5, without Arduino or ESPHome. Modules:
 
-| Модуль | Что делает |
+| Module | What it does |
 |---|---|
-| `board.h` | пины и константы железа |
-| `display/lcd` | GC9A01 через `esp_lcd`, выгрузка полос кадра по DMA без ожидания |
-| `face/anim` | поведение лица по макету [design/screen-mockup.html](../design/screen-mockup.html): пружины, моргание, засыпание, выражения |
-| `face/render` | отрисовка кадра полосами по 24 строки: живой фон, сияние по краю, глаза, часы, надписи; 16 бит с дизерингом |
-| `face/text` + `fonts_data` | шрифт Inter, нарезанный в сглаженные маски (`tools/make_fonts.py`) |
-| `ui/ui` | состояние экрана (голос, выражение, таймер, подписи, ночь) и задача отрисовки до 60 кадр/с |
-| `net/wifi` | подключение к Wi-Fi и переподключение; запасная сеть (`WIFI_SSID_2`) после 3 неудач |
-| `net/uplink` | WebSocket-клиент: hello, команды от сервера, статус, звук в обе стороны |
-| `net/ota` | обновление по воздуху: качает образ с сервера по HTTP, откат, если новая прошивка не связалась с сервером за 120 с |
-| `audio/audio` | микрофон (I2S0, 32 бита → 16, ФВЧ 100 Гц, усиление, в сеть по 100 мс) и динамик (I2S1, буфер 4 с в PSRAM, громкость) |
-| `wake/*` | (этап 5) слово пробуждения на колонке (microWakeWord, TFLite Micro) |
+| `board.h` | hardware pins and constants |
+| `display/lcd` | GC9A01 via `esp_lcd`, non-blocking frame slice DMA transfer |
+| `face/anim` | face behavior according to the mockup [design/screen-mockup.html](../design/screen-mockup.html): springs, blinking, falling asleep, expressions |
+| `face/render` | frame rendering in 24-line slices: live background, edge glow, eyes, clock, captions; 16-bit with dithering |
+| `face/text` + `fonts_data` | Inter font converted into anti-aliased masks (`tools/make_fonts.py`) |
+| `ui/ui` | screen state (voice, expression, timer, captions, night) and render task up to 60 fps |
+| `net/wifi` | Wi-Fi connection and reconnects; fallback network (`WIFI_SSID_2`) after 3 failures |
+| `net/uplink` | WebSocket client: hello, server commands, status, bidirectional audio |
+| `net/ota` | over-the-air updates: downloads image from server via HTTP, rollback if the new firmware fails to reach the server within 120 s |
+| `audio/audio` | microphone (I2S0, 32-bit → 16, 100 Hz HPF, gain, sent to network in 100 ms chunks) and speaker (I2S1, 4 s buffer in PSRAM, volume) |
+| `wake/*` | (stage 5) wake word on the speaker (microWakeWord, TFLite Micro) |
 
-Задачи FreeRTOS: отрисовка — ядро 1 (`ui`), ей помогает `face2` на ядре 0 с самым низким
-приоритетом: кадр делится на 15 полос, каждое ядро берёт следующую свободную. В экран
-полосы по порядку отправляет `lcd_send` (ядро 1), чтобы ожидание SPI не держало ядра.
-Wi-Fi и сеть — ядро 0; звук (`mic`, `mic_send`, `player`) — ядро 0 с высоким приоритетом,
-он всегда вытеснит помощника. Микрофон читается постоянно, в сеть кадры уходят через
-отдельную задачу и буфер на 1 с — задержка сети не рвёт DMA. Кадры динамика приходят в
-задаче WebSocket (она держит блокировку клиента), поэтому кладутся в буфер без ожидания. Состояние экрана защищено мьютексом: сеть только меняет «что показывать».
+FreeRTOS tasks: rendering — core 1 (`ui`), assisted by `face2` on core 0 with the lowest
+priority: the frame is divided into 15 slices, each core takes the next available one. Slices
+are sent to the display in order by `lcd_send` (core 1) so SPI waits don't stall the cores.
+Wi-Fi and networking — core 0; audio (`mic`, `mic_send`, `player`) — core 0 with high priority,
+it always preempts the assistant. The microphone is read continuously, frames are sent to the
+network via a dedicated task and a 1 s buffer — network latency doesn't break DMA. Speaker frames
+arrive in the WebSocket task (which holds the client lock), so they are pushed to the buffer without blocking. Screen state is protected by a mutex: network only changes "what to display".
 
-Скорость (2026-10-18): покой и таймер — 62 кадр/с (потолок, кадр раз в 16 мс), разговор
-с сиянием по краю — 41–47. Раз в 5 с в лог пишется разбивка кадра по ядрам и проходам.
+Speed (2026-10-18): idle and timer — 62 fps (ceiling, one frame every 16 ms), talking
+with edge glow — 41–47. Every 5 s, a breakdown of frame time by cores and passes is logged.
 
-Время: сервер присылает Unix-время и часовой пояс в `welcome` — колонке не нужен
-интернет и SNTP.
+Time: server sends Unix time and time zone in `welcome` — the speaker doesn't need
+internet access or SNTP.
 
-## Сервер (`server/`)
+## Server (`server/`)
 
-Python 3.12+, asyncio. Пакет `jarvis`:
+Python 3.12+, asyncio. Package `jarvis`:
 
-| Модуль | Что делает |
+| Module | What it does |
 |---|---|
-| `config` | настройки из переменных окружения / `.env` (в аддоне — из options.json) |
-| `protocol` | типы сообщений и их проверка — единственное место, где описан формат |
-| `devices` | WebSocket-сервер для колонок, сессия устройства, отправка команд |
-| `console` | (dev) команды с клавиатуры: показать эмоцию, кубик и т.п. |
-| `audio` | запись с микрофона колонки, воспроизведение с темпом, WAV, команды `rec`/`echo`/`beep`/`play` |
-| `wake` | слово пробуждения: модели openWakeWord на onnxruntime, скачиваются в data/models |
-| `gemini_live` | клиент Gemini Live API (WebSocket): звук 16 кГц туда, 24 кГц и расшифровки обратно |
-| `ota` | раздаёт образ прошивки по HTTP на том же порту, команда `ota` и проверка, что новая версия встала |
-| `screen` | что сейчас на экране колонки — для приложения на телефоне |
-| `voice` | разговор: детектор слова на постоянном потоке микрофона → сессия Live → ответ на динамик |
-| `brain/*` | (этап 4) Gemini, инструменты, память (SQLite) |
-| `home/*` | (этап 4) клиент HA WebSocket API |
-| `telegram/*` | (этап 4) бот |
-| `scheduler` | (этап 4) напоминания, брифинг, проактивность |
+| `config` | settings from environment variables / `.env` (in the add-on — from options.json) |
+| `protocol` | message types and validation — the single source of truth for the format |
+| `devices` | WebSocket server for speakers, device session, sending commands |
+| `console` | (dev) keyboard commands: show expression, roll a die, etc. |
+| `audio` | recording from speaker mic, playback with tempo, WAV, `rec`/`echo`/`beep`/`play` commands |
+| `wake` | wake word: openWakeWord models on onnxruntime, downloaded to data/models |
+| `gemini_live` | Gemini Live API client (WebSocket): 16 kHz audio upstream, 24 kHz and transcripts downstream |
+| `ota` | serves firmware image via HTTP on the same port, `ota` command, and verification that the new version is running |
+| `screen` | current state of the speaker display — for the phone app |
+| `voice` | conversation: wake word detector on continuous mic stream → Live session → reply to speaker |
+| `brain/*` | (stage 4) Gemini, tools, memory (SQLite) |
+| `home/*` | (stage 4) HA WebSocket API client |
+| `telegram/*` | (stage 4) bot |
+| `scheduler` | (stage 4) reminders, briefing, proactivity |
 
-Где работает: разработка — на Windows-ноутбуке; постоянно — на ноутбуке с HA как
-локальный аддон (отдельный Docker-контейнер, HA его только запускает).
+Where it runs: development — on a Windows laptop; production — on the laptop with HA as
+a local add-on (a separate Docker container, HA only launches it).
 
-Аддон — `server/addon` (config.yaml + Dockerfile на `python:3.13-alpine`). Скрипт
-`tools/deploy_addon.py` собирает папку аддона (пакет `jarvis`, токен из `.env`) и кладёт
-её в `\\192.168.178.86\addons\jarvis` через аддон Samba share. В HA: Дополнения →
-Магазин → ⋮ → Проверить обновления → Jarvis → Установить; после новой выкладки —
-«Пересобрать». Порт 8765 проброшен на ноутбук с HA, настройки колонки — в `/data`,
-логи — во вкладке «Журнал» аддона, HA перезапускает его, если порт перестал отвечать.
+Add-on — `server/addon` (config.yaml + Dockerfile based on `python:3.13-alpine`). The
+`tools/deploy_addon.py` script builds the add-on folder (the `jarvis` package, token from `.env`) and puts
+it into `\\192.168.178.86\addons\jarvis` via the Samba share add-on. In HA: Settings →
+Add-ons → Add-on Store → ⋮ → Check for updates → Jarvis → Install; after a new deployment —
+"Rebuild". Port 8765 is mapped to the laptop with HA, speaker settings are in `/data`,
+logs are in the add-on's "Log" tab, HA restarts it if the port stops responding.
 
-## Слово пробуждения
+## Wake Word
 
-Цель — своё русское слово. Модели под него нет, её нужно обучить (синтетические записи
-из нескольких русских TTS-голосов + свои записи с микрофона колонки). Это отдельная
-задача, поэтому на старте — готовая модель «Hey Jarvis»: она есть и для колонки
-(microWakeWord), и для сервера (openWakeWord).
+The goal is a custom Russian word. There is no off-the-shelf model for it, so it needs to be trained (synthetic recordings
+from several Russian TTS voices + custom recordings from the speaker's microphone). This is a separate
+task, so initially a pre-trained "Hey Jarvis" model is used: it is available both for the speaker
+(microWakeWord) and for the server (openWakeWord).
 
-## Чего здесь сознательно нет
+## What Is Deliberately Omitted
 
-- Облачного STT/TTS Nabu Casa — подписка недействительна, и он больше не нужен.
-- Нашего кода внутри HA — старый `custom_components/gemini_assistant` уйдёт на этапе 4.
+- Cloud STT/TTS from Nabu Casa — the subscription is expired, and it is no longer needed.
+- Our code inside HA — the old `custom_components/gemini_assistant` will be removed in stage 4.

@@ -1,39 +1,30 @@
-# Google напрямую: календарь, почта, задачи
+# Direct Google: Calendar, Mail, Tasks
 
-Сервер ходит в Google сам, без Home Assistant: `server/jarvis/google.py`. Нужен свой OAuth-клиент
-(бесплатно, один раз) и один вход в браузере.
+The server accesses Google directly, without Home Assistant: `server/jarvis/google.py`. You need your own OAuth client (free, one-time) and a single browser login.
 
-Что умеет Мага после подключения: «что у меня сегодня/завтра в календаре», «запиши встречу…»,
-«что нового в почте», «добавь задачу…», «отметь задачу выполненной». Почта только читается.
-Заметки уходят в Google Задачи: у Keep нет официального API для личных аккаунтов.
+What Maga can do after connecting: «что у меня сегодня/завтра в календаре» ("what's on my calendar today/tomorrow"), «запиши встречу…» ("schedule a meeting..."), «что нового в почте» ("what's new in my email"), «добавь задачу…» ("add a task..."), «отметь задачу выполненной» ("mark the task as completed"). Email is read-only. Notes go to Google Tasks: Keep does not have an official API for personal accounts.
 
-## Настройка (один раз, ~10 минут)
+## Setup (One-time, ~10 Minutes)
 
-1. Открой <https://console.cloud.google.com>, вверху «Выбор проекта» → «Новый проект», назови `Jarvis`.
-2. «API и сервисы» → «Библиотека»: найди и включи **Google Calendar API**, **Gmail API**,
-   **Google Tasks API**.
-3. «Google Auth Platform» (или «Экран согласия OAuth»):
-   - тип пользователя **Внешний**, название `Jarvis`, твоя почта для связи;
-   - в «Аудитория» (Audience) нажми **«Опубликовать приложение»** (In production). Иначе
-     refresh-токен умирает через 7 дней. Предупреждение «приложение не проверено» при входе
-     нормально: «Дополнительно» → «Перейти на Jarvis».
-4. «Клиенты» (Credentials) → «Создать клиент» → тип **«Приложение для ПК» (Desktop app)**.
-   Скопируй идентификатор клиента и секрет в `server/.env`:
+1. Open <https://console.cloud.google.com>, at the top click «Выбор проекта» ("Select a project") → «Новый проект» ("New Project"), name it `Jarvis`.
+2. «API и сервисы» ("APIs & Services") → «Библиотека» ("Library"): find and enable **Google Calendar API**, **Gmail API**, **Google Tasks API**.
+3. «Google Auth Platform» (or «Экран согласия OAuth» ("OAuth consent screen")):
+   - user type **«Внешний»** ("External"), name `Jarvis`, your contact email;
+   - in «Аудитория» (Audience), click **«Опубликовать приложение»** ("Publish app") (In production). Otherwise, the refresh token expires after 7 days. The «приложение не проверено» ("app not verified") warning upon login is normal: «Дополнительно» ("Advanced") → «Перейти на Jarvis» ("Go to Jarvis").
+4. «Клиенты» (Credentials) → «Создать клиент» ("Create credentials") → type **«Приложение для ПК» (Desktop app)**. Copy the client ID and secret into `server/.env`:
 
    ```
    GOOGLE_CLIENT_ID=...apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=...
    ```
-5. Запусти вход (откроется браузер, войди в свой аккаунт и разреши доступ):
+5. Run the login process (a browser will open; log into your account and allow access):
 
    ```powershell
    cd C:\dev\jarvis\server
    .venv\Scripts\python tools\google_auth.py
    ```
 
-   Токен запишется в `server/.env` строкой `GOOGLE_REFRESH_TOKEN`, в вывод он не попадает.
-6. Выложи аддон (`python tools\deploy_addon.py`, потом `python tools\ha_admin.py update`):
-   ключи уходят в него автоматически.
+   The token will be written to `server/.env` under the `GOOGLE_REFRESH_TOKEN` line; it is not printed to console output.
+6. Deploy the add-on (`python tools\deploy_addon.py`, then `python tools\ha_admin.py update`): keys are pushed to it automatically.
 
-Отозвать доступ: <https://myaccount.google.com/permissions>. Если токен перестал работать,
-Мага скажет «Google не дал доступ»: просто повтори шаг 5.
+Revoke access: <https://myaccount.google.com/permissions>. If the token stops working, Maga will say «Google не дал доступ» ("Google denied access"): simply repeat step 5.

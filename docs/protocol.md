@@ -1,192 +1,197 @@
-# Протокол колонка ↔ сервер
+=== File: protocol.md ===
+# Column ⇄ Server Protocol
 
-Версия: **1**. Колонка — клиент WebSocket, сервер слушает `ws://<сервер>:8765/device`.
+Version: **1**. Column is a WebSocket client, the server listens on `ws://<server>:8765/device`.
 
-- **Текстовые кадры** — JSON-объект с полем `type`. Неизвестные `type` и лишние поля
-  получатель молча игнорирует (так старая прошивка переживёт новый сервер).
-- **Бинарные кадры** — звук (формат в разделе «Звук»).
+- **Text frames** — JSON object with a `type` field. Receivers silently ignore unknown `type`
+  values and extra fields (so old firmware will survive a new server).
+- **Binary frames** — audio (format in the "Audio" section).
 
-Код сервера: [server/jarvis/protocol.py](../server/jarvis/protocol.py),
+Server code: [server/jarvis/protocol.py](../server/jarvis/protocol.py),
 [server/jarvis/audio.py](../server/jarvis/audio.py).
-Код колонки: [firmware/main/net/uplink.cpp](../firmware/main/net/uplink.cpp),
+Column code: [firmware/main/net/uplink.cpp](../firmware/main/net/uplink.cpp),
 [firmware/main/audio/audio.cpp](../firmware/main/audio/audio.cpp).
 
-## Рукопожатие
+## Handshake
 
-Первым сообщением колонка шлёт `hello`, не позже чем через 5 с после подключения:
+The column sends `hello` as its first message, no later than 5 s after connecting:
 
 ```json
 {"type": "hello", "proto": 1, "token": "…", "device": "jarvis-hub",
  "fw": "0.1.0", "caps": ["display"]}
 ```
 
-`caps` — что умеет прошивка: `display`, `mic`, `speaker`, `wake`.
+`caps` — firmware capabilities: `display`, `mic`, `speaker`, `wake`.
 
-Сервер отвечает:
+The server responds:
 
 ```json
 {"type": "welcome", "proto": 1, "server": "0.1.0",
  "time": 1760700000, "tz": "CET-1CEST,M3.5.0,M10.5.0/3"}
 ```
 
-`time` — Unix-время в секундах, `tz` — строка POSIX TZ (колонка ставит часы по ней).
+`time` — Unix time in seconds, `tz` — POSIX TZ string (the column sets its clock using it).
 
-Ошибки рукопожатия — сервер закрывает соединение с кодом:
+Handshake errors — the server closes the connection with code:
 
-| Код | Причина |
+| Code | Reason |
 |---|---|
-| 4001 | неверный токен |
-| 4002 | первым пришло не `hello`, битый JSON или не пришло ничего за 5 с |
-| 4003 | неподдерживаемая версия `proto` |
+| 4001 | invalid token |
+| 4002 | first message was not `hello`, malformed JSON, or nothing received within 5 s |
+| 4003 | unsupported `proto` version |
 
-Колонка переподключается сама каждые 3 с. Раз в 10 с она шлёт WebSocket-ping; если 30 с
-нет ответа — считает связь потерянной и переподключается.
+The column reconnects automatically every 3 s. Every 10 s it sends a WebSocket ping; if no
+response is received for 30 s, it considers the connection lost and reconnects.
 
-## Колонка → сервер
+## Column → Server
 
-| `type` | Поля | Когда |
+| `type` | Fields | When |
 |---|---|---|
-| `status` | `uptime` (с), `heap` (байт), `psram` (байт), `rssi` (дБм), `fps` | раз в 30 с и сразу после `welcome` |
-| `pong` | `id` | ответ на `ping` |
-| `played` | — | доиграла звук, см. «Звук» |
-| `barge_in` | — | пользователь перебил ответ: колонка уже замолчала, следом идёт микрофон с предысторией 240 мс (прошивка 0.5.0+) |
+| `status` | `uptime` (s), `heap` (bytes), `psram` (bytes), `rssi` (dBm), `fps` | every 30 s and immediately after `welcome` |
+| `pong` | `id` | response to `ping` |
+| `played` | — | finished playing audio, see "Audio" |
+| `barge_in` | — | user interrupted the response: column has already stopped talking, followed by microphone audio with a 240 ms pre-history (firmware 0.5.0+) |
 
-## Сервер → колонка: экран
+## Server → Column: Screen
 
-Внешний вид — по макету [design/screen-mockup.html](../design/screen-mockup.html).
+Appearance follows the mockup [design/screen-mockup.html](../design/screen-mockup.html).
 
-| `type` | Поля | Что делает |
+| `type` | Fields | What it does |
 |---|---|---|
-| `voice` | `state`: `idle` / `listening` / `thinking` / `speaking` | состояние разговора: сияние по краю, взгляд |
-| `emotion` | `name`: `happy` / `skeptic` / `roll` / `side` / `surprise` / `sorry`; `ms` (по умолчанию 2600) | выражение характера поверх состояния |
-| `caption` | `kind`: `heard` / `said` / `reply` / `none`; `text` (до 127 байт); `icon`: `none` / `light` | подпись внизу в разговоре: что слышно, что понято, что сделано |
-| `timer` | `sec`: 0…86400; `label` (до 31 байта) | таймер считает сама колонка; `sec` 0 — снять |
-| `agenda` | `accent` (до 47 байт), `text` (до 79 байт) | ближайшее дело по нижней дуге, `accent` — цветом; оба пустые — убрать |
-| `config` | `sleep_after` (с, 10…86400), `sleep_clock`: `top` / `bottom` | через сколько засыпать и где часы во сне |
-| `weather` | `cond`: −1…7; `temp`: °C | погода сверху в покое (`cond` −1 — скрыть) |
-| `night` | `on`: bool | ночь → сон, пока не начнётся разговор |
-| `brightness` | `level`: 0…255 | программная яркость |
-| `game` | `name` + поля игры, см. ниже | новый экран пока не рисует |
-| `reminders` | `count` | новый экран пока не рисует |
-| `ping` | `id` | проверка связи |
+| `voice` | `state`: `idle` / `listening` / `thinking` / `speaking` | conversation state: edge glow, gaze |
+| `emotion` | `name`: `happy` / `skeptic` / `roll` / `side` / `surprise` / `sorry`; `ms` (default 2600) | character expression on top of the state |
+| `caption` | `kind`: `heard` / `said` / `reply` / `none`; `text` (up to 127 bytes); `icon`: `none` / `light` | caption at the bottom during conversation: what was heard, what was understood, what was done |
+| `timer` | `sec`: 0…86400; `label` (up to 31 bytes) | timer counted by the column itself; `sec` 0 — dismiss |
+| `agenda` | `accent` (up to 47 bytes), `text` (up to 79 bytes) | next event along the bottom arc, `accent` — in color; both empty — remove |
+| `config` | `sleep_after` (s, 10…86400), `sleep_clock`: `top` / `bottom` | sleep timeout and clock position during sleep |
+| `weather` | `cond`: −1…7; `temp`: °C | weather at the top when idle (`cond` −1 — hide) |
+| `night` | `on`: bool | night → sleep until conversation starts |
+| `brightness` | `level`: 0…255 | software brightness |
+| `game` | `name` + game fields, see below | new screen does not draw this yet |
+| `reminders` | `count` | new screen does not draw this yet |
+| `ping` | `id` | connection check |
 
-Погода `cond`: 0 ясно, 1 переменная облачность, 2 облачно, 3 дождь, 4 снег, 5 гроза,
-6 туман, 7 ясная ночь.
+Weather `cond`: 0 clear, 1 partly cloudy, 2 cloudy, 3 rain, 4 snow, 5 thunderstorm,
+6 fog, 7 clear night.
 
-`emotion` с прежними именами `alarm` и `playful` колонка понимает как `surprise` и `happy`.
+`emotion` with former names `alarm` and `playful` is understood by the column as `surprise`
+and `happy`.
 
-Дату по верхней дуге и часы колонка рисует сама по времени из `welcome`. После тишины
-(`sleep_after`, по умолчанию 180 с) глаза засыпают, часы уезжают наверх или вниз.
-Любое событие от сервера (`voice`, `emotion`, `timer`) будит.
+The date along the top arc and the clock are drawn by the column itself using time from
+`welcome`. After inactivity (`sleep_after`, default 180 s), the eyes go to sleep and the clock
+moves to the top or bottom. Any event from the server (`voice`, `emotion`, `timer`) wakes it up.
 
-### Приоритет на экране
+### Screen Priority
 
-Сверху вниз, первое подходящее побеждает: сработавший таймер (9 с или до следующего
-события) → разговор (`voice` не `idle`) → идущий таймер → ночь → покой/сон по тишине.
-Выражение (`emotion`) накладывается на любое из них.
+From top to bottom, the first matching wins: triggered timer (9 s or until next event) →
+conversation (`voice` not `idle`) → active timer → night → idle/sleep by inactivity.
+Expression (`emotion`) overlays any of them.
 
-### Карточки и плеер (мост с телефоном)
+### Cards and Player (Phone Bridge)
 
-| `type` | Поля | Что делает |
+| `type` | Fields | What it does |
 |---|---|---|
-| `notify` | `kind`: `msg` / `call` / `battery` / `info` / `remark` / `wake` / `check`; `app` (до 31 байта), `title` (до 60), `text` (до 190), `ms` | карточка поверх лица: уведомление с телефона, звонок, батарея, колкость, «проверка перед сном» |
-| `notify_hide` | — | убрать карточку (звонок закончился) |
-| `player` | `state`: `playing` / `paused` / `none`; `title`, `artist`, `pos`, `dur` (секунды) | мини-плеер: что играет на телефоне |
+| `notify` | `kind`: `msg` / `call` / `battery` / `info` / `remark` / `wake` / `check`; `app` (up to 31 bytes), `title` (up to 60), `text` (up to 190), `ms` | card over the face: phone notification, call, battery, jab, "bedtime check" |
+| `notify_hide` | — | remove card (call ended) |
+| `player` | `state`: `playing` / `paused` / `none`; `title`, `artist`, `pos`, `dur` (seconds) | mini-player: what is playing on the phone |
 
-Колонка с прошивкой без карточек эти сообщения пропускает.
+A column with firmware lacking cards ignores these messages.
 
-## Обновление прошивки по воздуху
+## Over-The-Air Firmware Update
 
-Сервер раздаёт образ по обычному HTTP на том же порту: `GET /firmware.bin?token=<токен>`.
+The server distributes the image via regular HTTP on the same port:
+`GET /firmware.bin?token=<token>`.
 
-| Направление | Сообщение | Что значит |
+| Direction | Message | What it means |
 |---|---|---|
-| сервер → колонка | `{"type": "ota", "url": "/firmware.bin?token=…", "version": "0.4.0", "size": 1204784}` | скачать образ с того же сервера (хост и порт — из адреса подключения) и перезагрузиться |
-| колонка → сервер | `{"type": "ota_state", "state": "progress", "pct": 40}` | ход, каждые 10 % |
-| колонка → сервер | `{"type": "ota_state", "state": "done", "pct": 100}` | образ проверен и записан, сейчас перезагрузка |
-| колонка → сервер | `{"type": "ota_state", "state": "error", "error": "ESP_ERR_…"}` | не вышло, работает прежняя |
+| server → column | `{"type": "ota", "url": "/firmware.bin?token=…", "version": "0.4.0", "size": 1204784}` | download image from the same server (host and port from connection address) and reboot |
+| column → server | `{"type": "ota_state", "state": "progress", "pct": 40}` | progress, every 10% |
+| column → server | `{"type": "ota_state", "state": "done", "pct": 100}` | image verified and written, rebooting now |
+| column → server | `{"type": "ota_state", "state": "error", "error": "ESP_ERR_…"}` | failed, previous version remains working |
 
-Новая прошивка загружается «на испытании» и подтверждает себя, только получив `welcome` от
-сервера. Не связалась за 120 с — загрузчик возвращает прежнюю. Колонка шлёт серверу
-`hello` с новой версией в `fw` — по ней сервер понимает, что обновление встало.
+New firmware is loaded "on trial" and confirms itself only after receiving `welcome` from
+the server. If it fails to connect within 120 s, the bootloader rolls back to the previous one.
+The column sends `hello` with the new version in `fw` to the server — this is how the server
+realizes the update succeeded.
 
-## Телефон и компьютер
+## Phone and Computer
 
-Приложение на телефоне ([phone/](../phone)) подключается к `ws://<сервер>:8765/phone`,
-программа на компьютере ([pc/agent.py](../pc/agent.py)) — к `/pc`. Рукопожатие то же, что у
-колонки (`hello` с тем же токеном, `device`: `phone` / `pc`), ответ — `welcome`.
-Логика — [server/jarvis/bridge.py](../server/jarvis/bridge.py).
+The phone app ([phone/](../phone)) connects to `ws://<server>:8765/phone`, the PC program
+([pc/agent.py](../pc/agent.py)) to `/pc`. Handshake is the same as for the column (`hello` with
+the same token, `device`: `phone` / `pc`), response is `welcome`.
+Logic — [server/jarvis/bridge.py](../server/jarvis/bridge.py).
 
-**Телефон → сервер**
+**Phone → Server**
 
-| `type` | Поля | Когда |
+| `type` | Fields | When |
 |---|---|---|
-| `state` | `screen`, `locked`, `charging`, `battery`, `unlocked_at` (мс), `next_alarm` (мс, 0 — нет), `dnd` | при любом изменении |
-| `notif` | `key`, `app`, `app_name`, `title`, `text`, `category`, `can_reply`, `actions`, `when` | новое уведомление |
-| `notif_gone` | `key` | уведомление убрано |
-| `call` | `state`: `ringing` / `active` / `idle`; `number`, `name` | звонок |
-| `media` | `state`, `title`, `artist`, `app`, `pos`, `dur` (мс), `at`, `palette` | смена трека или паузы. `palette` — до 3 основных цветов обложки `["#RRGGBB", …]` (Palette API; нет обложки — поля нет). Сервер красит по ним подсветку стола (`music_light`) |
-| `alarm` | `event`: `ringing` / `dismissed` | будильник зазвонил / выключен |
-| `alarm_set` | `hour`, `minute`, `direct` | ответ на `set_alarm`: `direct` — часы открыли без экрана, иначе показано уведомление «нажми» |
-| `bt` | `devices`: [{`name`, `level`}] | заряд подключённых наушников |
-| `share` | `text` | «Поделиться → Открыть на компьютере» |
-| `settings` | `values`: настройки колонки | поменяли в приложении |
-| `test` | — | кнопка «Показать уведомление на колонке» |
+| `state` | `screen`, `locked`, `charging`, `battery`, `unlocked_at` (ms), `next_alarm` (ms, 0 — none), `dnd` | on any change |
+| `notif` | `key`, `app`, `app_name`, `title`, `text`, `category`, `can_reply`, `actions`, `when` | new notification |
+| `notif_gone` | `key` | notification dismissed |
+| `call` | `state`: `ringing` / `active` / `idle`; `number`, `name` | call |
+| `media` | `state`, `title`, `artist`, `app`, `pos`, `dur` (ms), `at`, `palette` | track change or pause. `palette` — up to 3 main album art colors `["#RRGGBB", …]` (Palette API; no art — field omitted). The server uses them to tint the desk backlight (`music_light`) |
+| `alarm` | `event`: `ringing` / `dismissed` | alarm ringing / dismissed |
+| `alarm_set` | `hour`, `minute`, `direct` | response to `set_alarm`: `direct` — clock opened without screen, otherwise notification "tap" shown |
+| `bt` | `devices`: [{`name`, `level`}] | battery level of connected headphones |
+| `share` | `text` | "Share → Open on Computer" |
+| `settings` | `values`: column settings | changed in the app |
+| `test` | — | "Show notification on column" button |
 
-**Сервер → телефон:** `settings` (`values`, `speaker`: {`online`, `fps`, `screen`}, `pc`), `ring` (`on`),
-`reply` (`key`, `text`), `action` (`key`, `title`), `dismiss` (`key`), `media` (`cmd`:
-`play` / `pause` / `toggle` / `next` / `prev`), `call` (`sms` — сбросить и написать),
-`open_url` (`url`), `set_alarm` (`hour`, `minute`, `label`: поставить будильник через AlarmClock).
+**Server → Phone:** `settings` (`values`, `speaker`: {`online`, `fps`, `screen`}, `pc`), `ring`
+(`on`), `reply` (`key`, `text`), `action` (`key`, `title`), `dismiss` (`key`), `media` (`cmd`:
+`play` / `pause` / `toggle` / `next` / `prev`), `call` (`sms` — reject and text), `open_url`
+(`url`), `set_alarm` (`hour`, `minute`, `label`: set alarm via AlarmClock).
 
-**Компьютер → сервер:** `pc` (`idle` — секунд без мыши и клавиатуры, `battery`, `charging`)
-раз в 15 с; `to_phone` (`url`). **Сервер → компьютер:** `open_url` (`url`).
+**Computer → Server:** `pc` (`idle` — seconds without mouse and keyboard, `battery`, `charging`)
+every 15 s; `to_phone` (`url`). **Server → Computer:** `open_url` (`url`).
 
-`speaker.screen` — что сейчас на экране колонки, сервер выводит это из того, что ей отправлял
-([server/jarvis/screen.py](../server/jarvis/screen.py)): `mode` (`idle`, `sleep`, `listening`,
-`thinking`, `speaking`, `timer`, `night`, `card`, `player`, `offline`), `title` («Слушает»),
-`detail`, `until` (мс, конец таймера). Приходит заново при каждой смене режима.
+`speaker.screen` — what is currently displayed on the column screen, derived by the server
+from what it sent to it ([server/jarvis/screen.py](../server/jarvis/screen.py)): `mode` (`idle`,
+`sleep`, `listening`, `thinking`, `speaking`, `timer`, `night`, `card`, `player`, `offline`),
+`title` ("Слушает" ("Listening")), `detail`, `until` (ms, timer end). Sent again on every mode
+change.
 
-Уведомление уходит на колонку, когда экран телефона погашен, сейчас не ночные часы и (если
-включено «только за компьютером») мышь или клавиатуру трогали последние 2 минуты.
+Notifications go to the column when the phone screen is off, it is not nighttime hours, and (if
+"only at computer" is enabled) mouse or keyboard was touched in the last 2 minutes.
 
-### Игры (старый экран)
+### Games (Old Screen)
 
-| `name` | Поля | Длительность |
+| `name` | Fields | Duration |
 |---|---|---|
-| `coin` | `result`: 0 орёл, 1 решка | 3.2 с |
-| `dice` | `result`: 1…6 | 2.4 с |
-| `wheel` | `count`: 2…8 секторов, `result`: 0…count−1 | 3.4 с |
-| `rps` | `mine`: 0 камень, 1 бумага, 2 ножницы; `result`: 0 ничья, 1 выиграла колонка, 2 выиграл человек | 3.6 с |
-| `magic8` | `answer`: 1…5 да, 6…7 неясно, 8…10 нет | 3.6 с |
-| `ttt` | `board`: 9 символов из `X`, `O`, `.` (по строкам) | 45 с или до следующего хода |
+| `coin` | `result`: 0 heads, 1 tails | 3.2 s |
+| `dice` | `result`: 1…6 | 2.4 s |
+| `wheel` | `count`: 2…8 sectors, `result`: 0…count−1 | 3.4 s |
+| `rps` | `mine`: 0 rock, 1 paper, 2 scissors; `result`: 0 draw, 1 column won, 2 human won | 3.6 s |
+| `magic8` | `answer`: 1…5 yes, 6…7 unclear, 8…10 no | 3.6 s |
+| `ttt` | `board`: 9 characters from `X`, `O`, `.` (row by row) | 45 s or until next move |
 
-## Звук
+## Audio
 
-Колонка с микрофоном и динамиком пишет в `caps` `mic` и `speaker`. Звук — PCM, 16 бит,
-моно, little-endian, в бинарных кадрах.
+A column with a microphone and speaker writes `mic` and `speaker` into `caps`. Audio is PCM,
+16-bit, mono, little-endian, in binary frames.
 
-**Микрофон.** Сервер шлёт `{"type": "listen_start", "gain": 12}` — колонка начинает слать
-звук 16 кГц кадрами по 100 мс (3200 байт); если сеть была занята, накопленное приходит
-одним кадром побольше (до 200 мс). Длина кадра всегда чётная (целые сэмплы). Звук уже
-прошёл фильтр от 100 Гц. `{"type": "listen_stop"}` — перестаёт. `gain` — усиление
-в дБ, 0…30 (у INMP441 тихий сигнал; по умолчанию 12). Постоянную составляющую колонка
-убирает сама.
+**Microphone.** The server sends `{"type": "listen_start", "gain": 12}` — the column starts
+sending 16 kHz audio in 100 ms frames (3200 bytes); if the network was busy, accumulated audio
+arrives in a single larger frame (up to 200 ms). Frame length is always even (whole
+samples). Audio has already passed a 100 Hz filter. `{"type": "listen_stop"}` — stops
+sending. `gain` — gain in dB, 0…30 (INMP441 has a quiet signal; default 12). The column
+removes the DC offset itself.
 
-**Динамик.**
+**Speaker.**
 
-| `type` | Поля | Что делает |
+| `type` | Fields | What it does |
 |---|---|---|
-| `audio_start` | `rate`: 8000…48000 (по умолчанию 16000) | дальше идут бинарные кадры звука любой длины |
-| `audio_end` | — | звук кончился; колонка доиграет буфер и ответит `played` |
-| `audio_stop` | — | замолчать сразу, буфер выбросить (перебивание); ответ — тоже `played` |
-| `barge` | `on` (0/1), `ratio_x10` (12…200, порог ×10) | включить перебивание голосом: пока колонка говорит, она слушает микрофон локально и, если голос заметно громче эха своего ответа (в `ratio_x10`/10 раз) дольше ~160 мс, сама замолкает и шлёт `barge_in` |
-| `volume` | `level`: 0…100 | громкость |
+| `audio_start` | `rate`: 8000…48000 (default 16000) | subsequent binary frames contain audio of any length |
+| `audio_end` | — | audio finished; column plays out the buffer and replies `played` |
+| `audio_stop` | — | silence immediately, discard buffer (interruption); response is also `played` |
+| `barge` | `on` (0/1), `ratio_x10` (12…200, threshold ×10) | enable voice interruption: while the column is speaking, it listens to the microphone locally and, if the voice is noticeably louder than the echo of its own response (by `ratio_x10`/10 times) for longer than ~160 ms, it silences itself and sends `barge_in` |
+| `volume` | `level`: 0…100 | volume level |
 
-Колонка копит 400 мс перед стартом и держит буфер на 4 с. Сервер шлёт звук не больше чем
-на 1 с впереди реального времени — так буфер никогда не переполнится, а сеть может
-притормозить на секунду без заикания.
+The column buffers 400 ms before starting and holds a 4 s buffer. The server sends audio no
+more than 1 s ahead of real time — this ensures the buffer never overflows while allowing
+the network to stutter for a second without audio glitches.
 
-**Колонка → сервер:** `{"type": "played"}` — доиграла последний сэмпл (или её остановили).
+**Column → Server:** `{"type": "played"}` — played the last sample (or was stopped).
 
-Позже (этап 5): `{"type": "wake", "word": "hey_jarvis", "score": 0.97}` — колонка
-услышала слово пробуждения.
+Later (stage 5): `{"type": "wake", "word": "hey_jarvis", "score": 0.97}` — column heard the
+wake word.

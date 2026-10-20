@@ -1,111 +1,112 @@
-# Кейсы использования
+=== File: use-cases.md ===
+# Use Cases
 
-Колонка стоит в моей спальне — у кровати и у компьютера. Дома ещё семья,
-комната моя. Телефон — OnePlus 13s (Android), на нём приложение Home
-Assistant и MacroDroid; наушники — Nothing Ear (a). В Home Assistant — только моя спальня:
-свет «Спальня» (группа), «Палка», «Подсветка стола», «Подсветка шкафа» (по сегментам),
-«Светильник», «Светильник возле кровати».
+The smart speaker sits in my bedroom — by the bed and at the computer. There is family at home,
+my room is my own. Phone — OnePlus 13s (Android), with the Home
+Assistant app and MacroDroid; headphones — Nothing Ear (a). In Home Assistant — only my bedroom:
+lights "Bedroom" (group), "Bar", "Desk backlight", "Cabinet backlight" (by segments),
+"Lamp", "Bedside lamp".
 
-**Главный принцип:** колонка делает только то, что неудобно делать телефоном: когда он
-на зарядке или лежит в стороне, когда руки и глаза заняты компьютером, когда нужна
-информация без единого действия. Связь с телефоном — через своё приложение-мост (раздел 3).
+**Main principle:** the speaker only does what is inconvenient to do on the phone: when it
+is charging or lying aside, when hands and eyes are busy at the computer, when you need
+information without a single action. Connection to the phone — via its companion bridge app (Section 3).
 
-Приоритет:
-- 🟢 **база** — ради этого колонка и нужна, входит в первую версию;
-- 🟡 **потом** — полезно, но после базы;
-- ⚪ **идея** — обсудить, может и не делать.
-
----
-
-## 1. Сон и утро — у кровати
-
-- **1.1 Рассвет** — уже есть: за 20 минут до будильника весь свет комнаты плавно
-  разгорается (автоматизация Home Assistant). Колонка его не трогает.
-- **1.2 «Точно встал»** 🟢 — будильник звонит на телефоне как обычно. Если я его выключил,
-  но так и не разблокировал телефон (уснул обратно), через несколько минут будит колонка —
-  голосом и поязвительнее.
-- **1.3 «Сколько я посплю?»** 🟢 — «Если уснёшь сейчас — 6 ч 40 мин до будильника».
-- **1.4 Ночь, пока телефон на зарядке** 🟢 — экран почти гаснет, колонка молчит и показывает
-  только важное.
-- **1.5 Время ночью** 🟢 — тусклые тёплые часы, видно, не беря в руки яркий телефон.
-- **1.6 Сон с колкостью** 🟢 — в час ночи я в телефоне, а будильник в 7: «Подъём через
-  6 часов. Просто к сведению». Утром: «Лёг в 02:13, спал 5 ч 40 мин».
-- **1.7 Проверка перед сном** 🟢 — одной фразой или сама в заданное время: будильник на
-  7:30, телефон на зарядке (40 %), завтра дождь, первое дело в 10.
-- **1.8 Утро не вставая** 🟢 — погода, первое дело, когда выходить, ближайший трамвай
-  (открытые данные Wiener Linien).
-- **1.9 Звуки для сна** 🟡 — дождь, шум, с таймером выключения.
-
-## 2. За компьютером
-
-- **2.1 Фокус-таймер** 🟢 — кольцо по краю экрана отсчитывает 25/50 минут, потом перерыв.
-- **2.2 Мысль на лету** 🟢 — «Запомни: …» — заметка сразу в телефоне.
-- **2.3 Телефон ↔ компьютер** 🟢 — «Поделиться → Открыть на компьютере» на телефоне —
-  ссылка открывается в браузере компа; «скинь на телефон» — обратно.
-- **2.4 Claude Code на колонке** 🟡 — долгая задача идёт, отошёл — на экране «закончил» или
-  «ждёт ответа».
-- **2.5 Скоро созвон** 🟡 — за 5 минут до события календаря — на экране.
-
-Всё про компьютер даёт маленькая программа на нём: сижу ли я (трогал ли мышь и клавиатуру),
-заряд ноутбука, открыть ссылку.
-
-## 3. Телефон (своё приложение-мост для Android)
-
-Приложение держит связь с сервером, пока я дома, и умеет то, чего не умеет приложение
-Home Assistant. Ставится файлом APK.
-
-- **3.1 Уведомления, когда я за компьютером** 🟢 — если телефон не в руках (экран погашен),
-  а я за компьютером, уведомления дублируются на колонку: приложение, от кого, пара строк,
-  через ~8 секунд гаснут. Шумные приложения — в исключениях, ночью — только важное.
-  Так же доходит, когда пишет мама.
-- **3.2 Ответ голосом** 🟢 — «ответь: буду через 10 минут» — ответ уходит в тот же чат
-  (Telegram, WhatsApp — всё, где у уведомления есть кнопка «Ответить»).
-- **3.3 Звонок на экране** 🟢 — «Звонит мама» крупно; «сбрось» — отклонить, «перезвоню» —
-  отклонить и отправить СМС.
-- **3.4 Мини-плеер** 🟢 — что играет на телефоне: название и кольцо прогресса по краю;
-  «дальше», «пауза» голосом.
-- **3.5 «Где мой телефон?»** 🟢 — телефон звонит на полной громкости даже в беззвучном.
-- **3.6 Батареи** 🟢 — наушники Nothing Ear (a) (заряд знает телефон, если подключены к нему,
-  или Windows, если к компу), телефон, ноутбук — напомнит, пока я рядом с зарядкой.
-- **3.7 «Скинь мне это»** 🟢 — ответ, ссылку, адрес колонка отправляет на телефон.
-- **3.8 Настройки колонки** 🟢 — в приложении, в стиле Apple: когда засыпать, ночь, яркость,
-  какие уведомления дублировать, насколько язвительный характер, состояние колонки.
-- **3.9 Telegram — тот же собеседник вне дома** 🟡 — та же память, те же напоминания.
-
-## 4. Разговор, память, напоминания
-
-- **4.1 Спросить что угодно** 🟢 — коротко, голосом; длинное — «скинь мне» (3.7).
-- **4.2 Уточнить без повторного слова** 🟢 — ~5 секунд колонка ещё слушает.
-- **4.3 Перебить** 🟡 — «стоп» во время ответа.
-- **4.4 Память** 🟢 — «запомни», «что ты обо мне знаешь», «забудь».
-- **4.5 Напоминания** 🟢 — по времени и по событию: «когда приду домой — напомни…».
-- **4.6 Характер** 🟢 — сдержанный, с колкостями; не «Джарвис».
-
-## 5. Свет в комнате (через Home Assistant)
-
-- **5.1 Свет с кровати** 🟢 — «выключи всё», «ночник» (только «Светильник возле кровати»),
-  «свет на стол».
-- **5.2 Сцены** 🟡 — «я сплю» (всё гаснет, колонка в ночь), «работаю», «кино».
-- **5.3 Комната** ⚪ — температура, открытое окно перед дождём — если будут датчики.
-
-## 6. Экран в спальне
-
-- **6.1 Настоящая подсветка** 🟢 — управляемая подсветка (вывод BL) или полное выключение ночью.
-- **6.2 Ночная палитра** 🟢 — тёплая, минимум света, без движения.
-- **6.3 Лицо** 🟢 — уже сделано: глаза с часами, засыпание, разговор, таймер, выражения
-  (макет [design/screen-mockup.html](../design/screen-mockup.html)). Докрутить «премиальность».
-- **6.4 Братья в комнате** ⚪ — мини-игры на экране.
+Priority:
+- 🟢 **base** — this is why the speaker is needed, included in the first version;
+- 🟡 **later** — useful, but after base;
+- ⚪ **idea** — discuss, maybe skip.
 
 ---
 
-## Что убрали
+## 1. Sleep and Morning — Bedside
 
-- Кухня, новости, почта, списки покупок, длинные разговоры о делах — телефоном быстрее.
-- Игровой режим за компьютером — не нужен.
-- Бот для родителей и их статус — они не будут им пользоваться; их сообщения и звонки и так
-  дойдут через дублирование уведомлений (3.1, 3.3).
+- **1.1 Sunrise** — already exists: 20 minutes before the alarm, all the room lights smoothly
+  fade up (Home Assistant automation). The speaker does not touch them.
+- **1.2 "Actually woke up"** 🟢 — the alarm rings on the phone as usual. If I turned it off
+  but never unlocked the phone (fell back asleep), a few minutes later the speaker wakes me up —
+  by voice and rather snarkily.
+- **1.3 "How much will I sleep?"** 🟢 — «Если уснёшь сейчас — 6 ч 40 мин до будильника» ("If you fall asleep now — 6h 40m until the alarm").
+- **1.4 Night, while phone is charging** 🟢 — the screen almost dims out, the speaker is silent and shows
+  only what matters.
+- **1.5 Time at night** 🟢 — dim warm clock, visible without picking up a bright phone.
+- **1.6 Sleeping with a sarcastic remark** 🟢 — at 1 AM I am on the phone, and the alarm is at 7: «Подъём через
+  6 часов. Просто к сведению» ("Wake-up in 6 hours. Just for your information"). In the morning: «Лёг в 02:13, спал 5 ч 40 мин» ("Went to bed at 02:13, slept 5h 40m").
+- **1.7 Bedtime check** 🟢 — with a single phrase or automatically at a set time: alarm at
+  7:30, phone on charger (40%), rain tomorrow, first task at 10.
+- **1.8 Morning without getting up** 🟢 — weather, first task, when to leave, next tram
+  (Wiener Linien open data).
+- **1.9 Sleep sounds** 🟡 — rain, noise, with a sleep timer.
 
-## Открытые вопросы
+## 2. At the Computer
 
-1. Вывод подсветки экрана (BL / BLK / LED) — есть ли и куда подключён? (посмотрю позже)
-2. Какие приложения не дублировать на колонку?
+- **2.1 Focus timer** 🟢 — a ring around the screen edge counts down 25/50 minutes, then a break.
+- **2.2 Thought on the fly** 🟢 — «Запомни: …» ("Remember: ...") — note straight to the phone.
+- **2.3 Phone ↔ Computer** 🟢 — "Share → Open on computer" on the phone —
+  link opens in the PC browser; "send to phone" — back.
+- **2.4 Claude Code on the speaker** 🟡 — a long task is running, walked away — screen shows "finished" or
+  "waiting for input".
+- **2.5 Meeting soon** 🟡 — 5 minutes before a calendar event — on screen.
+
+Everything about the computer is handled by a small program on it: whether I am sitting (touched mouse and keyboard),
+laptop battery, open link.
+
+## 3. Phone (Custom Android Bridge App)
+
+The app maintains a connection with the server while I am at home and can do things that the Home
+Assistant app cannot. Installed via APK file.
+
+- **3.1 Notifications when I am at the computer** 🟢 — if the phone is not in hand (screen is off)
+  and I am at the computer, notifications are mirrored to the speaker: app, sender, a couple of lines,
+  disappear in ~8 seconds. Noisy apps — in exclusions, at night — only important ones.
+  Also comes through when Mom texts.
+- **3.2 Voice reply** 🟢 — «ответь: буду через 10 минут» ("reply: will be there in 10 minutes") — the reply goes to the same chat
+  (Telegram, WhatsApp — anywhere a notification has a "Reply" button).
+- **3.3 Incoming call on screen** 🟢 — «Звонит мама» ("Mom is calling") prominently; «сбрось» ("dismiss") — decline, «перезвоню» ("call back") —
+  decline and send SMS.
+- **3.4 Mini player** 🟢 — what is playing on the phone: title and progress ring along the edge;
+  «дальше» ("next"), «пауза» ("pause") by voice.
+- **3.5 "Where is my phone?"** 🟢 — phone rings at full volume even in silent mode.
+- **3.6 Batteries** 🟢 — Nothing Ear (a) headphones (battery level known by phone if connected to it,
+  or Windows if to PC), phone, laptop — reminds me while I am near a charger.
+- **3.7 "Send this to me"** 🟢 — speaker sends reply, link, address to the phone.
+- **3.8 Speaker settings** 🟢 — in the app, Apple-style: when to fall asleep, night, brightness,
+  which notifications to mirror, how snarky the character is, speaker status.
+- **3.9 Telegram — the same conversationalist outside home** 🟡 — same memory, same reminders.
+
+## 4. Conversation, Memory, Reminders
+
+- **4.1 Ask anything** 🟢 — short, by voice; long — "send it to me" (3.7).
+- **4.2 Clarify without wake word** 🟢 — speaker listens for ~5 more seconds.
+- **4.3 Interrupt** 🟡 — «стоп» ("stop") during a response.
+- **4.4 Memory** 🟢 — «запомни» ("remember"), «что ты обо мне знаешь» ("what do you know about me"), «забудь» ("forget").
+- **4.5 Reminders** 🟢 — by time and by event: «когда приду домой — напомни…» ("when I get home — remind me...").
+- **4.6 Character** 🟢 — restrained, with snarky remarks; not "Jarvis".
+
+## 5. Room Lighting (via Home Assistant)
+
+- **5.1 Bedside lighting** 🟢 — «выключи всё» ("turn off everything"), «ночник» ("nightlight" — only "Bedside lamp"),
+  «свет на стол» ("desk light").
+- **5.2 Scenes** 🟡 — «я сплю» ("I am sleeping" — everything turns off, speaker goes to night mode), «работаю» ("working"), «кино» ("movie").
+- **5.3 Room** ⚪ — temperature, open window before rain — if sensors are added.
+
+## 6. Bedroom Screen
+
+- **6.1 Real backlight** 🟢 — controllable backlight (BL output) or complete turn-off at night.
+- **6.2 Night palette** 🟢 — warm, minimum light, no motion.
+- **6.3 Face** 🟢 — already done: eyes with clock, falling asleep, talking, timer, expressions
+  (mockup [design/screen-mockup.html](../design/screen-mockup.html)). Polishing "premiumness".
+- **6.4 Room buddies** ⚪ — mini-games on screen.
+
+---
+
+## What Was Dropped
+
+- Kitchen, news, mail, shopping lists, long conversations about tasks — the phone is faster.
+- Gaming mode at the computer — not needed.
+- Bot for parents and their status — they won't use it; their messages and calls will
+  reach me anyway through notification mirroring (3.1, 3.3).
+
+## Open Questions
+
+1. Screen backlight output (BL / BLK / LED) — does it exist and where is it connected? (will check later)
+2. Which apps should not be mirrored to the speaker?

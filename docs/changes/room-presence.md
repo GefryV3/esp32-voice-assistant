@@ -1,60 +1,45 @@
-# room-presence: сигнал «человек в комнате»
+# room-presence: «человек в комнате» ("person in room") signal
 
-Ветка `claude/room-presence-f80b97`. Инструкция для пользователя: `docs/room-presence.md`.
+Branch `claude/room-presence-f80b97`. User manual: `docs/room-presence.md`.
 
-## Что сделано
+## What was done
 
-**Сервер** (всё проверено тестами на подменах, `tests/test_presence.py`):
-- `presence.py`: `Presence.on_room` (подписка `hub.on_message`) хранит последнее `room`. Правило сразу после ручного
-  переопределения: `here=true` (свежее 2 мин) → на месте; `here=false` непрерывно ≥ `JARVIS_ROOM_AWAY_MIN` (5) →
-  «в комнате нет», сильнее активного компьютера. Ночью (окно сна из моста) не отключает, если HA не говорит
-  «нет дома» и телефон на зарядке. `src: none` / сообщение старше 2 мин → сигнал не используется.
-- Консоль/Telegram: `room` (что видит колонка), `ble on|off` (сохраняется в brain.db, применяется при подключении).
-- `protocol.ble_scan(on, uuid)` — новое сообщение серверу→колонке `{"type":"ble_scan","on":1,"uuid":"<32 hex>"}`
-  (в `docs/protocol-next.md` я не писал; добавить при слиянии).
-- Новые переменные `.env`: `JARVIS_ROOM_AWAY_MIN` (5), `JARVIS_BLE_UUID` (UUID iBeacon из приложения HA).
-- Тесты: 202 passed, 2 skipped.
+**Server** (all verified with mock tests, `tests/test_presence.py`):
+- `presence.py`: `Presence.on_room` (`hub.on_message` subscription) stores the latest `room`. Rule applied immediately after manual override: `here=true` (fresher than 2 min) → present; `here=false` continuously for ≥ `JARVIS_ROOM_AWAY_MIN` (5) → «в комнате нет» ("not in room"), takes precedence over an active PC. At night (sleep window from the bridge), it does not turn off if HA does not report «нет дома» ("away") and the phone is charging. `src: none` / message older than 2 min → signal is not used.
+- Console/Telegram: `room` (what the speaker sees), `ble on|off` (persisted in brain.db, applied upon connection).
+- `protocol.ble_scan(on, uuid)` — new server→speaker message `{"type":"ble_scan","on":1,"uuid":"<32 hex>"}` (I did not add it to `docs/protocol-next.md`; add when merging).
+- New `.env` variables: `JARVIS_ROOM_AWAY_MIN` (5), `JARVIS_BLE_UUID` (iBeacon UUID from the HA app).
+- Tests: 202 passed, 2 skipped.
 
-**Прошивка** (`net/room.cpp`, собирается, **не прошивалась**):
-- Пассивный скан iBeacon NimBLE (окно 100 мс раз в 1 с ≈ 10 % эфира), фильтр по UUID, EMA RSSI,
-  гистерезис: рядом > −78 дБм, ушёл < −85 дБм или не слышно 30 с. `room` шлётся при смене и раз в 30 с.
-- Радар LD2410C за флагом `ROOM_RADAR` (`board.h`, 0): разбор кадра `parse_ld2410`, UART1 256000, GPIO7/8,
-  `src:"radar"`. Не собирался с флагом 1 и не проверялся (железа нет).
+**Firmware** (`net/room.cpp`, compiles, **has not been flashed**):
+- Passive NimBLE iBeacon scan (100 ms window once every 1 s ≈ 10% airtime), UUID filtering, EMA RSSI, hysteresis: nearby > −78 dBm, away < −85 dBm or not heard for 30 s. `room` is sent on state change and once every 30 s.
+- LD2410C radar behind the `ROOM_RADAR` flag (`board.h`, 0): `parse_ld2410` frame parsing, UART1 256000, GPIO7/8, `src:"radar"`. Was not built with flag 1 and was not tested (no hardware).
 
-## Реальные цифры BLE (сборка NimBLE, только наблюдатель, без GATT)
+## Real BLE numbers (NimBLE build, observer only, no GATT)
 
-| | без BLE | с BLE |
+| | without BLE | with BLE |
 |---|---|---|
-| образ (jarvis.bin) | 0x126e60 до моих правок; обычная сборка с room.cpp без BLE 0x1270b0 (+0,6 КБ, 34 % свободно) | 0x148820 (1,32 МБ, 27 % свободно) |
-| IRAM `.text` (делит DIRAM с кучей) | 104 735 | 126 911 (**+22 КБ**) |
-| `.bss` + `.data` | 89 720 | 91 604 (+1,9 КБ) |
+| image (jarvis.bin) | 0x126e60 before my changes; standard build with room.cpp without BLE 0x1270b0 (+0.6 KB, 34% free) | 0x148820 (1.32 MB, 27% free) |
+| IRAM `.text` (shares DIRAM with heap) | 104 735 | 126 911 (**+22 KB**) |
+| `.bss` + `.data` | 89 720 | 91 604 (+1.9 KB) |
 
-Главное: даже с выключенным BLE стек в образе забирает ~22 КБ внутренней RAM из тех ~90 КБ, что есть (останется ~68 КБ),
-а при `ble on` контроллер ещё берёт динамически (заметно больше, оценка 30–50 КБ, **вживую не измерено**, в логе
-прошивки есть строка «NimBLE поднят, внутренняя RAM X → Y»). Плюс общее радио с Wi-Fi на слабом сигнале
-повторителя (память `speaker-wifi-barge`).
+The main point: even with BLE turned off, the stack in the image consumes ~22 KB of internal RAM out of the ~90 KB available (~68 KB will remain), and on `ble on` the controller allocates even more dynamically (noticeably more, estimated at 30–50 KB, **not measured on real hardware**, the firmware log contains the line «NimBLE поднят, внутренняя RAM X → Y» ("NimBLE initialized, internal RAM X → Y")). Plus a shared radio with Wi-Fi on a weak repeater signal (memory `speaker-wifi-barge`).
 
-## Решение: BLE не входит в обычную прошивку
+## Decision: BLE is not included in the standard firmware
 
-- `sdkconfig.defaults` — как раньше, без BT (RAM не тратится, поведение не меняется). В такой прошивке `ble_scan`
-  только пишет в лог «собрана без BLE».
-- BLE-сборка отдельно: `sdkconfig.ble` (команда в его шапке: папка `build-ble`). Пользователь включает осознанно,
-  затем `ble on` на сервере (по умолчанию off).
-- Что проверить вживую перед включением: сколько свободной внутренней RAM (`devices` → heap) до и после `ble on`;
-  разрывы Wi-Fi/WebSocket и rssi при `ble on` (30 минут, смотреть журнал); дальность: `room` с телефоном в
-  кровати, в коридоре, в другой комнате (пороги −78/−85 подобраны от балды, их надо откалибровать); как ведёт себя
-  BLE Transmitter на OnePlus при выключенном экране (Android может ограничивать, нужно «без ограничений» для батареи).
-  Если RAM просядет ниже ~40 КБ или связь рвётся — оставить BLE выключенным и брать радар.
+- `sdkconfig.defaults` — as before, without BT (no RAM wasted, behavior unchanged). In such a build, `ble_scan` only logs «собрана без BLE» ("built without BLE").
+- BLE build is separate: `sdkconfig.ble` (command in its header: `build-ble` directory). The user enables it deliberately, then runs `ble on` on the server (off by default).
+- What to verify on real hardware before enabling: how much internal RAM is free (`devices` → heap) before and after `ble on`; Wi-Fi/WebSocket drops and rssi during `ble on` (30 minutes, check the log); range: `room` with the phone in bed, in the corridor, in another room (thresholds −78/−85 were chosen arbitrarily, they need to be calibrated); how the BLE Transmitter behaves on OnePlus with the screen off (Android may throttle it, requires «без ограничений» ("unrestricted") battery mode). If RAM drops below ~40 KB or the connection drops — keep BLE disabled and use the radar.
 
-## Что нужно от пользователя
+## What is needed from the user
 
-- UUID из приложения HA (BLE Transmitter) → `JARVIS_BLE_UUID`.
-- Решение, пробовать ли BLE-сборку (шьёт координатор), или сразу радар (покупка LD2410C).
+- UUID from the HA app (BLE Transmitter) → `JARVIS_BLE_UUID`.
+- Decision on whether to try the BLE build (flashed by the coordinator), or go straight for the radar (purchasing LD2410C).
 
-## Не сделано / не проверено
+## Not done / not verified
 
-- Ничего не проверено вживую; прошивка не прошивалась; хост-тестов C++ нет (нет компилятора на хосте).
-- Радарный путь не собирался с `ROOM_RADAR=1`.
-- Нет отдельного флага в консоли колонки (`ble_scan` только с сервера).
+- Nothing has been tested on real hardware; firmware has not been flashed; no C++ host tests (no compiler on the host).
+- Radar code path was not compiled with `ROOM_RADAR=1`.
+- No separate flag in the speaker console (`ble_scan` is only sent from the server).
 
-Обе сборки (обычная и `sdkconfig.ble`) собираются без ошибок; BLE-образ 0x148820 влезает в OTA-слот 0x1c0000 (27 % свободно). Сборка BLE-образа на этой машине иногда падает случайно («Unable to load DLL»/as.exe) — повторить команду, ninja продолжит.
+Both builds (standard and `sdkconfig.ble`) compile without errors; the BLE image 0x148820 fits into the 0x1c0000 OTA slot (27% free). Compiling the BLE image on this machine sometimes fails intermittently ("Unable to load DLL"/as.exe) — rerun the command, ninja will continue.

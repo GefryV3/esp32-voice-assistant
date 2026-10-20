@@ -1,19 +1,19 @@
-# Порядок установки
+# Installation Steps
 
-Краткая версия ниже. **Полная пошаговая инструкция (с получением всех ключей/токенов и разбором частых проблем) — в `TUTORIAL.md`, начни с неё.**
+A brief version is below. **The complete step-by-step guide (including obtaining all keys/tokens and troubleshooting common issues) is in `TUTORIAL.md`—start with that.**
 
-1. `secrets.yaml.example` -> скопировать в `secrets.yaml` (и рядом с ESPHome-конфигом, и в HA `/config/`), заполнить.
-2. Прошить ESP32-S3: `esphome run esphome/voice-satellite.yaml` (или добавить конфиг в ESPHome Dashboard внутри HA).
-3. Скопировать `custom_component/gemini_assistant` в `/config/custom_components/gemini_assistant` на ноутбуке с HA.
-4. Добавить содержимое `homeassistant/configuration_snippet.yaml` в основной `configuration.yaml`.
-5. Положить `memory/memory_template.json` в `/config/gemini_assistant/memory.json`.
-6. Установить аддоны Whisper и Piper (Settings -> Add-ons -> Add-on Store), выбрать их в Settings -> Voice Assistants -> pipeline вместе с агентом gemini_assistant.
-7. Добавить автоматизации из `homeassistant/automations.yaml` (через UI-редактор или `!include automations.yaml`), поправить entity_id (`person.you`, `calendar.your_google_calendar`, `esphome.home_voice_satellite_...`) под реальные из твоей системы.
-8. Создать `input_boolean.assistant_dnd` (Settings -> Devices -> Helpers) для режима "не беспокоить".
-9. Перезапустить Home Assistant.
+1. `secrets.yaml.example` -> copy to `secrets.yaml` (both next to the ESPHome config and in HA `/config/`), fill it in.
+2. Flash the ESP32-S3: `esphome run esphome/voice-satellite.yaml` (or add the config to the ESPHome Dashboard inside HA).
+3. Copy `custom_component/gemini_assistant` to `/config/custom_components/gemini_assistant` on the laptop running HA.
+4. Add the contents of `homeassistant/configuration_snippet.yaml` to the main `configuration.yaml`.
+5. Place `memory/memory_template.json` into `/config/gemini_assistant/memory.json`.
+6. Install the Whisper and Piper add-ons (Settings -> Add-ons -> Add-on Store), select them in Settings -> Voice Assistants -> pipeline along with the gemini_assistant agent.
+7. Add automations from `homeassistant/automations.yaml` (via the UI editor or `!include automations.yaml`), adjust entity_id values (`person.you`, `calendar.your_google_calendar`, `esphome.home_voice_satellite_...`) to match your real system.
+8. Create `input_boolean.assistant_dnd` (Settings -> Devices -> Helpers) for the "не беспокоить" ("do not disturb") mode.
+9. Restart Home Assistant.
 
-Анимации состояний экрана (`esphome/images/*.gif`) — уже готовые рабочие заготовки (кольцо/точки/спиннер/эквалайзер). Как заменить на что-то красивее — раздел 19 в `TUTORIAL.md`.
+Screen state animations (`esphome/images/*.gif`) are ready-to-use working presets (ring/dots/spinner/equalizer). How to replace them with something prettier—Section 19 in `TUTORIAL.md`.
 
-Заметки: по умолчанию агент умеет писать в Google Tasks. Если хочется именно в Google Keep — это отдельный опциональный шаг (неофициальная библиотека gkeepapi, раздел 10 в `TUTORIAL.md`), пропустить можно без потери остального функционала.
+Notes: by default, the agent can write to Google Tasks. If you specifically want Google Keep, this is a separate optional step (unofficial gkeepapi library, Section 10 in `TUTORIAL.md`), which can be skipped without losing any other functionality.
 
-Подробное описание архитектуры и решений — в `01_architecture.md`.
+A detailed description of the architecture and decisions is in `01_architecture.md`.

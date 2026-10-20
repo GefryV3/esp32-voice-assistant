@@ -1,58 +1,61 @@
-# Правила параллельной работы над Jarvis
+# Rules for Parallel Work on Jarvis
 
-Читай это первым делом, если тебя запустили как параллельную сессию.
+Read this first if you have been launched as a parallel session.
 
-## О проекте
+## About the Project
 
-Jarvis — свой голосовой ассистент по имени **Мага** (слово пробуждения «Мага», запасное «Hey Jarvis»):
-- `firmware/` — прошивка колонки (ESP-IDF 5.5, ESP32-S3, круглый экран GC9A01, микрофон INMP441,
-  усилитель MAX98357A). Сборка из PowerShell: `cd firmware; .\idf.ps1 build` (см. firmware/README.md и
-  память `jarvis-build-windows`). `main/secrets.h` в git нет: скопируй из `C:\dev\jarvis\firmware\main\secrets.h`
-  в свой worktree и не коммить.
-- `server/jarvis/` — сервер на Python 3.12+: голос через Gemini Live, мозг (`brain.py`: память, напоминания,
-  инструменты Gemini), умный дом через HA (`ha.py`), Google (`google.py`), Telegram (`telegram.py`),
-  фоновые агенты (`agents.py`), мост телефона/компьютера (`bridge.py`), присутствие (`presence.py`),
-  рутины (`routines.py`).
-- `phone/` — Android-приложение (Compose), `pc/` — программа для компьютера, `design/` — макеты экрана.
-- Home Assistant — только посредник для умного дома (его адрес 192.168.178.86, дома у пользователя).
+Jarvis is a personal voice assistant named **Maga** (wake word "Maga", backup "Hey Jarvis"):
+- `firmware/` — speaker firmware (ESP-IDF 5.5, ESP32-S3, round GC9A01 screen, INMP441 microphone,
+  MAX98357A amplifier). Build from PowerShell: `cd firmware; .\idf.ps1 build` (see firmware/README.md and
+  the `jarvis-build-windows` memory). `main/secrets.h` is not in git: copy it from
+  `C:\dev\jarvis\firmware\main\secrets.h` to your worktree and do not commit it.
+- `server/jarvis/` — Python 3.12+ server: voice via Gemini Live, brain (`brain.py`: memory, reminders,
+  Gemini tools), smart home via HA (`ha.py`), Google (`google.py`), Telegram (`telegram.py`),
+  background agents (`agents.py`), phone/PC bridge (`bridge.py`), presence (`presence.py`),
+  routines (`routines.py`).
+- `phone/` — Android app (Compose), `pc/` — PC application, `design/` — screen mockups.
+- Home Assistant — used only as a bridge for the smart home (its address is 192.168.178.86, at the user's home).
 
-Пользователь: школьник, живёт под Веной, русскоязычный, объяснять просто,
-отвечать по-русски. Колонка стоит в его спальне у кровати и компьютера.
+User: a school student living near Vienna, Russian speaker, explanations should be simple,
+responses in Russian. The speaker is located in his bedroom near the bed and computer.
 
-Контекст: `docs/roadmap.md`, `docs/ideas.md` (раздел «Решения 2026-10-20»), `docs/protocol.md`,
-`docs/protocol-next.md` (**контракт новых сообщений колонка ↔ сервер, держись его**),
-`docs/architecture.md`, память проекта `C:\Users\kurli\.claude\projects\C--dev-jarvis\memory`
+Context: `docs/roadmap.md`, `docs/ideas.md` (section "Decisions 2026-10-20"), `docs/protocol.md`,
+`docs/protocol-next.md` (**contract of new messages speaker ↔ server, stick to it**),
+`docs/architecture.md`, project memory `C:\Users\kurli\.claude\projects\C--dev-jarvis\memory`
 (`ideas-decisions`, `home-ha-setup`, `screen-design`, `jarvis-build-windows`, `speaker-wifi-barge`).
 
-## Что можно и нельзя
+## What is Allowed and Forbidden
 
-- Всё в рамках проекта разрешено без вопросов, но **пароли, ключи и токены не вводи в формы, не проси
-  их в чат и не клади в коммиты** (секреты только в `server/.env`, он в git не попадает).
-- Ты работаешь **в своём worktree и своей ветке**. Не переключай ветки и не трогай основную папку.
-- **Не выкладывай** в HA (`tools/deploy_addon.py`, `tools/ha_admin.py`), **не прошивай колонку** (ни по
-  USB, ни по воздуху) и не трогай её живую: это делает координатор после слияния, когда пользователь дома.
-  Две одновременные выкладки ломают образ аддона.
-- **Не меняй** `server/jarvis/__init__.py` (версия), `server/addon/CHANGELOG.md`, `docs/roadmap.md`,
-  `docs/ideas.md`. Вместо этого опиши результат в `docs/changes/<имя-сессии>.md`: что сделано, новые
-  переменные `.env`, команды консоли, что проверить вживую, что осталось.
-- Новый код клади в **новые модули**. В общие файлы (`brain.py`, `voice.py`, `config.py`, `__main__.py`,
-  `console.py`, `protocol.py`, `devices.py`) вноси минимальные аддитивные правки: так слияние лёгкое.
-- Не придумывай данные пользователя (адреса, логины, расписания). Если чего-то не хватает, напиши в отчёте,
-  что именно принести пользователю.
+- Everything within the project scope is allowed without questions, but **do not enter passwords, keys, and tokens into forms, do not ask
+  for them in chat, and do not put them into commits** (secrets belong only in `server/.env`, which is excluded from git).
+- You work **in your own worktree and your own branch**. Do not switch branches and do not touch the main folder.
+- **Do not deploy** to HA (`tools/deploy_addon.py`, `tools/ha_admin.py`), **do not flash the speaker** (neither via
+  USB nor over the air) and do not touch the live device: the coordinator does this after merging when the user is at home.
+  Two simultaneous deployments break the addon image.
+- **Do not modify** `server/jarvis/__init__.py` (version), `server/addon/CHANGELOG.md`, `docs/roadmap.md`,
+  `docs/ideas.md`. Instead, describe the result in `docs/changes/<session-name>.md`: what was done, new
+  `.env` variables, console commands, what to check live, what remains.
+- Put new code into **new modules**. In shared files (`brain.py`, `voice.py`, `config.py`, `__main__.py`,
+  `console.py`, `protocol.py`, `devices.py`), make minimal additive edits: this makes merging easy.
+- Do not invent user data (addresses, logins, schedules). If something is missing, write in the report
+  what exactly to ask the user for.
 
-## Проверка
+## Verification
 
-- Тесты: из папки `server` твоего worktree командой
-  `C:\dev\jarvis\server\.venv\Scripts\python -m pytest -q`. Интерпретатор общий, пакет `jarvis` должен
-  импортироваться из твоей папки (проверь, что тесты берут твой код). Пиши тесты на подменах (образец:
+- Tests: from the `server` folder of your worktree, run
+  `C:\dev\jarvis\server\.venv\Scripts\python -m pytest -q`. The interpreter is shared, the `jarvis` package must
+  be imported from your folder (verify that tests pick up your code). Write tests using mocks (examples:
   `tests/test_ha.py`, `tests/test_google.py`, `tests/test_agents.py`).
-- Пользователь сейчас в школе и вживую ничего не проверит. Всё должно проверяться тестами и подменами,
-  а в отчёте честно написано, что **не проверено вживую**.
-- Не запускай `python -m jarvis` локально: на том же Telegram-токене работает аддон, будет конфликт 409.
+- The user is currently at school and cannot verify anything live. Everything must be verified with tests and mocks,
+  and the report must honestly state what **was not verified live**.
+- Do not run `python -m jarvis` locally: the same Telegram token is used by the running addon, which will cause a 409 conflict.
 
-## Коммит и отчёт
+## Commit and Report
 
-- `git -c user.name=kurli -c user.email=78043625+GefryV3@users.noreply.github.com commit`, в конце сообщения строка
-  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Коммить в своей ветке.
-- Итоговый отчёт: что сделано, номер коммита и ветка, тесты (сколько прошло), что не проверено вживую,
-  вопросы к пользователю (если нужны данные или решения).
+- Write documentation in English: `docs/`, `docs/changes/<session-name>.md`, README files. Strings the assistant
+  speaks or recognises stay in Russian. The repository is public, so no home address, school, names or Wi-Fi
+  names in docs or code.
+- `git -c user.name=kurli -c user.email=78043625+GefryV3@users.noreply.github.com commit`, end the message with the line
+  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Commit in your branch.
+- Final report: what was done, commit hash and branch, tests (how many passed), what was not verified live,
+  questions for the user (if data or decisions are needed).

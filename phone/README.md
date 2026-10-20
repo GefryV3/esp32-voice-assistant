@@ -1,17 +1,17 @@
-# Приложение «Колонка» (Android)
+# «Колонка» ("Speaker") App (Android)
 
-Мост между телефоном и колонкой: уведомления, звонки, плеер, будильник, «где мой телефон»,
-заряд наушников, «открыть на компьютере» и настройки колонки (громкость, яркость, ночь, характер). Kotlin +
-Jetpack Compose, оформление Material You / Material 3 Expressive (Android 16–17): цвета из
-обоев, группы настроек как в системных «Настройках». Правила — `.claude/skills/material-you`.
-`material3` закреплена на 1.5.0-alpha16: в стабильной 1.4.0 Expressive API закрыты, а более
-новые сборки требуют Android SDK 37 и AGP 9. Протокол — [docs/protocol.md](../docs/protocol.md), раздел
-«Телефон и компьютер».
+Bridge between the phone and the speaker: notifications, calls, player, alarm clock, «где мой телефон» ("where's my phone"),
+headphone battery level, «открыть на компьютере» ("open on computer"), and speaker settings (volume, brightness, night, personality). Kotlin +
+Jetpack Compose, styled with Material You / Material 3 Expressive (Android 16–17): colors from
+wallpaper, settings groups styled like the system «Настройки» ("Settings"). Rules — `.claude/skills/material-you`.
+`material3` is pinned to 1.5.0-alpha16: in stable 1.4.0 Expressive APIs are internal, while newer
+builds require Android SDK 37 and AGP 9. Protocol — [docs/protocol.md](../docs/protocol.md), section
+«Телефон и компьютер» ("Phone and computer").
 
-## Сборка
+## Build
 
-Инструменты лежат в `C:\dev\tools` (JDK 17, Gradle 8.11.1, Android SDK 35), в систему не
-ставятся. Адрес сервера и токен попадают в приложение из `server/.env`.
+Tools are located in `C:\dev\tools` (JDK 17, Gradle 8.11.1, Android SDK 35) and are not
+installed globally into the system. The server address and token are passed to the app from `server/.env`.
 
 ```powershell
 $env:JAVA_HOME = 'C:\dev\tools\jdk17'
@@ -19,17 +19,17 @@ $env:ANDROID_HOME = 'C:\dev\tools\android-sdk'
 C:\dev\tools\gradle-8.11.1\bin\gradle.bat -p C:\dev\jarvis\phone assembleDebug
 ```
 
-Готовый файл: `app\build\outputs\apk\debug\app-debug.apk`. Адрес сервера — `JARVIS_SERVER`
-из `server/.env` (аддон на HA, 192.168.178.86); другой при сборке: `-PserverHost=…`.
-В самом приложении его тоже можно поменять: «Сервер» в настройках.
+Output file: `app\build\outputs\apk\debug\app-debug.apk`. Server address is `JARVIS_SERVER`
+from `server/.env` (HA addon, 192.168.178.86); a different one at build time: `-PserverHost=…`.
+It can also be changed in the app itself: «Сервер» ("Server") in settings.
 
-## Установка на телефон
+## Installation on the phone
 
-1. Скопировать APK на телефон (кабелем или через Telegram «Избранное») и открыть.
-   Android попросит разрешить установку из этого источника — разрешить.
-2. Открыть «Колонка» и пройти раздел «Доступы».
-3. Доступ к уведомлениям для приложений не из магазина Android 13+ прячет:
-   если пишет «Ограниченная настройка» — Настройки → Приложения → Колонка → ⋮ (вверху
-   справа) → «Разрешить ограниченные настройки», потом снова «Доступы → Уведомления».
-4. OnePlus агрессивно выгружает фоновые приложения: кроме «Работа в фоне» в самом
-   приложении, в Настройки → Батарея → Колонка выбрать «Разрешить фоновую активность».
+1. Copy the APK to the phone (via cable or Telegram «Избранное» ("Saved Messages")) and open it.
+   Android will prompt to allow installation from this source — allow it.
+2. Open «Колонка» and go through the «Доступы» ("Permissions") section.
+3. Android 13+ hides notification access for non-store apps:
+   if it says «Ограниченная настройка» ("Restricted setting") — Settings → Apps → «Колонка» → ⋮ (top
+   right) → «Разрешить ограниченные настройки» ("Allow restricted settings"), then go back to «Доступы → Уведомления» ("Permissions → Notifications").
+4. OnePlus aggressively kills background apps: in addition to «Работа в фоне» ("Background work") in the app
+   itself, go to Settings → Battery → «Колонка» and select «Разрешить фоновую активность» ("Allow background activity").

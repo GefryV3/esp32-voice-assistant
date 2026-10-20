@@ -1,61 +1,61 @@
-# audio-offline: хлопки на колонке (#7) и колонка без сервера (#33)
+# audio-offline: Claps on the Speaker (#7) and Speaker Without Server (#33)
 
-Ветка `claude/audio-offline-836994`. Прошивку **не прошивал**, на аддон не выкладывал.
+Branch `claude/audio-offline-836994`. The firmware has **not been flashed**, has not been uploaded to the add-on.
 
-## 1. Хлопки на устройстве
+## 1. Claps on the Device
 
-- `firmware/main/audio/clap.h` — чистая логика без ESP-IDF (класс `clap::Detector`). Блоки по 5 мс,
-  резкий фронт над фоном (медленное среднее модуля ~1 с) + абсолютный минимум, доля высоких частот
-  (|x[n]-x[n-1]|/|x[n]| ≥ 0.45: речь ≈0.1–0.3, щелчки питания Wi-Fi ниже 150 Гц отсекаются), спад до трети
-  за 50 мс (речь и музыка держатся), серия из двух с интервалом 0.25–0.8 с, после срабатывания пауза 1.5 с.
-  Пока колонка играет (`s_speaking`, в том числе встроенный тон) и 0.6 с после, а также первую секунду
-  после включения детектор молчит. Работает без сети и слова пробуждения (в `mic_task`, звук после того же
-  фильтра 100 Гц, но без пользовательского усиления).
-- Чувствительность 1…10 (по умолчанию 5): порог пика над фоном `20 − 1.5·s`, минимальный пик `6000 − 450·s`
-  (при 5: пик ≥ 3750 из 32768 и в 12.5 раз выше фона).
-- Проверка: `python firmware/tools/clap_sim.py` — тот же алгоритм на Python, 20 синтетических сигналов
-  (два хлопка 0.3/0.4/0.7 с, один, слишком долго, эхо, три подряд, шумная комната, реверберация, тихие и
-  средние хлопки на разной чувствительности, тишина, речь с «п» 8 с, громкая речь, музыка с бочкой,
-  щелчки питания Wi-Fi, глушение во время ответа, хлопки поверх речи). Все проходят. На хосте нет компилятора
-  C++, поэтому Python-зеркало; при правке `clap.h` правь и `clap_sim.py` (числа те же).
-- При срабатывании колонка шлёт `{"type":"clap","count":2}` (из `status_task`, не блокируя микрофон).
-- Сервер (`server/jarvis/offline.py`, новый модуль): config при подключении (`clap`, `clap_sens`),
-  приём `clap`, подписка `hub.offline.on_clap.append(async def (dev, count))` — **реакцию (свет) делает
-  другая сессия**, она вешается сюда. Консоль: `clap on|off [1..10]`. Настройки запоминаются в `brain` (prefs).
-  `.env`: `JARVIS_CLAP=on|off` (по умолчанию on), `JARVIS_CLAP_SENS=1..10` (5).
-- `protocol.config(...)` получил поля `clap` и `clap_sens`. **Прошивка теперь применяет из `config` только
-  присланные поля**: раньше любой config сбрасывал сон на 180 с.
+- `firmware/main/audio/clap.h` — pure logic without ESP-IDF (`clap::Detector` class). 5 ms blocks,
+  sharp front above background (slow absolute mean ~1 s) + absolute minimum, high-frequency ratio
+  (|x[n]-x[n-1]|/|x[n]| ≥ 0.45: speech is ≈0.1–0.3, Wi-Fi power clicks below 150 Hz are filtered out), decay to one-third
+  within 50 ms (speech and music hold sustained energy), a series of two with a 0.25–0.8 s interval, a 1.5 s pause after triggering.
+  While the speaker is playing (`s_speaking`, including the built-in tone) and for 0.6 s after, as well as during the first second
+  after power-on, the detector stays silent. Operates without network or wake word (in `mic_task`, audio after the same
+  100 Hz filter, but without user gain).
+- Sensitivity 1…10 (default is 5): peak-above-background threshold `20 − 1.5·s`, minimum peak `6000 − 450·s`
+  (at 5: peak ≥ 3750 out of 32768 and 12.5 times above background).
+- Verification: `python firmware/tools/clap_sim.py` — the same algorithm in Python, 20 synthetic signals
+  (two claps at 0.3/0.4/0.7 s, single clap, too long, echo, three in a row, noisy room, reverberation, quiet and
+  medium claps across different sensitivity settings, silence, speech with "p" sounds for 8 s, loud speech, music with a kick drum,
+  Wi-Fi power clicks, muting during playback, claps over speech). All pass. There is no C++ compiler on the host,
+  hence the Python mirror; when editing `clap.h`, update `clap_sim.py` as well (the numbers are identical).
+- Upon triggering, the speaker sends `{"type":"clap","count":2}` (from `status_task`, without blocking the microphone).
+- Server (`server/jarvis/offline.py`, new module): config on connection (`clap`, `clap_sens`),
+  receiving `clap`, subscription `hub.offline.on_clap.append(async def (dev, count))` — **the action (light) is handled by
+  another session**, which hooks in here. Console: `clap on|off [1..10]`. Settings are saved to `brain` (prefs).
+  `.env`: `JARVIS_CLAP=on|off` (default on), `JARVIS_CLAP_SENS=1..10` (5).
+- `protocol.config(...)` gained the `clap` and `clap_sens` fields. **The firmware now applies only the received fields from `config`**:
+  previously, any config reset sleep to 180 s.
 
-## 2. Колонка без сервера
+## 2. Speaker Without Server
 
-- Сервер: `protocol.plan(alarms, timers)`; `Brain.plan_rows()` собирает ближайшие напоминания (в `alarms`)
-  и таймеры из `set_timer` (в `timers`), до 8 каждого, подписи ≤31 байта. `Brain.plan_changed` дёргается при
-  `add_reminder`/`cancel`/`finish`/`set_timer`; `Offline` рассылает `plan` при подключении и при каждом
-  изменении. Консоль: `plan` (отправить вручную). Будильники телефона (bridge) в план пока не попадают.
-- Прошивка `firmware/main/net/plan.{h,cpp}`: план хранится в NVS (namespace `plan`), проверка раз в секунду.
-  Срок наступил и связи нет (и не старше 5 мин): `audio::alarm(40)` — тон «три гудка, пауза» 880/1175 Гц
-  через обычный проигрыватель (громкость общая) + карточка `Wake` с подписью и «Нет связи с сервером».
-  Связь есть — колонка тихо выбрасывает прошедшее (звонит сервер). Появилась связь — тон обрывается.
-- Метка: при обрыве на нижней дуге (`ui::set_agenda`) «Нет связи · HH:MM подпись ближайшего сигнала»;
-  при возврате связи дуга очищается (сервер должен прислать свою повестку сам). Слой `face/` **не менялся**:
-  значок перечёркнутого Wi-Fi там уже был.
-- Ограничение: часы колонки идут от времени сервера. После перезагрузки **без** сервера время неизвестно
-  (1970), сигналы не сработают, пока связь хоть раз не появится.
+- Server: `protocol.plan(alarms, timers)`; `Brain.plan_rows()` collects upcoming reminders (into `alarms`)
+  and timers from `set_timer` (into `timers`), up to 8 of each, labels ≤31 bytes. `Brain.plan_changed` is triggered on
+  `add_reminder`/`cancel`/`finish`/`set_timer`; `Offline` broadcasts `plan` upon connection and on every
+  change. Console: `plan` (send manually). Phone alarms (bridge) are not included in the plan yet.
+- Firmware `firmware/main/net/plan.{h,cpp}`: the plan is stored in NVS (`plan` namespace), checked once per second.
+  Due time reached and no connection (and not older than 5 min): `audio::alarm(40)` — "three beeps, pause" tone at 880/1175 Hz
+  via the standard player (overall volume) + `Wake` card with the label and «Нет связи с сервером» ("No connection to server").
+  Connection present — the speaker silently discards expired items (the server rings). Connection restored — the tone stops.
+- Label: on disconnect, the bottom arc (`ui::set_agenda`) shows «Нет связи · HH:MM <label of nearest alert>» ("No connection · HH:MM <label of nearest alert>");
+  when connection returns, the arc is cleared (the server should push its own agenda itself). The `face/` layer **was not modified**:
+  the crossed-out Wi-Fi icon was already there.
+- Limitation: the speaker clock tracks the server time. After a reboot **without** a server, the time is unknown
+  (1970), and alerts will not trigger until a connection is established at least once.
 
-## Сборка
+## Build
 
-`jarvis.bin` 0x128050 = 1 212 496 байт из 0x1c0000 (1 835 008) слота OTA, свободно 0x97fb0 (34 %). Без
-предупреждений в моих файлах. На этой машине сборка падала «out of memory» из-за параллельных сессий:
-собирал `ninja -C build -j2` в окружении idf.ps1.
+`jarvis.bin` 0x128050 = 1,212,496 bytes out of 0x1c0000 (1,835,008) OTA slot, 0x97fb0 free (34%). No
+warnings in my files. On this machine, the build failed with "out of memory" due to parallel sessions:
+built with `ninja -C build -j2` in the idf.ps1 environment.
 
-## Тесты
+## Tests
 
-Сервер: `server/tests/test_offline.py` (протокол, настройки, план из Brain, подключение, push при изменении,
-сообщение clap, консоль `clap`/`plan`, сохранение настроек). Всего 205 passed, 2 skipped.
+Server: `server/tests/test_offline.py` (protocol, settings, plan from Brain, connection, push on change,
+clap message, `clap`/`plan` console, settings persistence). Total: 205 passed, 2 skipped.
 
-## Не проверено вживую
+## Not Tested Live
 
-- Пороги хлопков откалиброваны на синтетике: реальный INMP441 в комнате может потребовать `clap on <1..10>`
-  (смотри, не срабатывает ли на речь / не пропускает ли хлопки). Журнал: «хлопки … включены».
-- Тон без связи, NVS-план, метка на экране, возврат связи — только сборка, не запуск.
-- Версию прошивки не менял (координатор).
+- Clap thresholds are calibrated on synthetic data: a real INMP441 in a room may require `clap on <1..10>`
+  (monitor whether it triggers on speech / misses claps). Log: «хлопки … включены» ("claps … enabled").
+- Tone without connection, NVS plan, screen label, connection restoration — build only, not run.
+- Firmware version was not bumped (coordinator).

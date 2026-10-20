@@ -1,124 +1,93 @@
-# ble-tuning: BLE-маячок без вреда для памяти и Wi-Fi
+# ble-tuning: BLE beacon without memory or Wi-Fi degradation
 
-Ветка `claude/ble-tuning-bf7fab`. Инструкция для пользователя: `docs/room-presence.md`. Контракт сообщений:
+Branch `claude/ble-tuning-bf7fab`. User guide: `docs/room-presence.md`. Message contract:
 `docs/protocol-next.md` (`ble_scan`, `room`, `config`).
 
-## Итог одной строкой
+## Bottom line in one sentence
 
-BLE-стек урезан до «только наблюдатель» и **включён в обычную прошивку** (`sdkconfig.defaults`), по умолчанию
-выключен. Выключенный стоит ~4,7 КБ внутренней RAM (было 24 КБ), включённый — оценка 25–35 КБ на контроллер
-(**вживую не измерено**). Скан короткий, редкий и сам встаёт на паузу при слабом Wi-Fi, звуке, обрыве связи и OTA.
+The BLE stack has been trimmed down to "observer only" and **enabled in the standard firmware** (`sdkconfig.defaults`), disabled by default. When disabled, it costs ~4.7 KB of internal RAM (down from 24 KB); when enabled, estimated at 25–35 KB for the controller (**not measured on hardware**). The scan is short, infrequent, and automatically pauses on weak Wi-Fi, audio playback, connection loss, and OTA.
 
-## Цифры (сборка `.\idf.ps1 build`, `esp_idf_size build\jarvis.map`)
+## Figures (build `.\idf.ps1 build`, `esp_idf_size build\jarvis.map`)
 
-| | Обычная 0.6.0 (без BLE) | BLE-сборка до (`sdkconfig.ble` прежний) | **BLE после (теперь обычная)** |
+| | Standard 0.6.0 (no BLE) | BLE build before (previous `sdkconfig.ble`) | **BLE after (now standard)** |
 |---|---|---|---|
-| образ `jarvis.bin` | 0x12f230 (1,24 МБ, 32 % свободно) | 0x150860 (1,38 МБ, 25 %) | **0x15a0f0 (1,42 МБ, 23 %)** |
-| IRAM `.text` (делит DIRAM с кучей), байт | 104 735 | 126 911 | **107 443** |
-| `.data` + `.bss`, байт | 24 880 + 67 568 = 92 448 | 25 876 + 68 448 = 94 324 | 25 952 + 68 496 = **94 448** |
-| всего D/IRAM статически, байт | 198 211 | 222 263 (**+24 052**) | **202 919 (+4 708)** |
-| код контроллера `libbtdm_app`, IRAM | — | 20 107 | **1 053** (`libbtdm_app_flash`: код ушёл во флеш, +39 КБ флеша) |
-| флеш (`.text`+`.rodata`), байт | 1 110 868 | 1 224 460 | 1 282 900 |
+| `jarvis.bin` image | 0x12f230 (1.24 MB, 32% free) | 0x150860 (1.38 MB, 25%) | **0x15a0f0 (1.42 MB, 23%)** |
+| IRAM `.text` (shares DIRAM with heap), bytes | 104,735 | 126,911 | **107,443** |
+| `.data` + `.bss`, bytes | 24,880 + 67,568 = 92,448 | 25,876 + 68,448 = 94,324 | 25,952 + 68,496 = **94,448** |
+| Total D/IRAM static, bytes | 198,211 | 222,263 (**+24,052**) | **202,919 (+4,708)** |
+| Controller code `libbtdm_app`, IRAM | — | 20,107 | **1,053** (`libbtdm_app_flash`: code moved to flash, +39 KB flash) |
+| Flash (`.text`+`.rodata`), bytes | 1,110,868 | 1,224,460 | 1,282,900 |
 
-Образ растёт на 175 КБ, но влезает в OTA-слот 0x1c0000 (остаётся 23 %). Файлы замеров: `size-components` показывает,
-что в IRAM остались `libbtdm_app_flash` 1 КБ, `libbt` 0,8 КБ, `libcoexist` 0,2 КБ, `libbtbb` 0,3 КБ.
+The image grows by 175 KB, but still fits into the 0x1c0000 OTA slot (23% remains). Size breakdown files: `size-components` shows remaining in IRAM are `libbtdm_app_flash` 1 KB, `libbt` 0.8 KB, `libcoexist` 0.2 KB, `libbtbb` 0.3 KB.
 
-Оценка кучи (живых замеров нет, база «~90 КБ свободно» взята из памяти проекта `speaker-wifi-barge`/`screen-design`):
+Heap estimate (no hardware measurements yet; baseline "~90 KB free" taken from memory in the `speaker-wifi-barge`/`screen-design` project):
 
-| Состояние | Внутренняя RAM свободно (оценка) |
+| State | Internal RAM free (estimate) |
 |---|---|
-| прошивка без BLE (0.6.0) | ~90 КБ |
-| BLE в образе, **выключен** | ~85 КБ (−4,7 КБ статики) |
-| BLE **включён** | ~47–57 КБ (−4,7 КБ, −25…35 КБ контроллер и его очереди, −3 КБ стек хоста) |
+| Firmware without BLE (0.6.0) | ~90 KB |
+| BLE in image, **disabled** | ~85 KB (−4.7 KB static) |
+| BLE **enabled** | ~47–57 KB (−4.7 KB, −25…35 KB controller and its queues, −3 KB host stack) |
 
-Хост NimBLE целиком в PSRAM (`MEM_ALLOC_MODE_EXTERNAL`), внутри остаются только стек его задачи (3 КБ) и то, что
-контроллер берёт из `MALLOC_CAP_INTERNAL|DMA` (в исходниках `bt.c` это жёстко, перенести контроллер в PSRAM нельзя).
+The NimBLE host is entirely in PSRAM (`MEM_ALLOC_MODE_EXTERNAL`); only its task stack (3 KB) and what the controller allocates with `MALLOC_CAP_INTERNAL|DMA` remain internal (hardcoded in `bt.c` sources, controller cannot be moved to PSRAM).
 
-## Что сделано в конфигурации (по источникам ESP-IDF 5.5.5, не по памяти)
+## What was done in configuration (from ESP-IDF 5.5.5 sources, not from memory)
 
-| Опция | Эффект |
+| Option | Effect |
 |---|---|
-| `BT_CTRL_RUN_IN_FLASH_ONLY=y` (`libbtdm_app_flash.a` есть для S3) | **главное**: IRAM −19 КБ, во флеш +39 КБ. Обработчики прерываний контроллера без `ESP_INTR_FLAG_IRAM` (проверено в `bt.c`), т.е. на время записи флеша они маскируются и крэша нет; BLE при OTA может сбиться, поэтому скан на паузе при OTA |
-| `BT_NIMBLE_ROLE_*` только `OBSERVER`, `GATT_CLIENT/SERVER=n`, `SECURITY_ENABLE=n`, `HS_PVCY=n`, `50_FEATURE_SUPPORT=n` | меньше кода хоста во флеше и статических таблиц; соединений нет, `MAX_CONNECTIONS` скрыт |
-| `BT_NIMBLE_MSYS_1_BLOCK_COUNT=8`, `MSYS_2=0`, `TRANSPORT_ACL_FROM_LL_COUNT=4`, `EVT_COUNT=8`, `EVT_DISCARD_COUNT=6`, `WHITELIST_SIZE=1`, `MAX_CCCDS=1` | пулы хоста минимальны (лежат в PSRAM, поэтому для внутренней RAM это скорее гигиена) |
-| `BT_NIMBLE_LOG_LEVEL_NONE=y`, `BT_NIMBLE_GAP_SERVICE=n` | лог хоста и служба GAP не нужны |
-| `BT_CTRL_BLE_MAX_ACT=1` | ~828 байт на «сеанс» контроллера (по Kconfig), остаётся один — скан |
-| `BT_CTRL_BLE_MASTER=n`, `BT_CTRL_BLE_ADV=n`, `BT_CTRL_BLE_SECURITY_ENABLE=n`, `BT_CTRL_DTM_ENABLE=n` | флаги функций контроллера; на сам размер prebuilt-библиотеки влияют мало, **вживую не проверено, что скан работает при выключенных ADV/MASTER** (см. «Что проверить») |
-| `BT_CTRL_BLE_SCAN_DUPL=y`, тип DEVICE, кэш 20 | контроллер сам отсекает повторы: маячок один раз за окно |
-| `BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_NUM=50` | хост хранит не больше 50 отчётов (35 Б каждый), было 100 |
-| `ESP_COEX_SW_COEXIST_ENABLE=y` (по умолчанию включается сам при Wi-Fi + BT) | программное разделение эфира; `ESP_COEX_POWER_MANAGEMENT` оставлен `n`: Wi-Fi колонки без сна (`WIFI_PS_NONE`) |
+| `BT_CTRL_RUN_IN_FLASH_ONLY=y` (`libbtdm_app_flash.a` exists for S3) | **Main change**: IRAM −19 KB, flash +39 KB. Controller interrupt handlers do not use `ESP_INTR_FLAG_IRAM` (verified in `bt.c`), meaning they are masked during flash writes and will not crash; BLE may drop frames during OTA, which is why scanning is paused during OTA |
+| `BT_NIMBLE_ROLE_*` only `OBSERVER`, `GATT_CLIENT/SERVER=n`, `SECURITY_ENABLE=n`, `HS_PVCY=n`, `50_FEATURE_SUPPORT=n` | Less host code in flash and fewer static tables; no connections, `MAX_CONNECTIONS` hidden |
+| `BT_NIMBLE_MSYS_1_BLOCK_COUNT=8`, `MSYS_2=0`, `TRANSPORT_ACL_FROM_LL_COUNT=4`, `EVT_COUNT=8`, `EVT_DISCARD_COUNT=6`, `WHITELIST_SIZE=1`, `MAX_CCCDS=1` | Minimal host pools (located in PSRAM, so this is mainly hygiene for internal RAM) |
+| `BT_NIMBLE_LOG_LEVEL_NONE=y`, `BT_NIMBLE_GAP_SERVICE=n` | Host logging and GAP service not needed |
+| `BT_CTRL_BLE_MAX_ACT=1` | ~828 bytes per controller "activity" (per Kconfig); one remains — scan |
+| `BT_CTRL_BLE_MASTER=n`, `BT_CTRL_BLE_ADV=n`, `BT_CTRL_BLE_SECURITY_ENABLE=n`, `BT_CTRL_DTM_ENABLE=n` | Controller feature flags; small effect on prebuilt library size, **not verified on hardware whether scanning works with ADV/MASTER disabled** (see "What to verify") |
+| `BT_CTRL_BLE_SCAN_DUPL=y`, type DEVICE, cache 20 | Controller filters duplicates itself: beacon reported once per window |
+| `BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_NUM=50` | Host stores at most 50 reports (35 B each), down from 100 |
+| `ESP_COEX_SW_COEXIST_ENABLE=y` (defaults to on with Wi-Fi + BT) | Software RF coexistence; `ESP_COEX_POWER_MANAGEMENT` left at `n`: speaker Wi-Fi has no power saving (`WIFI_PS_NONE`) |
 
-Что **не** сделано: аппаратного переноса контроллера в PSRAM в IDF для S3 нет; полной выгрузки стека после `ble off`
-нет (`nimble_port_deinit` не вызывается, нет возможности проверить) — память остаётся занятой до перезагрузки.
+What was **not** done: hardware support for moving the controller to PSRAM does not exist in IDF for S3; full stack unloading after `ble off` is not implemented (`nimble_port_deinit` is not called, cannot be tested) — memory remains allocated until reboot.
 
-## Wi-Fi coexistence (прошивка, `net/room.cpp`)
+## Wi-Fi coexistence (firmware, `net/room.cpp`)
 
-- Пассивный скан короткими окнами `ble_gap_disc(duration_ms)` вместо непрерывного: окно 80 мс раз в 3 с (2,7 %),
-  при устоявшемся «здесь» (≥60 с и последний цикл слышал маячок) раз в 6 с (1,3 %), ночью (`night`) раз в 15 с окном
-  200 мс (чтобы поймать рекламу раз в 100–250 мс у Android), после пропущенного цикла возврат к 3 с.
-- Пауза скана и отмена идущего: Wi-Fi колонки < −80 дБм (возврат > −77), играет динамик (`audio::playing()`),
-  нет связи с сервером и 20 с после её возврата, идёт OTA. Время паузы сдвигает «последний раз слышал», т.е. молчанием
-  маячка не считается; пауза дольше 5 минут → `room` с `src: none`.
-- Всё параметризуется `ble_scan` (`win_ms`, `every_s`, `stable_every_s`, `night_every_s`, `silence_s`, `cal_s`),
-  консоль сервера `ble tune …` (сохраняется, применяется при подключении).
-- Микрофон у колонки, судя по `keep_listening`, стримится почти всегда (слово пробуждения на сервере), поэтому
-  «пауза при разговоре» привязана к воспроизведению (`playing()`), а не к `listening`.
+- Passive scan in short windows via `ble_gap_disc(duration_ms)` instead of continuous scanning: 80 ms window every 3 s (2.7% duty cycle), when settled at "here" (≥60 s and the last cycle heard the beacon) every 6 s (1.3%), at night (`night`) every 15 s with a 200 ms window (to catch the 100–250 ms advertising interval on Android), falls back to 3 s after a missed cycle.
+- Scan pause and in-flight cancellation: speaker Wi-Fi < −80 dBm (resumes > −77), speaker playing audio (`audio::playing()`), no connection to server and for 20 s after reconnect, OTA in progress. Pause time offsets "last heard" time, so it is not counted as beacon silence; pause longer than 5 minutes → `room` with `src: none`.
+- Everything is parameterized via `ble_scan` (`win_ms`, `every_s`, `stable_every_s`, `night_every_s`, `silence_s`, `cal_s`), server console `ble tune …` (persisted, applied on connect).
+- The speaker microphone is streaming almost continuously based on `keep_listening` (wake word runs on server), so "pause during speech" is tied to audio playback (`playing()`), not `listening`.
 
-## Диагностика памяти
+## Memory diagnostics
 
-При `ble_scan on`: в журнал один раз «NimBLE поднят, внутренняя RAM X → Y (минимум Z)», один раз при первом скане,
-далее раз в минуту «свободно / минимум за всё время» (`heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`,
-а не `esp_get_minimum_free_heap_size()`, потому что последний считает и PSRAM). Те же числа в `room`
-(необязательные `heap_free`, `heap_min`), консоль `room` показывает «внутр. RAM свободно N КБ, минимум M КБ».
+On `ble_scan on`: logs once "NimBLE running, internal RAM X → Y (min Z)", once on first scan, then every minute "free / all-time min" (`heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`, rather than `esp_get_minimum_free_heap_size()`, because the latter includes PSRAM). Same figures in `room` (optional `heap_free`, `heap_min`), console `room` shows "internal RAM free N KB, min M KB".
 
-## Надёжность определения
+## Detection reliability
 
-- Медиана из трёх замеров (выброс одного пакета не двигает), EMA 0,3; «рядом» — два замера подряд выше порога
-  (первый замер сразу), «ушёл» — три подряд ниже; между порогами состояние держится (гистерезис −78/−85 как раньше).
-- «Не слышно» = 90 с, но не меньше 15 периодов скана (ночью ≈ 225 с): телефон на тумбочке с выключенным экраном
-  с рекламой 250 мс всё равно ловится, а ложные «ушёл» гасит сервер ожиданием 5 минут (`JARVIS_ROOM_AWAY_MIN`) и ночной
-  логикой `presence.py`.
-- Калибровка: консоль `room calibrate` шлёт `ble_scan` с `cal_s=30` (скан раз в секунду, окно 200 мс, `room` на
-  каждый цикл с `raw`/`heard`), через 30 с считает: порог «рядом» = 10-й процентиль RSSI − 3 дБм, «ушёл» = рядом − 7 дБм;
-  `room calibrate apply` сохраняет (`brain` pref `ble_thresh`) и шлёт `config {ble_near, ble_far}`, при каждом
-  подключении шлёт снова. Если пакетов < 5 — пишет, что проверить, и ничего не предлагает.
+- Median of three measurements (a single outlier packet does not shift state), EMA 0.3; "near" requires two consecutive readings above threshold (first reading immediately), "away" requires three consecutive below; state is held between thresholds (hysteresis −78/−85 as before).
+- "Silence" timeout = 90 s, but no fewer than 15 scan periods (at night ≈ 225 s): a phone on the nightstand with screen off and 250 ms advertising interval is still picked up, while false "away" states are suppressed by the server's 5-minute wait (`JARVIS_ROOM_AWAY_MIN`) and nighttime logic in `presence.py`.
+- Calibration: console `room calibrate` sends `ble_scan` with `cal_s=30` (scans once per second, 200 ms window, `room` emitted every cycle with `raw`/`heard`), after 30 s calculates: "near" threshold = 10th percentile RSSI − 3 dBm, "away" = near − 7 dBm; `room calibrate apply` saves (`brain` pref `ble_thresh`) and sends `config {ble_near, ble_far}`, re-sent on every reconnect. If < 5 packets received — logs suggestions on what to check and suggests nothing.
 
-## Сервер
+## Server
 
-- `jarvis/ble_calibrate.py` (новый), правки `presence.py`, `protocol.py` (аддитивно): `ble_scan(…, win_ms=…, cal_s=…)`,
-  `config(ble_near=…, ble_far=…)`, консоль `room` показывает RAM, `room calibrate [apply]`, `ble tune [k=v …|reset]`.
-- Тесты: `tests/test_presence.py`, `tests/test_protocol.py` (подмены, без железа): всего 426 passed, 1 skipped.
-- Новых переменных `.env` нет.
+- `jarvis/ble_calibrate.py` (new), changes to `presence.py`, `protocol.py` (additive): `ble_scan(…, win_ms=…, cal_s=…)`, `config(ble_near=…, ble_far=…)`, console `room` shows RAM, `room calibrate [apply]`, `ble tune [k=v …|reset]`.
+- Tests: `tests/test_presence.py`, `tests/test_protocol.py` (mocks, no hardware): total 426 passed, 1 skipped.
+- No new `.env` variables.
 
-## Решение для пользователя: BLE в обычной прошивке
+## User decision: BLE in standard firmware
 
-**Да, включён в `sdkconfig.defaults`, по умолчанию выключен** (`ble on` с сервера включает). Основание: статическая цена
-выключенного стека 4,7 КБ (оценка свободной ~85 КБ ≥ порога 60 КБ), образ 1,42 МБ при слоте 1,75 МБ. Включённый — по
-оценке ~47–57 КБ, т.е. около порога, поэтому именно `ble on` остаётся осознанным шагом пользователя. Отдельная сборка
-больше не нужна, `sdkconfig.ble` оставлен пустым стабом, чтобы старая команда не ломалась.
+**Yes, enabled in `sdkconfig.defaults`, disabled by default** (`ble on` from the server enables it). Rationale: static cost of the disabled stack is 4.7 KB (estimated free ~85 KB ≥ 60 KB threshold), image size 1.42 MB against 1.75 MB slot. Enabled — estimated ~47–57 KB, close to the threshold, so running `ble on` remains a deliberate user choice. A separate build is no longer needed; `sdkconfig.ble` is kept as an empty stub so legacy commands do not break.
 
-Важно для координатора: `firmware/sdkconfig` генерируется и в git не лежит, он **не подхватит новые умолчания** сам:
-перед сборкой удалить `firmware\sdkconfig` (и `sdkconfig.old`) либо `.\idf.ps1 fullclean`. Версию прошивки я не менял.
+Important for the coordinator: `firmware/sdkconfig` is generated and not tracked in git; it **will not pick up the new defaults** on its own: remove `firmware\sdkconfig` (and `sdkconfig.old`) or run `.\idf.ps1 fullclean` before building. I did not bump the firmware version.
 
-Откат, если вживую плохо (RAM < ~40 КБ при `ble on` или рвётся связь): `ble off`; если нужно убрать совсем — удалить
-блок «BLE-маячок» из `sdkconfig.defaults` (код `room.cpp` сам соберётся без BLE).
+Rollback if things go poorly on hardware (RAM < ~40 KB on `ble on` or connection drops): `ble off`; to remove completely — delete the "BLE beacon" block from `sdkconfig.defaults` (`room.cpp` code will build without BLE automatically).
 
-## Что должен измерить пользователь дома (не проверено вживую)
+## What the user must measure at home (not verified on hardware)
 
-1. Прошить, `ble off`: `devices` → heap (внутренняя RAM) — ожидаем ~85 КБ; потом `ble on`: смотреть в `room`
-   «внутр. RAM свободно / минимум» и в журнале строки «NimBLE поднят… X → Y». Если свободно < 40 КБ — `ble off`.
-2. Работает ли скан при `BT_CTRL_BLE_ADV=n`/`MASTER=n` (ждём `room`: `src: ble`, есть `rssi`). Если нет — вернуть эти
-   две опции в `y` в `sdkconfig.defaults`, остальное оставить.
-3. 30 минут с `ble on`: обрывы Wi-Fi/WebSocket в журнале и `rssi` в `devices`; пауза «слабый Wi-Fi» в журнале —
-   как часто (порог −80 дБм, на кухне сигнал бывает −65…−82: если скан почти всё время на паузе, поднять порог или
-   брать радар/Fritz!Box).
-4. `room calibrate` в кровати и в другой комнате, `room calibrate apply`.
-5. Выключенный экран телефона ночью: не тянется ли `room` в «нет» дольше 5 минут (OnePlus: «без ограничений»
-   для батареи у приложения HA).
-6. OTA с включённым BLE (запись флеша при контроллере во флеше): колонка должна выжить и вернуться.
+1. Flash, `ble off`: `devices` → heap (internal RAM) — expect ~85 KB; then `ble on`: observe in `room` "internal RAM free / min" and log lines "NimBLE running… X → Y". If free < 40 KB — `ble off`.
+2. Whether scanning works with `BT_CTRL_BLE_ADV=n`/`MASTER=n` (expect `room`: `src: ble`, `rssi` present). If not — revert these two options back to `y` in `sdkconfig.defaults`, leave the rest.
+3. 30 minutes with `ble on`: check logs for Wi-Fi/WebSocket disconnects and `rssi` in `devices`; check logs for "weak Wi-Fi" pauses — how frequent (threshold −80 dBm, kitchen signal fluctuates −65…−82: if scanning stays paused almost constantly, raise the threshold or use radar/Fritz!Box).
+4. `room calibrate` in bed and in another room, `room calibrate apply`.
+5. Phone screen off overnight: verify whether `room` stays stuck on "none" for longer than 5 minutes (OnePlus: "unrestricted" battery setting for HA app).
+6. OTA with BLE enabled (flash writes while controller resides in flash): the speaker must survive and reconnect.
 
-## Не сделано
+## Not done
 
-- Полная выгрузка стека при `ble off`; перенос части контроллера в PSRAM (в IDF для S3 нет).
-- Хост-тестов C++ нет (нет компилятора на хосте); логика `Filter`/планировщика проверена только чтением и сборкой.
-- Радар LD2410C не тронут. Fritz!Box TR-064 описан в `docs/room-presence.md`, не внедрён.
+- Full stack unloading on `ble off`; moving part of controller to PSRAM (not supported in IDF for S3).
+- No host C++ tests (no host compiler available); `Filter`/scheduler logic verified only by code review and build.
+- LD2410C radar untouched. Fritz!Box TR-064 documented in `docs/room-presence.md`, not implemented.

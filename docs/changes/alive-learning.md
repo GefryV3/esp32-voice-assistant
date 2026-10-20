@@ -1,39 +1,29 @@
-# alive-learning: обучение на пользователе и «живость»
+# alive-learning: user learning and «живость» ("liveliness")
 
-Новый модуль `server/jarvis/learning.py`, тесты `server/tests/test_learning.py` (13 тестов, на подменах Gemini).
+New module `server/jarvis/learning.py`, tests `server/tests/test_learning.py` (13 tests, using Gemini mocks).
 
-## Что сделано
-- **Ночная рефлексия** (около 04:00 или после 3 ч тишины, раз в сутки): Gemini (`agent_model`) читает messages за сутки,
-  возвращает JSON: fact / style / correction / habit / request / followup. Таблицы в brain.db: `learned(kind, text,
-  confidence, source, ts, applied, status, due)` и `changelog`. Уверенность >= 0.7 применяется сразу, 0.4–0.7 уходит
-  в Telegram «Заметил: …. Запомнить?» (ответ «да»/«нет» там же или голосом через `confirm_learning`), ниже выбрасывается.
-- **Подмешивание**: `voice.system_prompt(..., learned=)` (аддитивно) получает блок «Что ты о нём понял» (до 8 пунктов,
-  до 700 знаков) + строку настроения/мнений. Работает и для голоса, и для Telegram.
-- **Обратная связь**: функция Gemini `feedback(kind, note)` (wrong, too_sarcastic, too_long, too_short, good) правит
-  правила сразу; `what_changed` — журнал; `undo_change` — откат последней или по подстроке. `forget` (инструмент Гемини)
-  теперь забывает и выученное. Секреты (пароли, ключи, токены, номера карт) отсекает `looks_secret`.
-- **Живость**: `mood()` (энергия от времени суток и числа реплик, любопытство от «хвостов»), `persona()` в подсказке.
-  Спонтанные реплики (`maybe_speak`): не ночью (`routines.night`), только при `presence.here()`, не больше 3 в сутки,
-  интервал >= 3 ч, шанс на каждую минуту ~25%. Повод: созревший «хвост» (событие из рефлексии с `due`) или лёгкое замечание
-  (погода/прошлая тема). Выключатель: pref `initiative=off`.
-- **`Learning.digest(days=7)`** — строка для еженедельной сводки (выучено, принято, отклонено/откачено). Подключит habits-ops.
+## What was done
+- **Night reflection** (around 04:00 or after 3 h of silence, once a day): Gemini (`agent_model`) reads messages for the past 24 hours, returns JSON: fact / style / correction / habit / request / followup. Tables in brain.db: `learned(kind, text, confidence, source, ts, applied, status, due)` and `changelog`. Confidence >= 0.7 is applied immediately, 0.4–0.7 goes to Telegram as «Заметил: …. Запомнить?» ("Noticed: .... Remember?") (reply «да» ("yes") / «нет» ("no") right there or by voice via `confirm_learning`), below that is discarded.
+- **Injection**: `voice.system_prompt(..., learned=)` (additively) receives the block «Что ты о нём понял» ("What you understood about him") (up to 8 items, up to 700 chars) + a mood/opinion line. Works for both voice and Telegram.
+- **Feedback**: Gemini function `feedback(kind, note)` (wrong, too_sarcastic, too_long, too_short, good) updates rules immediately; `what_changed` — changelog; `undo_change` — rollback of the last change or by substring. `forget` (Gemini tool) now also forgets learned items. Secrets (passwords, keys, tokens, card numbers) are filtered out by `looks_secret`.
+- **Liveliness**: `mood()` (energy based on time of day and utterance count, curiosity based on "loose ends"), `persona()` in the prompt. Spontaneous utterances (`maybe_speak`): not at night (`routines.night`), only when `presence.here()`, no more than 3 per day, interval >= 3 h, ~25% chance per minute. Trigger: a matured "loose end" (an event from reflection with `due`) or a light remark (weather / previous topic). Kill switch: pref `initiative=off`.
+- **`Learning.digest(days=7)`** — a string for the weekly summary (learned, accepted, rejected/reverted). Will be wired up by habits-ops.
 
-## Правки в общих файлах (минимальные)
-`brain.py` (поле `learning`, инструменты, forget), `voice.py` (параметр `learned`), `telegram.py` («да/нет», `/learned`),
-`console.py` (модуль в списке команд), `__main__.py` (создание и запуск).
+## Changes in shared files (minimal)
+`brain.py` (`learning` field, tools, forget), `voice.py` (`learned` parameter), `telegram.py` («да/нет» ["yes/no"], `/learned`), `console.py` (module in the command list), `__main__.py` (instantiation and startup).
 
-## Консоль / Telegram
-`learned` (список + журнал), `learned reflect`, `learned undo [текст]`, `learned digest`, `learned yes|no`, `learned speak`.
+## Console / Telegram
+`learned` (list + log), `learned reflect`, `learned undo [text]`, `learned digest`, `learned yes|no`, `learned speak`.
 
-## Новых переменных .env нет
-Модель берётся из `JARVIS_AGENT_MODEL`. Включено, если есть GEMINI_API_KEY и голос.
+## No new .env variables
+The model is taken from `JARVIS_AGENT_MODEL`. Enabled if GEMINI_API_KEY and voice are present.
 
-## Не проверено вживую
-Реальный ответ Gemini на REFLECT_PROMPT (формат JSON, качество пунктов), живое звучание спонтанных реплик, Telegram-диалог «да/нет».
-Тесты: весь набор server — 207 прошло, 2 пропущено.
+## Not tested live
+Actual Gemini response to REFLECT_PROMPT (JSON format, quality of items), live sound of spontaneous utterances, Telegram «да/нет» dialog.
+Tests: full server suite — 207 passed, 2 skipped.
 
-## Осталось / на стыке
-- Уведомление «что нового» в сводке: вызвать `brain.learning.digest()` из habits-ops.
-- Настроение пока только текстовая строка в подсказке (на экран не передаётся).
-- Нет голосового «не слушай»: инициатива молчит при `presence away` и pref `initiative=off`.
-- Подсказка Live обновляется при новой сессии, поэтому новое правило с голоса вступает в силу со следующего разговора.
+## Remaining / at the boundaries
+- "What's new" notification in the summary: call `brain.learning.digest()` from habits-ops.
+- Mood is currently only a text string in the prompt (not sent to the screen).
+- No voice command for «не слушай» ("don't listen"): initiative stays silent during `presence away` and pref `initiative=off`.
+- The Live prompt is updated on a new session, so a new rule learned via voice takes effect starting from the next conversation.

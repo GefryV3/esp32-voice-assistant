@@ -1,69 +1,75 @@
-# night-voice: ночной голос, характер, тишина, откат при 503
+# night-voice: night voice, character, quiet mode, fallback on 503
 
-Ветка `claude/night-voice-85eb78`. Тесты: `server/tests/test_night_voice.py` (17 новых), всего 212 прошло, 2 пропущено.
-**Вживую ничего не проверено** (Gemini, колонка, Vosk).
+Branch `claude/night-voice-85eb78`. Tests: `server/tests/test_night_voice.py` (17 new), 212 passed in total, 2 skipped.
+**Nothing has been verified live** (Gemini, smart speaker, Vosk).
 
-## Что сделано
+## What has been done
 
-1. **Ночью тише и короче (#2).** Окно `night_start..night_end` из `SettingsStore`. На время разговора
-   (`Conversation.run`) громкость динамика = 45% дневной (не ниже 8, не громче дневной), после разговора
-   возвращается текущая `volume` из настроек (сами настройки не меняются). В подсказку добавлен блок «ночь: тихо,
-   коротко, одной фразой» (`character.NIGHT_NOTE`); напоминания ночью просят «вполголоса». Будильник идёт
-   не через голос, он не затронут. Подсказка заготовленной сессии может отставать до 150 с от границы ночи,
-   громкость решается в момент разговора.
-2. **Affective по умолчанию (#22).** `JARVIS_AFFECTIVE` по умолчанию `1`; сохранённый pref (`affect off`) главнее.
-   Если сессия с affective не подключилась (не перегрузка), `Voice._connect_live` сразу открывает обычную и
-   10 минут (`AFFECTIVE_OFF_S`) не пробует affective; запись `WARNING` в журнал.
-3. **Характер по времени суток (#23).** `character.py`: утро (5–11) −15 к язвительности и мягкая заметка,
-   вечер (18–23) +15, с 23:00 до 5 −30 («спокойно»). Если ползунок ниже 45, число не трогаем (только заметка
-   не добавляется). Работает и в подсказке Telegram (она общая).
-4. **«Не слушай» (#31).** Функция `mute_listening(minutes)` (1…480, по умолчанию 60) в `brain.TOOLS`, исполняется
-   через `Brain.mute_hook` → `quiet.Quiet`. Шлёт колонке `{"type":"quiet","on":true}`, звук в Gemini и в детектор
-   слова не идёт; текущий разговор после подтверждения заканчивается. Выход: таймер, фраза «вернись»,
-   консоль `mute off`.
-   **Выбор:** в тишине сервер сам слушает локальным Vosk только слова «мага» и «вернись» (`quiet.VoskWords`).
-   «Вернись» → `quiet off` + `listen_start` и короткое «Слушаю»; «мага» → «Я молчу. Скажи: Мага, вернись»
-   (озвучивает Gemini по текстовой подсказке при закрытом микрофоне, `Conversation(one_shot=True)`; не чаще раза
-   в 20 с). Напоминания и фоновые результаты в тишине звучат, но без открытия микрофона.
-   **Расхождение с контрактом:** `protocol-next.md` говорит, что в `quiet` колонка не шлёт звук вовсе, тогда слова
-   «вернись» сервер не услышит. Нужно, чтобы прошивка в `quiet` продолжала слать звук серверу (только рисовала
-   точку и «Тишина»), либо выход только по таймеру/консоли/Telegram. Передайте прошивочной сессии.
-   Состояние тишины живёт в памяти: перезапуск сервера её снимает.
-5. **Откат при 503 (#35).**
-   - Голос: `LiveSession.__aenter__` теперь превращает отказ рукопожатия (`InvalidStatus`, 503) в `LiveError`.
-     При перегрузке `Voice._connect_live` пробует `JARVIS_GEMINI_FALLBACK_MODEL` и держится за ней 120 с;
-     об этом Gemini один раз за 10 минут говорит сам (фраза в подсказке сессии). Нет запасной или она тоже упала:
-     подпись на экране «Gemini перегружен, попробуй позже».
-   - Фоновые агенты: на 503/перегрузку тот же запрос на `JARVIS_FALLBACK_TEXT_MODEL`; результат озвучивается
-     с пометкой раз в 10 минут; без отката причина «Gemini перегружен».
-   - Telegram: прежняя логика не тронута; новое: при втором 503 подряд (и если задана запасная модель) уход на
-     запасную, в ответ раз в 10 минут добавляется «⚠ Основная модель перегружена…».
+1. **Quieter and shorter at night (#2).** The `night_start..night_end` window from `SettingsStore`. For the duration of
+   a conversation (`Conversation.run`), speaker volume = 45% of daytime volume (not lower than 8, not louder than
+   daytime); after the conversation, the current `volume` from settings is restored (settings themselves do not
+   change). A prompt block has been added: "night: quietly, briefly, in a single phrase" (`character.NIGHT_NOTE`);
+   reminders at night ask for «вполголоса» ("in an undertone"). The alarm clock does not go through voice, it is
+   unaffected. The prompt of a pre-warmed session can lag behind the night boundary by up to 150 s; volume is decided
+   at the moment of the conversation.
+2. **Affective by default (#22).** `JARVIS_AFFECTIVE` defaults to `1`; a saved pref (`affect off`) takes precedence.
+   If an affective session fails to connect (not an overload), `Voice._connect_live` immediately opens a standard one
+   and does not attempt affective for 10 minutes (`AFFECTIVE_OFF_S`); a `WARNING` entry is logged.
+3. **Character by time of day (#23).** `character.py`: morning (5–11) −15 to sarcasm and a gentle note, evening
+   (18–23) +15, from 23:00 to 5 −30 ("calm"). If the slider is below 45, the number is left untouched (only the note
+   is omitted). Also works in the Telegram prompt (which is shared).
+4. **"Do not listen" (#31).** Function `mute_listening(minutes)` (1…480, default 60) in `brain.TOOLS`, executed via
+   `Brain.mute_hook` → `quiet.Quiet`. Sends `{"type":"quiet","on":true}` to the speaker, audio does not go to Gemini
+   or the wake word detector; the current conversation ends after confirmation. Exit: timer, the phrase «вернись»
+   ("come back"), console `mute off`.
+   **Design choice:** in quiet mode, the server itself listens with local Vosk only for the words «мага» ("maga") and
+   «вернись» (`quiet.VoskWords`). «Вернись» → `quiet off` + `listen_start` and a brief «Слушаю» ("Listening"); «мага» →
+   «Я молчу. Скажи: Мага, вернись» ("I'm keeping quiet. Say: Maga, come back") (voiced by Gemini via text prompt with
+   the microphone closed, `Conversation(one_shot=True)`; no more than once per 20 s). Reminders and background results
+   still play audio in quiet mode, but without opening the microphone.
+   **Contract discrepancy:** `protocol-next.md` states that in `quiet` mode the speaker does not send audio at all,
+   meaning the server will not hear the word «вернись». The firmware needs to keep streaming audio to the server in
+   `quiet` (only drawing the dot and «Тишина» ("Quiet")), or exiting must rely solely on the timer/console/Telegram.
+   Pass this on to the firmware session.
+   Quiet state lives in memory: a server restart clears it.
+5. **Fallback on 503 (#35).**
+   - Voice: `LiveSession.__aenter__` now turns a handshake rejection (`InvalidStatus`, 503) into `LiveError`. On
+     overload, `Voice._connect_live` tries `JARVIS_GEMINI_FALLBACK_MODEL` and sticks with it for 120 s; Gemini announces
+     this once per 10 minutes itself (phrase in the session prompt). If there is no fallback model or it also fails:
+     screen caption «Gemini перегружен, попробуй позже» ("Gemini is overloaded, try again later").
+   - Background agents: on 503/overload, the same request is sent to `JARVIS_FALLBACK_TEXT_MODEL`; the result is
+     voiced with a notice once per 10 minutes; without fallback, the reason is «Gemini перегружен».
+   - Telegram: existing logic untouched; new: on the second consecutive 503 (and if a fallback model is set), switch
+     to the fallback, with «⚠ Основная модель перегружена…» ("⚠ Primary model is overloaded…") appended to the reply
+     once per 10 minutes.
 
-## Новые переменные `.env` (все необязательные)
+## New `.env` variables (all optional)
 
-- `JARVIS_AFFECTIVE` (теперь по умолчанию `1`).
-- `JARVIS_GEMINI_FALLBACK_MODEL` (по умолчанию `gemini-live-2.5-flash-preview`; **имя не проверено**, пусто = без отката).
-- `JARVIS_FALLBACK_TEXT_MODEL` (по умолчанию `gemini-flash-latest`, пусто = без отката).
+- `JARVIS_AFFECTIVE` (now defaults to `1`).
+- `JARVIS_GEMINI_FALLBACK_MODEL` (defaults to `gemini-live-2.5-flash-preview`; **name unverified**, empty = no fallback).
+- `JARVIS_FALLBACK_TEXT_MODEL` (defaults to `gemini-flash-latest`, empty = no fallback).
 
-## Консоль
+## Console
 
-`mute <минуты>` / `mute off` / `mute` (сколько осталось).
+`mute <minutes>` / `mute off` / `mute` (remaining time).
 
-## Затронутые общие файлы (аддитивно)
+## Affected shared files (additive)
 
-`voice.py` (подсказка, громкость, `_connect_live`, `one_shot`, хуки тишины), `brain.py` (инструмент + хук),
-`config.py`, `gemini_live.py` (503 → LiveError), `agents.py`, `telegram.py`, `__main__.py` (слушатель тишины,
-запасные модели), `.env.example`. Новые модули: `character.py`, `quiet.py`, `gemini_fallback.py`.
+`voice.py` (prompt, volume, `_connect_live`, `one_shot`, quiet hooks), `brain.py` (tool + hook), `config.py`,
+`gemini_live.py` (503 → LiveError), `agents.py`, `telegram.py`, `__main__.py` (quiet listener, fallback models),
+`.env.example`. New modules: `character.py`, `quiet.py`, `gemini_fallback.py`.
 
-## Проверить вживую
+## Verify live
 
-- Ночью: громкость падает на разговор и возвращается; фразы короткие.
-- Affective реально принят выбранной моделью (иначе журнал покажет откат; при постоянном откате выставьте `JARVIS_AFFECTIVE=0`).
-- «Мага, не слушай час»: что колонка слала в `quiet` и слышит ли сервер «вернись» (см. расхождение выше).
-- Vosk принимает «вернись» (грамматика из слов + приманки, возможны промахи).
-- Имя запасной Live-модели и что она принимает тот же setup.
+- At night: volume drops during conversations and restores afterward; phrases are short.
+- Affective is actually accepted by the chosen model (otherwise the log will show fallback; set `JARVIS_AFFECTIVE=0` if
+  it falls back permanently).
+- «Мага, не слушай час» ("Maga, do not listen for an hour"): what the speaker sent in `quiet` and whether the server
+  hears «вернись» (see discrepancy above).
+- Vosk accepts «вернись» (grammar of target words + lures, misdetections possible).
+- Name of the fallback Live model and that it accepts the same setup.
 
-## Осталось / вопросы
+## Remaining / open questions
 
-- Решить расхождение по `quiet` с прошивкой (выше).
-- Подтвердить имя запасной Live-модели (нужна доступная пользователю).
+- Resolve the `quiet` discrepancy with the firmware (above).
+- Confirm the fallback Live model name (must be accessible to the user).
