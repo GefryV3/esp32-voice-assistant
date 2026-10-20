@@ -1265,6 +1265,7 @@ void render_strip(const Scene &s, uint32_t g) {
     draw_card(s);
     draw_task(s);
     draw_reminders(s);
+    draw_quiet(s);
     draw_game(s);
     draw_zs(s);
   }

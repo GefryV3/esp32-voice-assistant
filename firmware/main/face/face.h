@@ -57,6 +57,7 @@ struct Input {
   int game_p0 = 0, game_p1 = 0;
   char game_board[10] = ".........";
   int reminders = 0;
+  bool quiet = false;  // тихий режим: точка и «Тишина»
   // микрофон (считается на колонке, звук никуда не уходит): уровень 0…1, счётчики событий
   float mic_level = 0;
   uint32_t bang_n = 0, beat_n = 0;  // резкий громкий звук (хлопок, стук) / удар ритма
@@ -129,7 +130,7 @@ struct Scene {
   char board[10] = ".........";
   float cell_a[9] = {};
   int reminders = 0;
-  float rem_a = 0;
+  float rem_a = 0, quiet_a = 0;
 };
 
 bool init();

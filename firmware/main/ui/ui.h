@@ -30,6 +30,7 @@ void set_task(face::Task state, const char *label, int pct);
 // p1 выпало; камень-ножницы-бумага: p0 мой, p1 исход; шар: p0 ответ; крестики: board 9 символов).
 void set_game(face::Game g, int p0, int p1, const char *board, uint32_t ms);
 void set_reminders(int count);
+void set_quiet(bool on);  // «не слушай»: только вид, микрофонный поток не трогаем
 
 uint32_t fps();  // кадров в секунду за последние ~5 с
 
