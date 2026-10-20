@@ -56,40 +56,10 @@
 
 ## Как устроено
 
-```mermaid
-flowchart LR
-    subgraph Speaker["Колонка · ESP32-S3 · C++ / ESP-IDF"]
-        MIC["Микрофон INMP441"]
-        SPK["Динамик MAX98357A"]
-        LCD["Круглый экран GC9A01"]
-    end
-
-    subgraph Server["Мозг · Python asyncio"]
-        HUB["Хаб устройств"]
-        WAKE["Слово пробуждения<br/>Vosk · openWakeWord"]
-        VOICE["Голосовая сессия"]
-        BRAIN["Инструменты · память · рутины<br/>агенты · навыки"]
-    end
-
-    PHONE["Android-приложение<br/>Kotlin · Compose"]
-    PC["Агент на ПК"]
-    TG["Telegram-бот"]
-    HA["Home Assistant"]
-    GEM["Gemini Live API"]
-    WEB["Google API · поиск ·<br/>погода · транспорт"]
-
-    MIC -- "PCM 16 кГц" --> HUB
-    HUB -- "PCM 24 кГц" --> SPK
-    HUB -- "команды JSON" --> LCD
-    HUB --> WAKE --> VOICE
-    VOICE <--> GEM
-    VOICE <--> BRAIN
-    BRAIN <-- "WebSocket API" --> HA
-    BRAIN --> WEB
-    PHONE <-- WebSocket --> HUB
-    PC <-- WebSocket --> HUB
-    TG <--> BRAIN
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark-ru.svg">
+  <img src="docs/images/architecture-light-ru.svg" alt="Схема: колонка, телефон, ПК и Telegram подключены к мозгу на Python, а он — к Gemini Live, Home Assistant и веб-сервисам" width="100%">
+</picture>
 
 **Принципы**
 

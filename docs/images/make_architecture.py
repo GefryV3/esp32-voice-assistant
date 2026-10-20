@@ -122,7 +122,7 @@ TEMPLATE = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 530" widt
 </svg>
 """
 
-out = Path(r"C:\dev\jarvis\docs\images")
+out = Path(__file__).resolve().parent
 for name, c in THEMES.items():
     body = BODY
     for k, v in c.items():

@@ -62,40 +62,10 @@ The assistant speaks Russian, is named «Мага», and has a deliberately sarc
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Speaker["Speaker · ESP32-S3 · C++ / ESP-IDF"]
-        MIC["INMP441 microphone"]
-        SPK["MAX98357A speaker"]
-        LCD["GC9A01 round display"]
-    end
-
-    subgraph Server["Brain · Python asyncio"]
-        HUB["Device hub"]
-        WAKE["Wake word<br/>Vosk · openWakeWord"]
-        VOICE["Voice session"]
-        BRAIN["Tools · memory · routines<br/>agents · skills"]
-    end
-
-    PHONE["Android app<br/>Kotlin · Compose"]
-    PC["PC agent"]
-    TG["Telegram bot"]
-    HA["Home Assistant"]
-    GEM["Gemini Live API"]
-    WEB["Google APIs · search ·<br/>weather · transit"]
-
-    MIC -- "PCM 16 kHz" --> HUB
-    HUB -- "PCM 24 kHz" --> SPK
-    HUB -- "JSON commands" --> LCD
-    HUB --> WAKE --> VOICE
-    VOICE <--> GEM
-    VOICE <--> BRAIN
-    BRAIN <-- "WebSocket API" --> HA
-    BRAIN --> WEB
-    PHONE <-- WebSocket --> HUB
-    PC <-- WebSocket --> HUB
-    TG <--> BRAIN
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
+  <img src="docs/images/architecture-light.svg" alt="Architecture: speaker, phone, PC and Telegram connect to the Python brain, which talks to Gemini Live, Home Assistant and web services" width="100%">
+</picture>
 
 **Design principles**
 
