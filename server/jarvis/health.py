@@ -94,6 +94,9 @@ def _level(v: Any) -> int | None:
 
 
 class Health:
+    TOOLS = TOOLS
+    tool_names = frozenset(t["name"] for t in TOOLS)
+
     def __init__(self, *, hub=None, bridge=None, ha=None, google=None, errors: ErrorLog = GEMINI_ERRORS,
                  started: float | None = None, clock: Callable[[], float] = time.time,
                  now: Callable[[], datetime] = datetime.now, version: str = __version__):

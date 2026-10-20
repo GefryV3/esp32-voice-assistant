@@ -113,3 +113,12 @@ async def test_report_without_optional_parts_and_console():
     assert r["home_assistant"] == "не настроен" and r["google"] == "не настроен" and r["batteries"] == "данных нет"
     assert "server_version" in await h.command("health")
     assert await h.command("что-то") is None
+
+
+async def test_health_as_brain_extension(tmp_path):
+    # 0.14.0 падал на каждом разговоре: у Health не было .TOOLS, а Brain.tools() их собирает
+    brain = Brain(tmp_path / "b.db")
+    brain.extensions = [Health(errors=ErrorLog())]
+    assert "health_report" in {t["name"] for t in brain.tools()}
+    r = await brain.call("health_report", {}, None)
+    assert "server_version" in r
