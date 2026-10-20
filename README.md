@@ -170,7 +170,7 @@ Most documents are written in Russian.
 
 ## Status
 
-The project is in active development and runs daily at home. Current versions: **server 0.13.1**, **firmware 0.6.0**.
+The project is in active development and runs daily at home. Current versions: **server 0.13.1**, **firmware 0.7.0**, **Android app 0.4.1**.
 Next up: training a wake-word model that runs on the speaker itself (microWakeWord / TFLite Micro), so the
 microphone stream only leaves the device after the wake word.
 
