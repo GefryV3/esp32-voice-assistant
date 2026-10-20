@@ -288,7 +288,7 @@ def notify(kind: str, title: str, text: str = "", app: str = "", ms: int = 8000,
 def task_status(state: str, label: str = "", pct: int = -1) -> Message:
     """Ход длинной задачи (Claude Code, агенты): кольцо по краю экрана. pct -1 — процент неизвестен."""
     return {"type": "task_status", "state": _one_of("state", state, TASK_STATES),
-            "label": _text("label", label, 31), "pct": _int_in("pct", pct, -1, 100)}
+            "label": _fit(label, 31), "pct": _int_in("pct", pct, -1, 100)}
 
 
 def notify_hide() -> Message:
@@ -300,3 +300,15 @@ def player(state: str, title: str = "", artist: str = "", pos_ms: int = 0, dur_m
     return {"type": "player", "state": _one_of("state", state, ("playing", "paused", "none")),
             "title": _clip(title, 60), "artist": _clip(artist, 47),
             "pos": max(0, int(pos_ms)) // 1000, "dur": max(0, int(dur_ms)) // 1000}
+
+
+
+
+def _fit(value: str, max_bytes: int) -> str:
+    """Строго не длиннее max_bytes байт UTF-8 (с «…», если пришлось обрезать)."""
+    data = value.encode()
+    if len(data) <= max_bytes:
+        return value
+    return data[:max_bytes - 3].decode(errors="ignore").rstrip() + "…"
+
+

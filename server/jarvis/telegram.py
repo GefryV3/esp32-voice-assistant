@@ -50,6 +50,8 @@ CHAT_NOTE = """
 не относится. Можно короткие списки и числа цифрами, но без длинных простыней и без разметки
 Markdown. Отвечай по-русски."""
 
+SKILL_COMMANDS = ("skills", "approve", "reject", "enable", "disable", "reload", "diff")
+
 Http = Callable[[str, dict[str, Any], dict[str, str], float], Awaitable[dict]]
 
 
@@ -132,6 +134,7 @@ class Telegram:
         self._fell_back = False                   # в этом запросе пришлось уйти на запасную модель
         self.upload = upload
         self.presence = None     # Presence: команда «presence here|away|auto» из чата
+        self.skills = None       # SkillRequests: /skills, /approve, /reject, /enable, /diff
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
         self._offset = 0
         self._task: asyncio.Task | None = None
@@ -259,6 +262,11 @@ class Telegram:
         if text.split()[0].lower().lstrip("/") == "presence" and self.presence is not None:
             await self.send(await self.presence.command("presence " + " ".join(text.split()[1:])) or "", chat_id)
             return
+        if self.skills is not None and text.split()[0].lower().lstrip("/") in SKILL_COMMANDS:
+            out = await self.skills.command(text)
+            if out is not None:
+                await self.send(out, chat_id)
+                return
         try:
             reply = await self.ask(chat_id, text)
         except Exception as e:

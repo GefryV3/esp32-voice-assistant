@@ -73,6 +73,8 @@ class DeviceHub:
         self.routines: Any = None  # рутины (jarvis.routines), если включены
         self.lights: Any = None    # сценарии света (jarvis.lights)
         self.telegram: Any = None  # Telegram-бот (jarvis.telegram), если задан токен
+        self.skills: Any = None    # предложения навыков (jarvis.skill_requests)
+        self.claude: Any = None    # ход сессий Claude Code (jarvis.claude_status)
 
     # ── жизненный цикл ──
 

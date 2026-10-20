@@ -112,6 +112,7 @@ def test_task_status_validates():
     assert protocol.task_status("done", "Сборка", 100) == {
         "type": "task_status", "state": "done", "label": "Сборка", "pct": 100}
     for bad in (lambda: protocol.task_status("busy"), lambda: protocol.task_status("working", "x", 101),
-                lambda: protocol.task_status("working", "x", -2), lambda: protocol.task_status("working", "я" * 16)):
+                lambda: protocol.task_status("working", "x", -2)):
         with pytest.raises(ValueError):
             bad()
+    assert len(protocol.task_status("working", "я" * 16)["label"].encode()) <= 31     # длинная подпись обрезается

@@ -23,6 +23,8 @@ from .lights import TOOLS as LIGHT_TOOLS
 from .games import TOOLS as GAME_TOOLS, Games
 from .german import TOOLS as GERMAN_TOOLS, German
 from .morning import TOOL_NAMES as MORNING_TOOL_NAMES
+from .skill_requests import SkillRequests, TOOLS as SKILL_REQUEST_TOOLS
+from .skills_loader import MANAGE_TOOLS as SKILL_MANAGE_TOOLS, SkillLoader
 
 log = logging.getLogger(__name__)
 
@@ -70,8 +72,6 @@ TOOLS: list[dict[str, Any]] = [
      "истечении времени. minutes: на сколько минут (1…480), по умолчанию 60. Сначала скажи короткое "
      "подтверждение, потом вызови.",
      "parameters": {"type": "OBJECT", "properties": {"minutes": {"type": "NUMBER"}}}},
-    {"name": "current_time", "description": "Точное текущее время и дата.",
-     "parameters": {"type": "OBJECT", "properties": {}}},
     {"name": "forget", "description": "Забыть факты, в тексте которых есть эта подстрока.",
      "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING"}}, "required": ["text"]}},
     {"name": "add_reminder", "description": "Поставить напоминание. Укажи либо minutes (через сколько "
@@ -100,7 +100,8 @@ def when_words(due: datetime, now: datetime) -> str:
 
 class Brain:
     def __init__(self, path: Path | str, now: Callable[[], datetime] = datetime.now,
-                 ha: HomeAssistant | None = None, agents: Agents | None = None, google: Google | None = None):
+                 ha: HomeAssistant | None = None, agents: Agents | None = None, google: Google | None = None,
+                 skills_dir: Path | None = None):
         self.now = now
         self.google = google
         self.ha = ha
@@ -120,6 +121,12 @@ class Brain:
         self.on_message: Callable[[], None] | None = None   # зовётся после каждой записи в общую историю
         self.plan_changed: Callable[[], None] | None = None  # напоминания/таймеры поменялись: обновить план колонки
         self.timers: list[tuple[float, str]] = []            # (Unix-время срабатывания, подпись) — для плана колонки
+        self.on_notice: Callable[[str], Awaitable[object]] | None = None   # сообщение пользователю (Telegram): навык упал и т. п.
+        reserved = {t["name"] for t in TOOLS + HOME_TOOLS + AGENT_TOOLS + GOOGLE_TOOLS + SKILL_MANAGE_TOOLS + SKILL_REQUEST_TOOLS + LIGHT_TOOLS + GERMAN_TOOLS + GAME_TOOLS}
+        self.skills = SkillLoader(self.db, now=now, data_dir=Path(path).parent, services={"ha": ha, "google": google},
+                                  reserved=reserved, notify=self._notice, **({"dir": skills_dir} if skills_dir else {}))
+        self.skills.load_all()
+        self.skill_requests = SkillRequests(self.db, loader=self.skills, now=now)
 
     # ── общая история разговоров (голос и Telegram) ──
     #
@@ -224,11 +231,15 @@ class Brain:
                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
         self.db.commit()
 
+    def _notice(self, text: str):
+        return self.on_notice(text) if self.on_notice else None
+
     def tools(self) -> list[dict[str, Any]]:
         extra = [t for ext in self.extensions for t in ext.TOOLS]
         return (TOOLS + GERMAN_TOOLS + GAME_TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
                 + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
-                + (self.morning.tools() if self.morning else []) + extra)
+                + (self.morning.tools() if self.morning else []) + extra
+                + self.skills.tools() + SKILL_MANAGE_TOOLS + SKILL_REQUEST_TOOLS)
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -247,6 +258,12 @@ class Brain:
                 return await ext.call(name, args)
         if name == "save_idea" and self.google:
             return await self.google.call(name, args)
+        if self.skills.owns(name):
+            return await self.skills.call(name, args)
+        if name == "skills_manage":
+            return await self.skills.manage(args)
+        if name in ("propose_skill", "skill_decision"):
+            return await self.skill_requests.call(name, args)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
         if name in MORNING_TOOL_NAMES and self.morning:
@@ -283,8 +300,6 @@ class Brain:
             if self.mute_hook is None:
                 return {"ok": False, "error": "голоса нет, режим тишины недоступен"}
             return await self.mute_hook(args.get("minutes"))
-        if name == "current_time":
-            return {"time": f"{now:%H:%M}", "date": f"{now:%d.%m.%Y}", "weekday": now.strftime("%A")}
         if name == "remember":
             return {"ok": True, "new": self.remember(str(args.get("fact", "")))}
         if name == "forget":

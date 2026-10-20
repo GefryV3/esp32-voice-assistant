@@ -12,7 +12,7 @@ import hmac
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -146,6 +146,8 @@ class Bridge:
         self._loop_task: asyncio.Task | None = None
         self.on_wake: Callable[[], None] | None = None   # будильник выключен — человек проснулся
         self.on_slept: Callable[[float, datetime], None] | None = None   # (часов сна, когда лёг) — для недельной сводки
+        self.on_pc_event: Callable[[Message], Awaitable[None]] | None = None   # skill_progress / skill_result от ноутбука
+        self.on_pc_connect: Callable[[], Awaitable[None]] | None = None        # ноутбук подключился
         self._background: set[asyncio.Task] = set()
         self._last_screen: dict[str, Any] = {}
         hub.bridge = self
@@ -304,6 +306,8 @@ class Bridge:
         self._replace(old)
         log.info("подключился компьютер")
         await self.push_settings()
+        if self.on_pc_connect is not None:
+            await self.on_pc_connect()
         try:
             await self._serve(ws, peer, self.on_pc)
         finally:
@@ -389,6 +393,9 @@ class Bridge:
             self.pc.state.update({k: v for k, v in msg.items() if k != "type"})
             await self._check_battery("Ноутбук", self.pc.state.get("battery", -1),
                                       bool(self.pc.state.get("charging")))
+        elif msg["type"] in ("skill_progress", "skill_result"):
+            if self.on_pc_event is not None:
+                await self.on_pc_event(msg)
         elif msg["type"] == "to_phone":
             url = str(msg.get("url", "")).strip()
             if url and self.phone is not None:
