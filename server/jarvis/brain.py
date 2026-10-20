@@ -20,6 +20,8 @@ from .google import TOOLS as GOOGLE_TOOLS, Google
 from .agents import TOOLS as AGENT_TOOLS, Agents
 from .ha import TOOLS as HOME_TOOLS, HomeAssistant
 from .lights import TOOLS as LIGHT_TOOLS
+from .games import TOOLS as GAME_TOOLS, Games
+from .german import TOOLS as GERMAN_TOOLS, German
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +111,8 @@ class Brain:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
         self.db.commit()
+        self.german = German(self.db, lambda: self.now(), self.pref, self.set_pref, lambda: self.google is not None)
+        self.games = Games(self.db, lambda: self.now(), self.german)
         self._task: asyncio.Task | None = None
         self.on_message: Callable[[], None] | None = None   # зовётся после каждой записи в общую историю
         self.plan_changed: Callable[[], None] | None = None  # напоминания/таймеры поменялись: обновить план колонки
@@ -218,7 +222,7 @@ class Brain:
         self.db.commit()
 
     def tools(self) -> list[dict[str, Any]]:
-        return TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
+        return TOOLS + GERMAN_TOOLS + GAME_TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else []) + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -238,6 +242,10 @@ class Brain:
             return await self.google.call(name, args)
         if name in ("start_task", "list_tasks", "cancel_task") and self.agents:
             return await self.agents.call(name, args)
+        if name in self.german.names:
+            return await self.german.call(name, args)
+        if name in self.games.names:
+            return await self.games.call(name, args, send)
         if name == "set_voice":
             wanted = str(args.get("name", "")).strip().casefold()
             match = next((v for v in VOICES if v.casefold() == wanted), None)
@@ -296,6 +304,24 @@ class Brain:
             await send(protocol.timer(max(sec, 0), str(args.get("label", ""))))
             return {"ok": True, "seconds": max(sec, 0)}
         return {"ok": False, "error": f"нет такого инструмента: {name}"}
+
+    def end_conversation(self) -> None:
+        """Разговор кончился: режим немецкого и игра живут только на один разговор."""
+        self.german.reset()
+        self.games.reset()
+
+    @property
+    def long_talk(self) -> bool:
+        """Идёт немецкий или игра: паузы между репликами длиннее (человек думает над ответом)."""
+        return self.german.active or self.games.active
+
+    async def command(self, line: str) -> str | None:
+        cmd, _, rest = line.strip().partition(" ")
+        if cmd.lower() == "de":
+            return await self.german.command(rest)
+        if cmd.lower() == "game":
+            return await self.games.command(rest)
+        return None
 
     # ── планировщик: напомнить в срок ──
 
