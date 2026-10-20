@@ -46,8 +46,9 @@ enum Param {
   GXL, GYL, GXR, GYR,  // взгляд у глаз чуть разный по скорости — живее синхронного робота
   FACE_Y, SCALE, CLOCK_Y, CLOCK_SIZE, CLOCK_A, WX_A, CAP_A, TIMER_A,
   RING, RING_W, THINK, ALERT, GLOW, BG, ARC_A, AURA, CARD_A, REVEAL, AURA_SPEED,
+  TASK_A, TASK_FRAC, GAME_A, REM_A,
   CR, CG, CB, GR, GG, GB, A0R, A0G, A0B, A1R, A1G, A1B, A2R, A2G, A2B, ACR, ACG, ACB,
-  INKR, INKG, INKB,
+  INKR, INKG, INKB, ALR, ALG, ALB,
   PARAM_N
 };
 
@@ -59,6 +60,7 @@ const float AMBER[3] = {255, 196, 110}, AMBER_GLOW[3] = {255, 128, 20};
 const float RED[3] = {255, 96, 72}, RED_GLOW[3] = {190, 24, 12};  // ночь: красный, как на Apple Watch
 const float CALL_GLOW[3] = {48, 209, 120};
 const float INK[3] = {236, 240, 247}, INK_RED[3] = {255, 80, 60};
+const float AL_AMBER[3] = {255, 140, 20}, AL_GREEN[3] = {48, 209, 88}, AL_RED[3] = {255, 60, 40};
 
 // Живой фон: три мягких пятна, цвет по времени суток; accent — для подписей и колец
 struct Palette {
@@ -114,10 +116,27 @@ struct State {
   } zs[3] = {};
   int nz = 0;
   uint32_t next_z = 0;
+  // слух, события и мелкая моторика глаз
+  bool tbig = false, game_now = false;
+  bool ears_init = false, flinch_on = false, force_center = false;
+  uint32_t last_bang = 0, last_beat = 0, flinch_at = 0, beat_at = 0, last_beat_seen = 0, fail_kick = 0;
+  int beat_i = 0;
+  uint32_t next_jit = 0;
+  float jit_x = 0, jit_y = 0;
+  uint32_t last_expr_at = 0;
+  Task last_task = Task::Idle;
+  char prev_board[10] = ".........";
+  Game last_game = Game::None;
+  uint32_t cell_at[9] = {};
 };
 
 State st;
 Scene sc;
+
+void kick(Param p, float dv) { s_p[p].vel += dv; }
+void kick_eyes(EyeParam p, float dv) {
+  for (auto &eye : s_eye) eye[p].vel += dv;
+}
 
 void blink(uint32_t at, bool slow) {
   if (st.nblinks == 4) {
@@ -162,6 +181,7 @@ void set_mode(Mode m, uint32_t now) {
     blink(now + 760, false);
     st.next_blink = now + 3200;
   }
+  if (m == Mode::Speak && prev == Mode::Think) blink(now + 60, false);
   if (m == Mode::Listen && prev != Mode::Listen) {  // мгновенная реакция; сияние «наливается» снизу
     blink(now, false);
     s_p[REVEAL].v = 0;
@@ -206,11 +226,16 @@ void init_springs() {
   s_p[CARD_A].init(0, .38f, .82f);
   s_p[REVEAL].init(1, .45f, 1);
   s_p[AURA_SPEED].init(1, .8f, 1);
+  s_p[TASK_A].init(0, .4f, 1);
+  s_p[TASK_FRAC].init(0, .45f, 1);
+  s_p[GAME_A].init(0, .4f, 1);
+  s_p[REM_A].init(0, .4f, 1);
   for (int c = 0; c < 3; c++) {
     s_p[CR + c].init(ICE[c], .5f, 1);
     s_p[GR + c].init(ICE_GLOW[c], .5f, 1);
     s_p[ACR + c].init(PAL_NIGHT.accent[c], .9f, 1);
     s_p[INKR + c].init(INK[c], .6f, 1);
+    s_p[ALR + c].init(AL_AMBER[c], .3f, 1);
     for (int b = 0; b < 3; b++) s_p[A0R + b * 3 + c].init(PAL_NIGHT.blobs[b][c], .9f, 1);
   }
 }
@@ -242,6 +267,22 @@ bool expr_on(const Input &in, uint32_t now) {
   return in.expr != Expr::None && now - in.expr_at < in.expr_ms;
 }
 
+bool game_on(const Input &in, uint32_t now) {
+  return in.game != Game::None && now - in.game_at < in.game_ms;
+}
+
+bool task_visible(const Input &in, uint32_t now) {
+  switch (in.task) {
+    case Task::Working:
+    case Task::NeedsInput:
+    case Task::NeedsPermission: return true;
+    case Task::Done: return now - in.task_at < 4000;
+    case Task::Failed: return now - in.task_at < 6000;
+    case Task::Idle: break;
+  }
+  return false;
+}
+
 bool card_on(const Input &in, uint32_t now) {
   return in.card != Card::None && now - in.card_at < in.card_ms;
 }
@@ -250,6 +291,95 @@ void update(const Input &in, float dt) {
   const uint32_t now = in.now;
   const bool activity = in.activity_at != st.last_activity;
   st.last_activity = in.activity_at;
+
+  // ── слух: резкий звук, удар ритма ──
+  if (!st.ears_init) {
+    st.ears_init = true;
+    st.last_bang = in.bang_n;
+    st.last_beat = in.beat_n;
+    st.last_task = in.task;
+    st.last_expr_at = in.expr_at;
+  }
+  if (in.bang_n != st.last_bang) {
+    st.last_bang = in.bang_n;
+    if (!in.night && (st.mode <= Mode::Sleep || st.mode == Mode::Think || st.mode == Mode::Timer)) {
+      st.flinch_on = true;  // вздрагивание: глаза шире, рывок вверх, потом моргание
+      st.flinch_at = now;
+      kick(FACE_Y, -150);
+      kick_eyes(EH, 110);
+      kick_eyes(EW, 30);
+      blink(now + 230, false);
+    }
+  }
+  // ── задача: вспышка в момент смены состояния ──
+  if (in.task != st.last_task) {
+    st.last_task = in.task;
+    if (in.task == Task::Done || in.task == Task::Failed) {
+      s_p[ALERT].v = 1;
+      s_p[ALERT].vel = 0;
+      if (in.task == Task::Failed) st.fail_kick = now + 380;
+    } else if (in.task == Task::NeedsInput || in.task == Task::NeedsPermission) {
+      kick(FACE_Y, -110);
+      kick_eyes(EH, 60);
+      blink(now + 300, false);
+    }
+  }
+  if (st.fail_kick && now >= st.fail_kick) {  // красный мигает дважды
+    st.fail_kick = 0;
+    s_p[ALERT].v = 0.9f;
+    s_p[ALERT].vel = 0;
+  }
+  // ── новое выражение: рывок в начале ──
+  if (in.expr_at != st.last_expr_at) {
+    st.last_expr_at = in.expr_at;
+    switch (in.expr) {
+      case Expr::Happy:
+        kick(FACE_Y, -130);
+        break;
+      case Expr::Surprise:
+        kick(FACE_Y, -170);
+        kick(SCALE, 1.4f);
+        kick_eyes(EH, 120);
+        kick_eyes(EW, 50);
+        break;
+      case Expr::Sorry:
+        kick(FACE_Y, 60);
+        break;
+      case Expr::Bored:
+      case Expr::Tired:
+        blink(now + 400, true);
+        break;
+      default:
+        break;
+    }
+  }
+  // ── музыка: удар ритма подбрасывает глаза; нет слышимых ударов — держим темп сами ──
+  if (in.player_on && in.player_playing && st.mode == Mode::Idle) {
+    bool beat = false;
+    if (in.beat_n != st.last_beat) {
+      st.last_beat = in.beat_n;
+      st.last_beat_seen = now;
+      beat = true;
+    } else if (now - st.last_beat_seen > 2200 && now - st.beat_at >= 560) {
+      beat = true;  // микрофон ритма не слышит: ровный ход ~107 ударов в минуту
+    }
+    if (beat && now - st.beat_at >= 230) {
+      st.beat_at = now;
+      kick(FACE_Y, -70);
+      kick_eyes(EH, 25);
+      if (++st.beat_i % 4 == 0) blink(now + 90, false);
+    }
+  } else {
+    st.last_beat = in.beat_n;
+  }
+  // ── крестики-нолики: новая метка появляется с отскоком ──
+  if (in.game == Game::Ttt) {
+    if (st.last_game != Game::Ttt) memset(st.prev_board, '.', 9);
+    for (int i = 0; i < 9; i++)
+      if (in.game_board[i] != st.prev_board[i]) st.cell_at[i] = now;
+    memcpy(st.prev_board, in.game_board, 9);
+  }
+  st.last_game = in.game;
 
   const Mode want = wanted(in, now);
   if (want != Mode::Idle) {
@@ -271,28 +401,51 @@ void update(const Input &in, float dt) {
         else st.idle_since = now;
       }
       // пока на экране карточка или играет музыка — не засыпаем, но и не будим
-      if (st.mode == Mode::Idle && (card_on(in, now) || in.player_on)) st.idle_since = now;
+      if (st.mode == Mode::Idle && (card_on(in, now) || in.player_on || game_on(in, now))) st.idle_since = now;
+      if (st.mode == Mode::Idle && (in.task == Task::NeedsInput || in.task == Task::NeedsPermission)) st.idle_since = now;
       if (st.mode == Mode::Idle && now - st.idle_since > in.sleep_after_ms) set_mode(Mode::Drowsy, now);
       else if (st.mode == Mode::Drowsy && now - st.mode_at > DROWSY_MS) set_mode(Mode::Sleep, now);
     }
   }
 
+  // Моргание неравномерное (две случайные доли дают колокол, а не ровный «тик»); к ночи и в скуке — медленное
+  const bool late = in.have_time && (in.hour >= 23 || in.hour < 6) && !in.night;
   if (st.mode != Mode::Sleep && now >= st.next_blink) {
-    const bool slow = st.mode == Mode::Drowsy;
+    const bool tired_now = late || (expr_on(in, now) && (in.expr == Expr::Tired || in.expr == Expr::Bored));
+    const bool slow = st.mode == Mode::Drowsy || (tired_now && frand() < 0.6f);
     blink(now, slow);
-    if (!slow && frand() < 0.22f) blink(now + 260, false);
-    st.next_blink = now + (slow ? 1300 + (uint32_t)(frand() * 600) : 2400 + (uint32_t)(frand() * 3800));
+    if (!slow && frand() < 0.2f) blink(now + 240, false);  // двойное
+    const float calm = st.mode == Mode::Listen ? 1.5f : (st.mode == Mode::Speak ? 1.2f : 1.0f);
+    const float gap = slow ? 1300 + frand() * 900 : (2000 + (frand() + frand()) * 2100) * calm;
+    st.next_blink = now + (uint32_t)gap;
   }
   prune_blinks(now);
 
   if (st.mode == Mode::Idle && now >= st.next_saccade) {
-    if (frand() < 0.35f) {
+    const float r = frand();
+    uint32_t hold = 1200 + (uint32_t)(frand() * 3000);
+    if (st.force_center || r < 0.3f) {  // вернуться к центру
       st.gaze_x = st.gaze_y = 0;
+      st.force_center = false;
+    } else if (r < 0.46f) {  // быстрый взгляд вбок и назад
+      st.gaze_x = (frand() < 0.5f ? -1 : 1) * (15 + frand() * 3);
+      st.gaze_y = frand() * 6 - 3;
+      st.force_center = true;
+      hold = 380 + (uint32_t)(frand() * 450);
+      if (frand() < 0.35f) blink(now + 40, false);  // на резком повороте часто моргают
     } else {
-      st.gaze_x = (frand() * 2 - 1) * 14;
+      const float nx = (frand() * 2 - 1) * 14;
+      if (fabsf(nx - st.gaze_x) > 16 && frand() < 0.3f) blink(now + 30, false);
+      st.gaze_x = nx;
       st.gaze_y = frand() * 14 - 8;
     }
-    st.next_saccade = now + 1200 + (uint32_t)(frand() * 3000);
+    st.next_saccade = now + hold;
+  }
+  // микровзгляды: глаз никогда не стоит абсолютно неподвижно
+  if (now >= st.next_jit) {
+    st.jit_x = (frand() * 2 - 1) * 2.4f;
+    st.jit_y = (frand() * 2 - 1) * 1.7f;
+    st.next_jit = now + 240 + (uint32_t)(frand() * 650);
   }
   // Сменилась минута — глаза на миг опускаются к часам; новая погода — поднимаются к ней
   if (in.have_time && in.minute != st.last_minute) {
@@ -306,10 +459,7 @@ void update(const Input &in, float dt) {
 
   const float t = now / 1000.0f, kA = 1 - expf(-dt / 0.03f), kR = 1 - expf(-dt / 0.16f);
   float lv = 0;
-  if (st.mode == Mode::Listen) {
-    const uint32_t p = (now - st.mode_at) % 2600;
-    lv = (p > 200 && p < 2000) ? speech(t, 4.2f, 1.3f) : 0.03f;
-  }
+  if (st.mode == Mode::Listen) lv = clamp01(in.mic_level * 1.25f);  // реальный уровень микрофона, звук не уходит никуда
   st.level += (lv - st.level) * (lv > st.level ? kA : kR);
   float am = 0;
   if (st.mode == Mode::Speak) {
@@ -363,7 +513,20 @@ void targets(const Input &in) {
   T[CARD_A] = 0;
   T[REVEAL] = 1;
   T[AURA_SPEED] = 1;
+  T[TASK_A] = 0;
+  T[TASK_FRAC] = 0;
+  T[GAME_A] = 0;
+  T[REM_A] = 0;
   float gx = 0, gy = 0;
+  const float *alc = AL_AMBER;
+  const bool late = in.have_time && (in.hour >= 23 || in.hour < 6) && !in.night;
+  // вздрагивание от резкого звука: быстро нарастает, потом гаснет
+  float fl = 0;
+  if (st.flinch_on) {
+    const uint32_t d = now - st.flinch_at;
+    fl = d < 350 ? 1.0f : expf(-(d - 350) / 450.0f);
+    if (fl < 0.02f) st.flinch_on = false;
+  }
   const float *col = ICE, *gcol = ICE_GLOW, *ink = INK;
   const Palette *pal = nullptr;
   auto quiet = [&] {
@@ -380,13 +543,28 @@ void targets(const Input &in) {
   };
 
   switch (st.mode) {
-    case Mode::Idle:
-      gx = st.gaze_x;
-      gy = st.gaze_y;
-      if (now < st.glance_down) gx = 0, gy = 10;
-      if (now < st.glance_up) gx = 0, gy = -11;
+    case Mode::Idle: {
+      gx = st.gaze_x + st.jit_x;
+      gy = st.gaze_y + st.jit_y;
+      if (now < st.glance_down) gx = st.jit_x, gy = 10;
+      if (now < st.glance_up) gx = st.jit_x, gy = -11;
       for (EyeT &e : E) e.h *= 1 + 0.012f * sinf(t * TAU / 4.2f);
+      // усталость поздним вечером: веки чуть тяжелее
+      if (late)
+        for (EyeT &e : E) e.lidT = 0.17f;
+      // скука: чем дольше никто не трогает колонку, тем больше веки, взгляд плавает, глаза покачиваются
+      const bool busy = card_on(in, now) || in.player_on || game_on(in, now) || task_visible(in, now) || expr_on(in, now);
+      const float start = in.sleep_after_ms * 0.25f, ramp = in.sleep_after_ms * 0.15f;
+      const float bk = busy ? 0 : smooth(((now - st.idle_since) - start) / ramp);
+      if (bk > 0.01f) {
+        E[0].lidT = fmaxf(E[0].lidT, 0.36f * bk);
+        E[1].lidT = fmaxf(E[1].lidT, 0.28f * bk);
+        gx = st.gaze_x * (1 - bk) + 11 * sinf(t * 0.7f) * bk + st.jit_x;
+        gy = st.gaze_y * (1 - bk) + (3 + 3 * sinf(t * 0.45f)) * bk;
+        T[FACE_Y] += 3 * bk * sinf(t * TAU / 4.5f);
+      }
       break;
+    }
     case Mode::Drowsy: {
       const float p = smooth((float)(now - st.mode_at) / DROWSY_MS);
       for (EyeT &e : E) e.lidT = 0.12f + 0.48f * p;
@@ -395,6 +573,18 @@ void targets(const Input &in) {
       T[ARC_A] *= 1 - 0.4f * p;
       T[AURA] = .16f - .06f * p;
       T[AURA_SPEED] = .6f;
+      // зевок: с 0.9 с глаза зажмуриваются, лицо растёт, как от открытого рта, потом снова тяжёлые веки
+      const float yt = ((float)(now - st.mode_at) - 900) / 1500;
+      if (yt > 0 && yt < 1) {
+        const float y = sinf(PI * yt);
+        for (EyeT &e : E) {
+          e.lidT = e.lidT + (0.9f - e.lidT) * y;
+          e.lidB = 0.3f * y;
+          e.w *= 1 + 0.08f * y;
+        }
+        T[SCALE] = 1 + 0.08f * y;
+        T[FACE_Y] -= 6 * y;
+      }
       break;
     }
     case Mode::Sleep: {
@@ -407,6 +597,13 @@ void targets(const Input &in) {
         e.bend = 6;
         e.bright = .38f + .2f * b;
       }
+      if (fl > 0)  // во сне вздрогнули: глаза приоткрываются и снова закрываются
+        for (EyeT &e : E) {
+          e.w = 23 + 2 * fl;
+          e.h = 3 + 20 * fl;
+          e.rad = 3 + 12 * fl;
+          e.bend = 6 * (1 - fl);
+        }
       T[FACE_Y] = top ? 136 : 104;
       T[CLOCK_Y] = top ? 66 : 190;
       T[CLOCK_SIZE] = 30;
@@ -421,11 +618,15 @@ void targets(const Input &in) {
       break;
     }
     case Mode::Listen:
+      // глаза «слушают»: тянутся вверх за голосом, чуть вибрируют на громком, взгляд поднимается
       for (EyeT &e : E) {
-        e.w = 26;
-        e.h = 33 + 3 * st.level;
+        e.w = 25.5f + 3 * st.level;
+        e.h = 32 + 9 * st.level;
+        e.lidB = 0.1f * st.level;
       }
-      T[FACE_Y] = 110;
+      gx = st.jit_x * 0.5f + 1.6f * st.level * sinf(t * 38);
+      gy = st.jit_y * 0.5f - 4 * st.level;
+      T[FACE_Y] = 110 - 3 * st.level;
       quiet();
       T[CAP_A] = 1;
       T[RING] = .55f + .7f * st.level;
@@ -455,6 +656,8 @@ void targets(const Input &in) {
         e.h = 31 * (1 - .12f * st.amp);
         e.lidB = .1f * st.amp;
       }
+      gx = st.jit_x * 0.6f;
+      gy = st.jit_y * 0.6f;
       T[FACE_Y] = 98 - 2 * st.amp;
       quiet();
       T[CAP_A] = 1;
@@ -490,9 +693,24 @@ void targets(const Input &in) {
       break;
   }
 
-  // Мини-плеер: в покое глаза уходят выше и покачиваются в такт, по краю — кольцо прогресса
+  // Вздрогнули: глаза распахнулись и опали
+  if (fl > 0 && st.mode != Mode::Sleep) {
+    for (EyeT &e : E) {
+      e.h *= 1 + 0.2f * fl;
+      e.w *= 1 + 0.07f * fl;
+      e.lidT = 0;
+    }
+    gy -= 3 * fl;
+  }
+
+  // Что показывать поверх покоя. Приоритет: звонок/карточка и разговор > игра > задача > плеер > часы и сон
   const bool card = card_on(in, now);
-  if (in.player_on && st.mode == Mode::Idle && !card) {
+  const bool game = game_on(in, now) && st.mode != Mode::Alert && !card;
+  const bool tvis = task_visible(in, now) && !in.night && st.mode <= Mode::Sleep && !card && !game;
+  const bool tbig = tvis && st.mode == Mode::Idle;
+  st.tbig = tbig;
+  st.game_now = game;
+  if (in.player_on && st.mode == Mode::Idle && !card && !tbig && !game) {
     quiet();
     T[CARD_A] = 1;
     T[SCALE] = .72f;
@@ -577,18 +795,133 @@ void targets(const Input &in) {
     }
   }
 
+  // Задача: кольцо по краю; когда есть место — глаза поменьше и подпись снизу
+  if (tvis) {
+    float fade = 1;
+    if (in.task == Task::Done) fade = clamp01((4000 - (float)(now - in.task_at)) / 600);
+    if (in.task == Task::Failed) fade = clamp01((6000 - (float)(now - in.task_at)) / 600);
+    T[TASK_A] = (tbig ? 1.0f : 0.5f) * fade;
+    T[TASK_FRAC] = in.task == Task::Working ? (in.task_pct >= 0 ? in.task_pct / 100.0f : 0)
+                                             : (in.task == Task::Done || in.task == Task::Failed ? 1 : 0);
+    if (in.task == Task::Done) alc = AL_GREEN;
+    if (in.task == Task::Failed) alc = AL_RED;
+    if (tbig) {
+      quiet();
+      T[SCALE] = .8f;
+      T[FACE_Y] = 84;
+      T[CAP_A] = 0;
+      switch (in.task) {
+        case Task::Working:  // сосредоточен: прищур и взгляд бегает по строчкам
+          for (EyeT &e : E) e.lidT = .2f;
+          gx = 7 * sinf(t * 1.6f);
+          gy = 2;
+          break;
+        case Task::NeedsInput:
+        case Task::NeedsPermission:  // смотрит прямо на тебя, янтарный край пульсирует
+          for (EyeT &e : E) {
+            e.w = 27;
+            e.h = 34;
+          }
+          col = AMBER;
+          gcol = AMBER_GLOW;
+          pal = &PAL_ALERT;
+          T[ALERT] = 1;
+          T[AURA] = .14f;
+          T[AURA_SPEED] = 1.5f;
+          gx = gy = 0;
+          break;
+        case Task::Done:
+          for (EyeT &e : E) e.lidB = .62f;
+          T[FACE_Y] -= 4;
+          break;
+        case Task::Failed:
+          for (EyeT &e : E) {
+            e.lidT = .34f;
+            e.lidA = -.38f;
+            e.bright = .85f;
+          }
+          gy = 7;
+          break;
+        case Task::Idle:
+          break;
+      }
+    }
+  }
+
+  // Игра: глаза маленькие наверху следят за сценой, сцена — в середине
+  if (game) {
+    quiet();
+    T[CAP_A] = 0;
+    T[TIMER_A] = 0;
+    T[CARD_A] = 0;
+    T[GAME_A] = 1;
+    T[SCALE] = .4f;
+    T[FACE_Y] = 36;
+    T[AURA] = .08f;
+    for (EyeT &e : E) e = EyeT{};
+    gx = 0;
+    gy = 5;
+    const float gt = (now - in.game_at) / 1000.0f;
+    switch (in.game) {
+      case Game::Rps:  // до открытия кулак ждёт, потом радость или обида
+        if (gt > 1.5f) {
+          if (in.game_p1 == 1)
+            for (EyeT &e : E) e.lidB = .62f;
+          else if (in.game_p1 == 2)
+            for (EyeT &e : E) {
+              e.lidT = .34f;
+              e.lidA = -.38f;
+            }
+          else
+            for (EyeT &e : E) e.lidT = .4f;
+        }
+        break;
+      case Game::Magic8:  // «гадает» с прикрытыми глазами
+        for (EyeT &e : E) e.lidT = gt < 1.3f ? .45f : .1f;
+        break;
+      case Game::Coin:
+      case Game::Dice:
+      case Game::Wheel:  // следит за броском: взгляд вниз, к концу — на результат
+        gy = gt < 2.0f ? 6 + 2 * sinf(gt * 9) : 4;
+        break;
+      case Game::Ttt:
+        gx = 4 * sinf(t * 0.8f);
+        break;
+      case Game::None:
+        break;
+    }
+  }
+
   // Выражения характера поверх состояния
   if (expr_on(in, now)) {
     const uint32_t et = now - in.expr_at;
     EyeT &L = E[0], &R = E[1];
     switch (in.expr) {
-      case Expr::Skeptic:  // один глаз прищурен, другой приподнят
-        L.lidT = .48f;
+      case Expr::Skeptic: {  // ирония: один глаз прищурен, другой поднимает «бровь», через миг — ещё выше
+        const float br = smooth(((float)et - 650) / 220);
+        L.lidT = .48f + .1f * br;
         L.lidA = .15f;
-        R.h *= 1.1f;
-        R.y = -3;
-        gx = 6;
+        R.h *= 1.1f + .04f * br;
+        R.y = -3 - 2.5f * br;
+        gx = 6 + 3 * br;
         gy = -1;
+        break;
+      }
+      case Expr::Tired:  // усталость: тяжёлые веки, взгляд вниз, медленное покачивание
+        for (EyeT &e : E) {
+          e.lidT = .5f;
+          e.bright = .85f;
+        }
+        gx = 3 * sinf(t * .6f);
+        gy = 4;
+        T[FACE_Y] += 5;
+        break;
+      case Expr::Bored:  // скука: веки полуопущены, взгляд ползёт в сторону, а потом вверх, «ну что, всё?»
+        L.lidT = .42f;
+        R.lidT = .34f;
+        gx = 12 * sinf(t * .8f);
+        gy = (et > 1200 && et < 1900) ? -7 : 3;
+        T[FACE_Y] += 2 * sinf(t * TAU / 3);
         break;
       case Expr::Roll:  // закатывает глаза
         for (EyeT &e : E) e.lidT = .3f;
@@ -610,9 +943,12 @@ void targets(const Input &in) {
         gx = 17;
         gy = 1;
         break;
-      case Expr::Happy:
-        for (EyeT &e : E) e.lidB = .62f;
-        T[FACE_Y] -= 4;
+      case Expr::Happy:  // радость: «щёки» поднимают нижнее веко, лицо пружинит на месте
+        for (EyeT &e : E) {
+          e.lidB = .66f;
+          e.h *= .96f;
+        }
+        T[FACE_Y] -= 4 + 2 * fabsf(sinf(et * 0.011f));
         break;
       case Expr::Surprise:
         for (EyeT &e : E) {
@@ -620,6 +956,7 @@ void targets(const Input &in) {
           e.h *= 1.22f;
         }
         gy = -2;
+        T[SCALE] *= 1.04f;
         break;
       case Expr::Sorry:
         for (EyeT &e : E) {
@@ -634,6 +971,7 @@ void targets(const Input &in) {
     }
   }
 
+  T[REM_A] = (in.reminders > 0 && T[CLOCK_A] > .5f && T[CLOCK_Y] < 180 && !tbig && !game) ? 1 : 0;
   if (T[CARD_A] > 0 && pal != &PAL_CALL) T[AURA] *= 0.7f;  // под текстом карточки фон тише
 
   for (int e = 0; e < 2; e++) {
@@ -649,7 +987,7 @@ void targets(const Input &in) {
     s[EBEND].target = E[e].bend;
     s[EBRIGHT].target = E[e].bright;
   }
-  for (int k = FACE_Y; k <= AURA_SPEED; k++) s_p[k].target = T[k];
+  for (int k = FACE_Y; k <= REM_A; k++) s_p[k].target = T[k];
   s_p[GXL].target = s_p[GXR].target = gx;
   s_p[GYL].target = s_p[GYR].target = gy;
   if (!pal) pal = &palette_for(in.have_time ? in.hour : 23);
@@ -657,6 +995,7 @@ void targets(const Input &in) {
     s_p[CR + c].target = col[c];
     s_p[GR + c].target = gcol[c];
     s_p[INKR + c].target = ink[c];
+    s_p[ALR + c].target = alc[c];
     s_p[ACR + c].target = pal->accent[c];
     for (int b = 0; b < 3; b++) s_p[A0R + b * 3 + c].target = pal->blobs[b][c];
   }
@@ -711,6 +1050,22 @@ void build_scene(const Input &in) {
   sc.ring_w = s_p[RING_W].v;
   sc.think = s_p[THINK].v;
   sc.alert = s_p[ALERT].v;
+  for (int c = 0; c < 3; c++) sc.alert_col[c] = s_p[ALR + c].v;
+  sc.task_a = s_p[TASK_A].v;
+  sc.task_frac = clamp01(s_p[TASK_FRAC].v);
+  sc.task = in.task;
+  sc.task_big = st.tbig;
+  sc.task_label = in.task_label;
+  sc.task_spin = (in.task == Task::Working && in.task_pct < 0) ? t * 2.6f : -1.0f;  // ≥ 0 — бегущая дуга
+  sc.game_a = s_p[GAME_A].v;
+  sc.game = in.game;
+  sc.game_p0 = in.game_p0;
+  sc.game_p1 = in.game_p1;
+  sc.game_t = (now - in.game_at) / 1000.0f;
+  memcpy(sc.board, in.game_board, 10);
+  for (int i = 0; i < 9; i++) sc.cell_a[i] = clamp01((now - st.cell_at[i]) / 380.0f);
+  sc.reminders = in.reminders;
+  sc.rem_a = s_p[REM_A].v;
   sc.reveal = s_p[REVEAL].v;
   sc.ring_rot = t * 0.35f;
   sc.comet = t * 4.4f - PI / 2;
@@ -747,7 +1102,7 @@ void build_scene(const Input &in) {
   // карточка видна, пока не угасла; плеер — когда нет карточки и колонка в покое
   const bool card = card_on(in, now);
   sc.card_a = s_p[CARD_A].v;
-  sc.player = !card && in.player_on && st.mode == Mode::Idle;
+  sc.player = !card && in.player_on && st.mode == Mode::Idle && !st.tbig && !st.game_now;
   sc.card = sc.player ? Card::None : in.card;
   sc.card_t = (now - in.card_at) / 1000.0f;
   sc.card_level = in.card_level;

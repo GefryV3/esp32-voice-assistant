@@ -21,6 +21,13 @@ void set_barge_in(bool on, float ratio = 4.0f);
 // Микрофон: кадры по 20 мс (16 кГц, 16 бит) уходят в send_mic, пока listen включён.
 void listen(bool on, int gain_db = 12);
 
+// Живой слух для глаз экрана: считается на колонке по тому же микрофону, звук никуда не уходит.
+// mic_level — громкость 0…1 над фоном комнаты; bang_count растёт на каждый резкий громкий звук
+// (хлопок, стук) пока динамик молчит; beat_count — на каждый удар ритма (музыка рядом).
+float mic_level();
+uint32_t bang_count();
+uint32_t beat_count();
+
 // Динамик. play_data зовётся из задачи WebSocket и никогда не ждёт: что не влезло — теряется.
 void play_start(int rate);
 void play_data(const uint8_t *data, size_t len);
