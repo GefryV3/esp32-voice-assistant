@@ -227,7 +227,7 @@ private fun Home() {
                         SliderRow(
                             "Громкость", volume, "тише", "громче",
                             leading = { RowIcon(Icons.Filled.PlayArrow) },
-                            valueText = volumeLabel((volume * 100).toInt()),
+                            valueText = volumeLabel((volume * 100).toInt()), default = 0.5f,
                             onChange = { volume = it },
                             onDone = { Bridge.updateSettings { it.copy(volume = (volume * 100).toInt()) } },
                         )
@@ -311,7 +311,7 @@ private fun Home() {
                         SliderRow(
                             "Язвительность", sarcasm, "вежливый", "токсичный",
                             leading = { RowIcon(Icons.Filled.Face) },
-                            valueText = sarcasmLabel((sarcasm * 100).toInt()),
+                            valueText = sarcasmLabel((sarcasm * 100).toInt()), default = 0.6f,
                             onChange = { sarcasm = it },
                             onDone = { Bridge.updateSettings { it.copy(sarcasm = (sarcasm * 100).toInt()) } },
                         )

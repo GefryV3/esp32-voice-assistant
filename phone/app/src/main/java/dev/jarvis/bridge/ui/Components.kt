@@ -38,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -218,12 +217,13 @@ fun SliderRow(
     right: String,
     leading: (@Composable () -> Unit)? = null,
     valueText: String = "${(value * 100).roundToInt()} %",
+    default: Float? = null,
     onChange: (Float) -> Unit,
     onDone: () -> Unit,
 ) {
     val shape = LocalRowShape.current
     val haptics = rememberHaptics()
-    var lastStep by remember { mutableIntStateOf((value * 100).roundToInt()) }
+    val sliderHaptics = remember(haptics) { SliderHaptics(haptics, default = default, initial = value) }
     Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -238,14 +238,10 @@ fun SliderRow(
             Slider(
                 value = value,
                 onValueChange = {
-                    val step = (it * 100).roundToInt()
-                    if (step != lastStep) {
-                        lastStep = step
-                        haptics.tick()
-                    }
+                    sliderHaptics.onMove(it)
                     onChange(it)
                 },
-                onValueChangeFinished = { haptics.confirm(); onDone() },
+                onValueChangeFinished = { sliderHaptics.onRelease(); onDone() },
                 modifier = Modifier.semantics { contentDescription = title; stateDescription = valueText },
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
