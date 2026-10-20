@@ -84,6 +84,8 @@ import dev.jarvis.bridge.ui.AppTheme
 import dev.jarvis.bridge.ui.ChoiceRow
 import dev.jarvis.bridge.ui.Dot
 import dev.jarvis.bridge.ui.Group
+import dev.jarvis.bridge.ui.HapticTonalButton
+import dev.jarvis.bridge.ui.rememberHaptics
 import dev.jarvis.bridge.ui.RowIcon
 import dev.jarvis.bridge.ui.SettingRow
 import dev.jarvis.bridge.ui.SliderRow
@@ -225,14 +227,14 @@ private fun Home() {
                         SliderRow(
                             "Громкость", volume, "тише", "громче",
                             leading = { RowIcon(Icons.Filled.PlayArrow) },
-                            valueText = volumeLabel((volume * 100).toInt()),
+                            valueText = volumeLabel((volume * 100).toInt()), default = 0.5f,
                             onChange = { volume = it },
                             onDone = { Bridge.updateSettings { it.copy(volume = (volume * 100).toInt()) } },
                         )
                     }
                     row {
                         SettingRow("Проверить звук", "Короткий сигнал на колонке", leading = { RowIcon(Icons.Filled.Refresh) }) {
-                            FilledTonalButton(onClick = { Bridge.send("beep") }) { Text("Сигнал") }
+                            HapticTonalButton(onClick = { Bridge.send("beep") }) { Text("Сигнал") }
                         }
                     }
                 }
@@ -309,7 +311,7 @@ private fun Home() {
                         SliderRow(
                             "Язвительность", sarcasm, "вежливый", "токсичный",
                             leading = { RowIcon(Icons.Filled.Face) },
-                            valueText = sarcasmLabel((sarcasm * 100).toInt()),
+                            valueText = sarcasmLabel((sarcasm * 100).toInt()), default = 0.6f,
                             onChange = { sarcasm = it },
                             onDone = { Bridge.updateSettings { it.copy(sarcasm = (sarcasm * 100).toInt()) } },
                         )
@@ -357,7 +359,14 @@ private fun Home() {
             }
 
             item {
+                var haptics by remember { mutableStateOf(Prefs.haptics) }
                 Group("Связь", footer = "Версия ${BuildConfig.VERSION_NAME}") {
+                    row {
+                        ToggleRow(
+                            "Виброотклик", haptics, subtitle = "На ползунках и кнопках; системная настройка касаний тоже учитывается",
+                            leading = { RowIcon(Icons.Filled.Notifications) },
+                        ) { on -> Prefs.haptics = on; haptics = on }
+                    }
                     row {
                         SettingRow("Сервер", Prefs.serverUrl, leading = { RowIcon(Icons.Filled.Settings) }, onClick = { editServer = true }) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -384,7 +393,7 @@ private fun statusText(state: UiState) = when {
 private fun PermissionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, ok: Boolean, onClick: () -> Unit) {
     SettingRow(title, subtitle, leading = { RowIcon(icon) }, onClick = if (ok) null else onClick) {
         if (ok) Text("Есть", style = MaterialTheme.typography.labelLarge, color = Status.ok)
-        else FilledTonalButton(onClick = onClick) { Text("Разрешить") }
+        else HapticTonalButton(onClick = onClick) { Text("Разрешить") }
     }
 }
 
@@ -414,6 +423,7 @@ private fun Hero(state: UiState) {
 @Composable
 private fun ServerDialog(onClose: () -> Unit) {
     var url by remember { mutableStateOf(Prefs.serverUrl) }
+    val haptics = rememberHaptics()
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Адрес сервера") },
@@ -426,6 +436,8 @@ private fun ServerDialog(onClose: () -> Unit) {
         },
         confirmButton = {
             TextButton(onClick = {
+                if (!url.trim().startsWith("ws")) { haptics.reject(); return@TextButton }
+                haptics.confirm()
                 Prefs.serverUrl = url.trim()
                 Bridge.restartLink()
                 onClose()

@@ -38,13 +38,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -120,9 +121,11 @@ fun SettingRow(
     subtitle: String? = null,
     leading: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    hapticOnClick: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val shape = LocalRowShape.current
+    val haptics = rememberHaptics()
     val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.row)
     val content: @Composable () -> Unit = {
         ListItem(
@@ -134,7 +137,7 @@ fun SettingRow(
         )
     }
     if (onClick != null) {
-        Surface(onClick = onClick, shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) { content() }
+        Surface(onClick = { if (hapticOnClick) haptics.click(); onClick() }, shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) { content() }
     } else {
         Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) { content() }
     }
@@ -142,12 +145,12 @@ fun SettingRow(
 
 @Composable
 fun ToggleRow(title: String, checked: Boolean, subtitle: String? = null, leading: (@Composable () -> Unit)? = null, onChange: (Boolean) -> Unit) {
-    val haptic = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     fun flip() {
-        haptic.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+        haptics.toggle(!checked)
         onChange(!checked)
     }
-    SettingRow(title, subtitle, leading, onClick = ::flip) {
+    SettingRow(title, subtitle, leading, onClick = ::flip, hapticOnClick = false) {
         Switch(
             checked = checked,
             onCheckedChange = { flip() },
@@ -162,15 +165,15 @@ fun ToggleRow(title: String, checked: Boolean, subtitle: String? = null, leading
 /** Значение и пара кнопок «−» / «+». */
 @Composable
 fun StepperRow(title: String, value: String, leading: (@Composable () -> Unit)? = null, onMinus: () -> Unit, onPlus: () -> Unit) {
-    val haptic = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     SettingRow(title, value, leading) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilledTonalIconButton(
-                onClick = { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onMinus() },
+                onClick = { haptics.step(); onMinus() },
                 modifier = Modifier.semantics { contentDescription = "$title: меньше" },
             ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             FilledTonalIconButton(
-                onClick = { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onPlus() },
+                onClick = { haptics.step(); onPlus() },
                 modifier = Modifier.semantics { contentDescription = "$title: больше" },
             ) { Icon(Icons.Filled.Add, contentDescription = null) }
         }
@@ -181,6 +184,7 @@ fun StepperRow(title: String, value: String, leading: (@Composable () -> Unit)? 
 @Composable
 fun ChoiceRow(title: String, options: List<String>, selected: Int, leading: (@Composable () -> Unit)? = null, onSelect: (Int) -> Unit) {
     val shape = LocalRowShape.current
+    val haptics = rememberHaptics()
     Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -195,7 +199,7 @@ fun ChoiceRow(title: String, options: List<String>, selected: Int, leading: (@Co
                 options.forEachIndexed { i, label ->
                     SegmentedButton(
                         selected = i == selected,
-                        onClick = { onSelect(i) },
+                        onClick = { if (i != selected) haptics.step(); onSelect(i) },
                         shape = SegmentedButtonDefaults.itemShape(i, options.size),
                     ) { Text(label) }
                 }
@@ -213,10 +217,13 @@ fun SliderRow(
     right: String,
     leading: (@Composable () -> Unit)? = null,
     valueText: String = "${(value * 100).roundToInt()} %",
+    default: Float? = null,
     onChange: (Float) -> Unit,
     onDone: () -> Unit,
 ) {
     val shape = LocalRowShape.current
+    val haptics = rememberHaptics()
+    val sliderHaptics = remember(haptics) { SliderHaptics(haptics, default = default, initial = value) }
     Surface(shape = shape, color = MaterialTheme.colorScheme.row, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,8 +237,11 @@ fun SliderRow(
             }
             Slider(
                 value = value,
-                onValueChange = onChange,
-                onValueChangeFinished = onDone,
+                onValueChange = {
+                    sliderHaptics.onMove(it)
+                    onChange(it)
+                },
+                onValueChangeFinished = { sliderHaptics.onRelease(); onDone() },
                 modifier = Modifier.semantics { contentDescription = title; stateDescription = valueText },
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -246,4 +256,11 @@ fun SliderRow(
 @Composable
 fun Dot(color: androidx.compose.ui.graphics.Color, size: Dp = 10.dp) {
     Box(Modifier.size(size).background(color, CircleShape))
+}
+
+/** Тональная кнопка с откликом. */
+@Composable
+fun HapticTonalButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    val haptics = rememberHaptics()
+    androidx.compose.material3.FilledTonalButton(onClick = { haptics.click(); onClick() }) { content() }
 }
