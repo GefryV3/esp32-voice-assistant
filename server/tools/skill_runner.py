@@ -125,13 +125,31 @@ def summarize_tests(out: str) -> str:
     return ", ".join(m) if m else "тесты не запустились"
 
 
+def find_claude(environ: dict[str, str] | None = None) -> str:
+    """Где Claude Code: JARVIS_CLAUDE_BIN, затем PATH, затем копия приложения Claude (папка claude-code в
+    данных приложения, самая новая версия), иначе просто `claude`."""
+    import os
+    import shutil
+    env = os.environ if environ is None else environ
+    if env.get("JARVIS_CLAUDE_BIN"):
+        return env["JARVIS_CLAUDE_BIN"]
+    if found := shutil.which("claude"):
+        return found
+    root = Path(env.get("APPDATA", "")) / "Claude" / "claude-code"
+    if root.is_dir():
+        exes = sorted(root.glob("*/*/claude.exe"), key=lambda p: p.stat().st_mtime)
+        if exes:
+            return str(exes[-1])
+    return "claude"
+
+
 class SkillRunner:
-    def __init__(self, repo: Path, *, base: str = "HEAD", claude: str = "claude", python: str | None = None,
+    def __init__(self, repo: Path, *, base: str = "HEAD", claude: str | None = None, python: str | None = None,
                  timeout_s: float = DEFAULT_TIMEOUT_S, budget: float = DEFAULT_BUDGET_USD,
                  max_turns: int = DEFAULT_MAX_TURNS, run: Runner = subprocess_runner,
                  checker: Callable[[Path, str], list[str]] | None = None,
                  progress: Callable[[str], None] = lambda text: None):
-        self.repo, self.base, self.claude = Path(repo), base, claude
+        self.repo, self.base, self.claude = Path(repo), base, claude or find_claude()
         self.python = python or sys.executable
         self.timeout_s, self.budget, self.max_turns = timeout_s, budget, max_turns
         self.run, self.checker, self.progress = run, checker or self._check_source, progress

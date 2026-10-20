@@ -183,3 +183,14 @@ def test_real_git_worktree_flow(tmp_path):
     assert SKILL in git("diff", "--name-only", f"{base}..skill/btc").stdout
     assert "Co-Authored-By" in git("log", "-1", "--format=%B", "skill/btc").stdout
     assert r.execute(JOB)["ok"] is False                                        # вторая попытка: ветка уже есть
+
+
+def test_find_claude_prefers_env_then_path_then_app_copy(tmp_path, monkeypatch):
+    from tools import skill_runner
+    exe_dir = tmp_path / "Claude" / "claude-code" / "2.1.299" / "abc"
+    exe_dir.mkdir(parents=True)
+    (exe_dir / "claude.exe").write_text("")
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    assert skill_runner.find_claude({"JARVIS_CLAUDE_BIN": "X"}) == "X"
+    assert skill_runner.find_claude({"APPDATA": str(tmp_path)}).endswith("claude.exe")
+    assert skill_runner.find_claude({"APPDATA": str(tmp_path / "нет")}) == "claude"
