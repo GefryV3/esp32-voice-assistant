@@ -10,6 +10,7 @@
 #include "driver/i2s_std.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
@@ -226,6 +227,27 @@ struct Barge {
 
 void audio_barge_in(Barge &b);
 
+// Что решил детектор хлопков: по этим строкам видно, где хлопок не прошёл (пик, фон, спад, интервал).
+// Звук в журнал не попадает, только числа. Не чаще 8 строк в секунду, чтобы не мешать микрофону.
+void log_clap(const clap::Diag &d) {
+  static int64_t window = 0;
+  static int lines = 0;
+  const int64_t now = esp_timer_get_time() / 1000000;
+  if (now != window) window = now, lines = 0;
+  if (lines++ >= 8) return;
+  switch (d.kind) {
+    case clap::Diag::Onset: ESP_LOGI(TAG, "хлопок: фронт, пик %d (%.0f× фона), hf %.2f", d.peak, d.ratio, d.hf); break;
+    case clap::Diag::NearMiss: ESP_LOGI(TAG, "хлопок: не фронт, пик %d (%.0f× фона), hf %.2f", d.peak, d.ratio, d.hf); break;
+    case clap::Diag::Settled: ESP_LOGI(TAG, "хлопок: спад принят (%d из %d)", d.peak, d.onset_peak); break;
+    case clap::Diag::TooSlow: ESP_LOGI(TAG, "хлопок: звук не спал (%d из %d), не хлопок", d.peak, d.onset_peak); break;
+    case clap::Diag::First: ESP_LOGI(TAG, "хлопок: первый, жду второй"); break;
+    case clap::Diag::Echo: ESP_LOGI(TAG, "хлопок: слишком скоро (%d мс), это эхо", d.gap_ms); break;
+    case clap::Diag::Timeout: ESP_LOGI(TAG, "хлопок: второго не было"); break;
+    case clap::Diag::Fired: ESP_LOGI(TAG, "хлопки: серия через %d мс", d.gap_ms); break;
+    case clap::Diag::None: break;
+  }
+}
+
 void mic_task(void *) {
   static int32_t raw[MIC_FRAME];
   static int16_t pcm[MIC_FRAME];
@@ -254,6 +276,8 @@ void mic_task(void *) {
         claps.set_sensitivity(sens);
       }
       if (claps.process(flat, n, s_speaking) && s_clap) s_clap(2);
+      clap::Diag d;
+      while (claps.take_diag(d)) log_clap(d);
     }
     ear.step(pcm, n, s_speaking);
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель

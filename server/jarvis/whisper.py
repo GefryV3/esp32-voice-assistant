@@ -93,7 +93,11 @@ class WhisperDetector:
 
 
 class WhisperConfig:
-    """pref whisper (on по умолчанию, off) и whisper_db (порог уровня). brain=None — настройки в памяти."""
+    """pref whisper (off по умолчанию, on) и whisper_db (порог уровня). brain=None — настройки в памяти.
+
+    По умолчанию выключено: пороги не подобраны по живой записи, и обычный голос с расстояния (-39…-46 дБFS,
+    мало звонких кадров) принимался за шёпот, колонка отвечала тихо. Включать `whisper on` после настройки.
+    """
 
     def __init__(self, brain: Any = None):
         self.brain = brain
@@ -109,7 +113,7 @@ class WhisperConfig:
             self._prefs[key] = value
 
     def enabled(self) -> bool:
-        return self._get("whisper", "on") != "off"
+        return self._get("whisper", "off") == "on"
 
     def level_db(self) -> float:
         try:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.3 (firmware 0.7.1)
+- **Speaker answered nothing after 0.14.0** (fixed in 0.14.1): the `Health` extension had no `TOOLS`, so building the
+  Gemini tool list failed on every conversation. Regression test added.
+- **Gemini 3.8 Live and the emotional mode** (0.14.2): the setup is accepted but the first reply closes the session with
+  1007. The mode is now switched off for good on the first such close and the same question is repeated in a plain session.
+- **Weather icon** (0.14.3): the server pushes weather to the screen on connect and every 15 minutes (`weatherfeed.py`),
+  not only when someone asks.
+- **Whisper response is off by default**: its thresholds were never tuned on real recordings and normal speech from a
+  distance was taken for a whisper. Enable with `whisper on` after tuning.
+- **Firmware 0.7.1**: «flinch» on a loud sound used `-(d - 350)` on an unsigned value, so its factor became infinity and
+  never decayed: the eyes froze (they did not close in sleep mode) and the geometry became NaN (the 0.7.0 panics).
+  Clap detector: gap between claps 0.2-1.0 s (was 0.25-0.8) and a log line for every decision of the detector.
+
 ## 0.13.1
 - **Skill build limit** (Claude subscription): default 1 build per day, 3 per week, 4-hour pause;
   `/skills build on|off` and `SKILL_MAX_PER_DAY`, `SKILL_MAX_PER_WEEK`, `SKILL_MIN_GAP_H`. Single build:

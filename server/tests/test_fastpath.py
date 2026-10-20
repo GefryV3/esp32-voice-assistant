@@ -314,6 +314,8 @@ def test_whisper_volume_is_lower_than_night():
 
 async def test_whisper_config_console():
     cfg = WhisperConfig()
+    assert not cfg.enabled() and cfg.detector() is None      # без настройки по живой записи выключено
+    await cfg.command("whisper on")
     assert cfg.enabled() and cfg.detector() is not None
     assert "off" in await cfg.command("whisper off") and cfg.detector() is None
     await cfg.command("whisper on")
@@ -334,6 +336,7 @@ async def test_whispering_conversation_ducks_volume_sends_note_and_restores(hub,
             notes.append(text)
 
     v, live, _ = make_voice(hub, tmp_path, monkeypatch, [], live=NoteLive(), brain=False)
+    await v.whisper.command("whisper on")
     ws = await speaker(hub)
     log = Log(ws)
     try:
@@ -352,12 +355,28 @@ async def test_whispering_conversation_ducks_volume_sends_note_and_restores(hub,
 
 async def test_normal_voice_does_not_whisper(hub, tmp_path, monkeypatch):
     v, live, _ = make_voice(hub, tmp_path, monkeypatch, [], brain=False)
+    await v.whisper.command("whisper on")
     ws = await speaker(hub)
     try:
         t, task = await talk(v, hub)
         t.feed(synth("voiced", 1000, 4000))
         await asyncio.sleep(0.1)
         assert not t.whispered
+        await live.queue.put(None)
+        await asyncio.wait_for(task, 3)
+    finally:
+        await ws.close()
+
+
+async def test_whisper_is_off_until_enabled(hub, tmp_path, monkeypatch):
+    # обычный голос из-за порогов, не проверенных вживую, принимался за шёпот: без `whisper on` детектора нет
+    v, live, _ = make_voice(hub, tmp_path, monkeypatch, [], brain=False)
+    ws = await speaker(hub)
+    try:
+        t, task = await talk(v, hub)
+        t.feed(synth("noise", 1000, 250))
+        await asyncio.sleep(0.1)
+        assert t._whisper is None and not t.whispered
         await live.queue.put(None)
         await asyncio.wait_for(task, 3)
     finally:

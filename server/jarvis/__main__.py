@@ -18,6 +18,7 @@ from .agents import Agents, make_search
 from .google import Google
 from .habits import Habits, parse_keywords, parse_windows
 from .health import GEMINI_ERRORS, Health
+from .weatherfeed import WeatherFeed
 from .digest import Digest
 from .ha import HomeAssistant
 from .lights import Lights
@@ -144,6 +145,8 @@ async def main() -> None:
         bridge.on_wake = routines.wake_signal
         routines.start()
         morning.start()
+    if ha:
+        WeatherFeed(hub, ha).start()      # значок погоды на экране сам, а не только по вопросу
     lights = None
     if ha:
         lights = Lights(hub, ha, LightState(ha, path=Path(settings.data_dir) / "lightstate.json"),

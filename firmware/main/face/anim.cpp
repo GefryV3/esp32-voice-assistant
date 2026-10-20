@@ -545,7 +545,7 @@ void targets(const Input &in) {
   float fl = 0;
   if (st.flinch_on) {
     const uint32_t d = now - st.flinch_at;
-    fl = d < 350 ? 1.0f : expf(-(d - 350) / 450.0f);
+    fl = d < 350 ? 1.0f : expf(-(float)(d - 350) / 450.0f);  // (float) до минуса: у беззнакового -(d - 350) огромное, fl = inf навсегда
     if (fl < 0.02f) st.flinch_on = false;
   }
   const float *col = ICE, *gcol = ICE_GLOW, *ink = INK;
