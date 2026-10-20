@@ -329,3 +329,99 @@ async def test_room_and_ble_commands(env):
     sent.clear()
     await p.on_connect(Dev())
     assert sent == []
+
+
+# ── диагностика памяти, настройка скана и калибровка BLE ──
+
+class Dev:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, msg):
+        self.sent.append(msg)
+
+
+async def test_room_shows_heap(env):
+    p, *_ = env
+    await p.on_room(None, {"type": "room", "here": True, "rssi": -60, "src": "ble",
+                           "heap_free": 71680, "heap_min": 51200})
+    out = await p.command("room")
+    assert "70 КБ" in out and "минимум 50 КБ" in out
+    await p.on_room(None, {"type": "room", "here": True, "src": "ble", "heap_free": "много"})
+    assert "КБ" not in await p.command("room")        # мусор в поле не ломает и не показывается
+
+
+async def test_ble_tune_is_saved_and_sent(env):
+    p, *_ = env
+    p.ble_uuid = "0123456789abcdef0123456789abcdef"
+    dev = Dev()
+    p.hub = SimpleNamespace(get=lambda: dev)
+    assert "по умолчанию" in await p.command("ble tune")
+    assert "ключи" in await p.command("ble tune foo=1")
+    await p.command("ble on")
+    dev.sent.clear()
+    out = await p.command("ble tune win_ms=60 every_s=3 night_every_s=20")
+    assert "win_ms=60" in out and "отправлено" in out
+    assert dev.sent == [{"type": "ble_scan", "on": 1, "uuid": p.ble_uuid,
+                         "win_ms": 60, "every_s": 3, "night_every_s": 20}]
+    dev.sent.clear()
+    await p.on_connect(dev)
+    assert dev.sent[0]["win_ms"] == 60
+    await p.command("ble tune reset")
+    dev.sent.clear()
+    await p.on_connect(dev)
+    assert dev.sent == [{"type": "ble_scan", "on": 1, "uuid": p.ble_uuid}]
+
+
+async def test_ble_tune_rejects_out_of_range(env):
+    p, *_ = env
+    out = await p.command("ble tune win_ms=9999")
+    assert out.startswith("ble tune:") and "win_ms" in out
+    assert "по умолчанию" in await p.command("ble tune")      # неверное не сохранилось
+
+
+async def test_room_calibrate_suggests_and_applies(env):
+    p, *_ = env
+    p.ble_uuid = "0123456789abcdef0123456789abcdef"
+    dev = Dev()
+    p.hub = SimpleNamespace(get=lambda: dev)
+    rssi = [-60, -62, -61, -65, -59, -63, -70, -58, -64, -61]
+
+    async def fake_sleep(sec):
+        assert sec >= 30
+        for r in rssi:
+            await p.on_room(dev, {"type": "room", "here": True, "src": "ble", "raw": r, "heard": 1})
+        await p.on_room(dev, {"type": "room", "here": True, "src": "ble"})   # цикл без пакета
+
+    p.sleep = fake_sleep
+    out = await p.command("room calibrate")
+    assert dev.sent[0]["cal_s"] == 30 and dev.sent[0]["on"] == 1
+    assert dev.sent[-1]["on"] == 0                      # BLE был выключен — выключили обратно
+    assert "рядом > -69 дБм" in out and "ушёл < -76 дБм" in out and "из 11" in out
+    dev.sent.clear()
+    assert "применены" in await p.command("room calibrate apply")
+    assert dev.sent == [{"type": "config", "ble_near": -69, "ble_far": -76}]
+    dev.sent.clear()
+    await p.on_connect(dev)                              # пороги переживают переподключение
+    assert dev.sent == [{"type": "config", "ble_near": -69, "ble_far": -76}]
+
+
+async def test_room_calibrate_too_few_packets(env):
+    p, *_ = env
+    p.ble_uuid = "0123456789abcdef0123456789abcdef"
+    dev = Dev()
+    p.hub = SimpleNamespace(get=lambda: dev)
+
+    async def fake_sleep(sec):
+        await p.on_room(dev, {"type": "room", "here": False, "src": "ble"})
+
+    p.sleep = fake_sleep
+    assert "мало" in await p.command("room calibrate")
+    assert "сначала" in await p.command("room calibrate apply")
+
+
+async def test_room_calibrate_needs_speaker_and_uuid(env):
+    p, *_ = env
+    assert "не подключена" in await p.command("room calibrate")
+    p.hub = SimpleNamespace(get=lambda: Dev())
+    assert "UUID" in await p.command("room calibrate")

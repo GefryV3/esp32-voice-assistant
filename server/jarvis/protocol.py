@@ -146,9 +146,11 @@ def agenda(accent: str = "", text: str = "") -> Message:
 
 
 def config(sleep_after: int | None = None, sleep_clock: str | None = None,
-           clap: bool | None = None, clap_sens: int | None = None) -> Message:
+           clap: bool | None = None, clap_sens: int | None = None,
+           ble_near: int | None = None, ble_far: int | None = None) -> Message:
     """Настройки колонки: через сколько секунд тишины засыпать и где часы во сне; хлопки на
-    устройстве (clap — вкл/выкл, clap_sens 1…10). Колонка применяет только присланные поля."""
+    устройстве (clap — вкл/выкл, clap_sens 1…10); пороги BLE-маячка в дБм (ble_near — «рядом», ble_far —
+    «ушёл», ble_far < ble_near). Колонка применяет только присланные поля."""
     msg: Message = {"type": "config"}
     if sleep_after is not None:
         msg["sleep_after"] = _int_in("sleep_after", sleep_after, 10, 86_400)
@@ -158,6 +160,13 @@ def config(sleep_after: int | None = None, sleep_clock: str | None = None,
         msg["clap"] = int(bool(clap))
     if clap_sens is not None:
         msg["clap_sens"] = _int_in("clap_sens", clap_sens, 1, 10)
+    if ble_near is not None or ble_far is not None:
+        if ble_near is None or ble_far is None:
+            raise ProtocolError("config: ble_near и ble_far задаются вместе")
+        msg["ble_near"] = _int_in("ble_near", ble_near, -100, -30)
+        msg["ble_far"] = _int_in("ble_far", ble_far, -100, -30)
+        if msg["ble_far"] >= msg["ble_near"]:
+            raise ProtocolError("config: ble_far должен быть ниже ble_near")
     return msg
 
 
@@ -224,14 +233,26 @@ def barge(on: bool, ratio: float = 3.0) -> Message:
     return {"type": "barge", "on": int(on), "ratio_x10": _int_in("ratio_x10", round(ratio * 10), 12, 200)}
 
 
-def ble_scan(on: bool, uuid: str = "") -> Message:
-    """BLE-сканирование маячка телефона (в прошивке по умолчанию выключено). uuid — iBeacon, 32 hex."""
+def ble_scan(on: bool, uuid: str = "", *, win_ms: int | None = None, every_s: int | None = None,
+             stable_every_s: int | None = None, night_every_s: int | None = None,
+             silence_s: int | None = None, cal_s: int | None = None) -> Message:
+    """BLE-сканирование маячка телефона (в прошивке по умолчанию выключено). uuid — iBeacon, 32 hex.
+
+    Необязательно (прошивка применяет только присланные поля, иначе свои значения по умолчанию):
+    win_ms — окно скана, every_s — период (пока «не здесь»), stable_every_s — период при стабильном
+    «здесь», night_every_s — ночью, silence_s — сколько не слышно маячка до «ушёл», cal_s — калибровка:
+    столько секунд часто сканировать и слать room с каждым пакетом (room calibrate)."""
     msg: Message = {"type": "ble_scan", "on": int(on)}
     u = uuid.replace("-", "").strip().lower()
     if u:
         if not re.fullmatch(r"[0-9a-f]{32}", u):
             raise ProtocolError("ble_scan: uuid должен быть 32 hex-символа (UUID iBeacon)")
         msg["uuid"] = u
+    for key, value, lo, hi in (("win_ms", win_ms, 10, 500), ("every_s", every_s, 1, 120),
+                               ("stable_every_s", stable_every_s, 1, 300), ("night_every_s", night_every_s, 1, 600),
+                               ("silence_s", silence_s, 10, 600), ("cal_s", cal_s, 5, 120)):
+        if value is not None:
+            msg[key] = _int_in(key, value, lo, hi)
     return msg
 
 

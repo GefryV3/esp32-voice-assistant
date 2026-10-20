@@ -116,3 +116,16 @@ def test_task_status_validates():
         with pytest.raises(ValueError):
             bad()
     assert len(protocol.task_status("working", "я" * 16)["label"].encode()) <= 31     # длинная подпись обрезается
+
+
+def test_ble_scan_tuning_and_config_thresholds():
+    assert protocol.ble_scan(True) == {"type": "ble_scan", "on": 1}
+    m = protocol.ble_scan(True, "0123456789abcdef0123456789abcdef", win_ms=60, every_s=2, cal_s=30)
+    assert (m["win_ms"], m["every_s"], m["cal_s"]) == (60, 2, 30) and "stable_every_s" not in m
+    with pytest.raises((ValueError, protocol.ProtocolError)):
+        protocol.ble_scan(True, win_ms=5000)
+    assert protocol.config(ble_near=-70, ble_far=-80) == {"type": "config", "ble_near": -70, "ble_far": -80}
+    with pytest.raises((ValueError, protocol.ProtocolError)):
+        protocol.config(ble_near=-70)
+    with pytest.raises((ValueError, protocol.ProtocolError)):
+        protocol.config(ble_near=-80, ble_far=-70)

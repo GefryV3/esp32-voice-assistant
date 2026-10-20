@@ -32,12 +32,17 @@ import time
 from typing import Any, Callable
 
 from . import protocol
+from .ble_calibrate import Calibration
 
 log = logging.getLogger(__name__)
 
 MODES = ("auto", "here", "away")
 PREF = "presence"
 BLE_PREF = "ble_scan"
+BLE_TUNE_PREF = "ble_tune"       # "win_ms=60,every_s=2": параметры сканирования колонки (ble_scan)
+BLE_THRESH_PREF = "ble_thresh"   # "near,far" в дБм, из room calibrate apply
+CAL_S = 30                       # столько секунд длится room calibrate
+TUNE_KEYS = ("win_ms", "every_s", "stable_every_s", "night_every_s", "silence_s")
 CACHE_S = 5.0            # here() зовут на каждый кусок звука — пересчитываем не чаще
 HA_REFRESH_S = 60.0
 HA_STALE_S = 600.0       # ответу HA старше 10 минут не верим
@@ -57,6 +62,9 @@ class Presence:
         self.ble_uuid = ble_uuid
         self._room: dict | None = None       # последнее room: here, rssi, src, at
         self._room_away_since: float | None = None
+        self._cal: Calibration | None = None            # идёт room calibrate
+        self._cal_suggest: tuple[int, int] | None = None
+        self.sleep = asyncio.sleep                      # подмена в тестах
         self._clock = clock
         self._last_signal = clock()          # старт сервера считаем признаком жизни
         self._home: bool | None = None       # по HA: None — не знаем
@@ -86,10 +94,33 @@ class Presence:
     def ble_scan(self) -> bool:
         return self.brain is not None and self.brain.pref(BLE_PREF, "off") == "on"
 
+    def _tune(self) -> dict[str, int]:
+        raw = self.brain.pref(BLE_TUNE_PREF, "") if self.brain is not None else ""
+        out: dict[str, int] = {}
+        for part in raw.split(","):
+            key, _, val = part.partition("=")
+            if key in TUNE_KEYS and val.lstrip("-").isdigit():
+                out[key] = int(val)
+        return out
+
+    def _thresholds(self) -> tuple[int, int] | None:
+        raw = self.brain.pref(BLE_THRESH_PREF, "") if self.brain is not None else ""
+        near, _, far = raw.partition(",")
+        try:
+            return int(near), int(far)
+        except ValueError:
+            return None
+
+    def _scan_msg(self, on: bool, **extra: int) -> dict:
+        return protocol.ble_scan(on, self.ble_uuid, **{**self._tune(), **extra})
+
     async def on_connect(self, dev: Any) -> None:
         """Колонка подключилась: сказать ей, сканировать ли BLE (в прошивке по умолчанию выключено)."""
+        th = self._thresholds()
+        if th is not None:
+            await dev.send(protocol.config(ble_near=th[0], ble_far=th[1]))
         if self.ble_scan:
-            await dev.send(protocol.ble_scan(True, self.ble_uuid))
+            await dev.send(self._scan_msg(True))
 
     async def on_room(self, dev: Any, msg: dict) -> None:
         """Подписка на сообщения колонки: hub.on_message(presence.on_room)."""
@@ -101,9 +132,16 @@ class Presence:
             return
         rssi = msg.get("rssi")
         now = self._clock()
+
+        def num(key: str) -> int | None:
+            v = msg.get(key)
+            return v if isinstance(v, int) and not isinstance(v, bool) else None
+
         self._room = {"here": here, "src": src if isinstance(src, str) else "none",
                       "rssi": rssi if isinstance(rssi, int) and not isinstance(rssi, bool) else None,
-                      "at": now}
+                      "heap_free": num("heap_free"), "heap_min": num("heap_min"), "at": now}
+        if self._cal is not None:
+            self._cal.add(msg)
         if self._room["src"] in ROOM_SOURCES and not here:
             if self._room_away_since is None:
                 self._room_away_since = now
@@ -249,23 +287,84 @@ class Presence:
             age = round(self._clock() - r["at"])
             rssi = "" if r["rssi"] is None else f", {r['rssi']} дБм"
             room = f"{'здесь' if r['here'] else 'нет'} ({r['src']}{rssi}, {age} с назад)"
+            if r.get("heap_free") is not None:
+                room += f"; внутр. RAM свободно {round(r['heap_free'] / 1024)} КБ"
+                if r.get("heap_min") is not None:
+                    room += f", минимум {round(r['heap_min'] / 1024)} КБ"
         return (f"{'на месте' if ok else 'НЕТ на месте'} ({why}); переопределение: {self.override}; "
                 f"HA: {ha}; колонка: {room}")
+
+    async def _tune_command(self, args: list[str]) -> str:
+        """ble tune win_ms=60 every_s=2 …: параметры скана колонки (сохраняются, шлются при подключении)."""
+        cur = self._tune()
+        if args == ["reset"]:
+            cur = {}
+        elif args:
+            for a in args:
+                key, _, val = a.partition("=")
+                if key not in TUNE_KEYS or not val.lstrip("-").isdigit():
+                    return f"ble tune: ключи {', '.join(TUNE_KEYS)} (число), либо reset"
+                cur[key] = int(val)
+            try:
+                protocol.ble_scan(True, **cur)
+            except (ValueError, protocol.ProtocolError) as e:
+                return f"ble tune: {e}"
+        if args and self.brain is not None:
+            self.brain.set_pref(BLE_TUNE_PREF, ",".join(f"{k}={v}" for k, v in cur.items()))
+        shown = ", ".join(f"{k}={v}" for k, v in cur.items()) or "по умолчанию прошивки"
+        if args and self.ble_scan and self.hub is not None and self.hub.get() is not None:
+            await self.hub.get().send(self._scan_msg(True))
+            return f"ble tune: {shown} (отправлено колонке)"
+        return f"ble tune: {shown}"
+
+    async def _calibrate(self, arg: str) -> str:
+        """room calibrate — 30 с слушаем маячок и предлагаем пороги; room calibrate apply — применить."""
+        if arg == "apply":
+            if self._cal_suggest is None:
+                return "room calibrate apply: сначала room calibrate"
+            near, far = self._cal_suggest
+            if self.brain is not None:
+                self.brain.set_pref(BLE_THRESH_PREF, f"{near},{far}")
+            if self.hub is not None and self.hub.get() is not None:
+                await self.hub.get().send(protocol.config(ble_near=near, ble_far=far))
+                return f"пороги применены: рядом > {near} дБм, ушёл < {far} дБм"
+            return f"пороги {near}/{far} дБм сохранены, колонка не подключена: применятся при подключении"
+        if self._cal is not None:
+            return "калибровка уже идёт"
+        if self.hub is None or self.hub.get() is None:
+            return "room calibrate: колонка не подключена"
+        if not self.ble_uuid:
+            return "room calibrate: нет JARVIS_BLE_UUID"
+        self._cal = cal = Calibration()
+        try:
+            await self.hub.get().send(self._scan_msg(True, cal_s=CAL_S))
+            await self.sleep(CAL_S + 2)
+        finally:
+            self._cal = None
+        self._cal_suggest = cal.suggest()
+        if not self.ble_scan:        # скан включали только на время калибровки
+            await self.hub.get().send(self._scan_msg(False))
+        return cal.report()
 
     async def command(self, line: str) -> str | None:
         """Консоль и Telegram: presence [auto|here|away]."""
         parts = line.split()
         if parts and parts[0].lower() == "room":
+            if len(parts) > 1 and parts[1].lower() == "calibrate":
+                return await self._calibrate(parts[2].lower() if len(parts) > 2 else "")
             return self.describe()
         if parts and parts[0].lower() == "ble":
+            if len(parts) >= 2 and parts[1].lower() == "tune":
+                return await self._tune_command(parts[2:])
             if len(parts) != 2 or parts[1].lower() not in ("on", "off"):
-                return "ble on|off — BLE-сканирование маячка телефона на колонке (сейчас: "                        f"{'on' if self.ble_scan else 'off'}); смотри room"
+                return ("ble on|off — BLE-сканирование маячка телефона на колонке (сейчас: "
+                        f"{'on' if self.ble_scan else 'off'}); ble tune [ключ=число …|reset]; смотри room")
             on = parts[1].lower() == "on"
             if self.brain is not None:
                 self.brain.set_pref(BLE_PREF, "on" if on else "off")
             if self.hub is None or self.hub.get() is None:
                 return f"ble {'on' if on else 'off'} сохранено, колонка не подключена: применится при подключении"
-            await self.hub.get().send(protocol.ble_scan(on, self.ble_uuid))
+            await self.hub.get().send(self._scan_msg(on))
             return f"ble {'on' if on else 'off'}: отправлено колонке"
         if not parts or parts[0].lower() != "presence":
             return None

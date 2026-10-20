@@ -530,6 +530,7 @@ void play_stop() {
 
 // Квадратичная шкала с потолком: выше ~−9 дБ полной шкалы динамик и питание усилителя от USB
 // начинают хрипеть, поэтому 100 % — это ×0.36, а 50 % (×0.09) — громко и ещё чисто.
+bool playing() { return s_speaking.load() || s_alarm_on.load(); }
 float mic_level() { return s_level.load(std::memory_order_relaxed); }
 uint32_t bang_count() { return s_bangs.load(); }
 uint32_t beat_count() { return s_beats.load(); }

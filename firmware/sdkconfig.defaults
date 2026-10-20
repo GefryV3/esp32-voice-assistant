@@ -37,3 +37,58 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 # Обновление по воздуху с сервера в своей сети — по HTTP (net/ota; образ проверяет сам ESP-IDF).
 CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 
+
+# ── BLE-маячок телефона (net/room, docs/room-presence.md, docs/changes/ble-tuning.md) ──
+# Стек урезан до «только наблюдатель» и входит в обычную прошивку, но по умолчанию ВЫКЛЮЧЕН: контроллер
+# поднимается лишь по сообщению ble_scan с сервера (консоль `ble on`). Цена выключенного: ~5 КБ внутренней
+# RAM и ~175 КБ флеша. Включённого: ещё динамика контроллера (оценка 25–35 КБ внутренней RAM, не измерена).
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+
+# ── хост NimBLE: только наблюдатель ──
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_GATT_CLIENT=n
+CONFIG_BT_NIMBLE_GATT_SERVER=n
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+CONFIG_BT_NIMBLE_HS_PVCY=n
+CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
+CONFIG_BT_NIMBLE_GAP_SERVICE=n
+CONFIG_BT_NIMBLE_WHITELIST_SIZE=1
+CONFIG_BT_NIMBLE_MAX_CCCDS=1
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
+
+# Память хоста: всё в PSRAM, пулы по минимуму (соединений и ACL-данных нет, только отчёты о рекламе).
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=3072
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=8
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=0
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=4
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=8
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_DISCARD_COUNT=6
+
+# ── контроллер ──
+# Код контроллера из IRAM во флеш (libbtdm_app_flash.a): ~20 КБ внутренней RAM назад. Цена: чуть
+# медленнее, и пока идёт запись флеша (обновление по воздуху) BLE может сбиваться — на время ota
+# скан ставится на паузу (net/room.cpp).
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
+# Один «сеанс» контроллера (сканирование), без соединений и рекламы.
+CONFIG_BT_CTRL_BLE_MAX_ACT=1
+CONFIG_BT_CTRL_BLE_MASTER=n
+CONFIG_BT_CTRL_BLE_ADV=n
+CONFIG_BT_CTRL_BLE_SECURITY_ENABLE=n
+CONFIG_BT_CTRL_DTM_ENABLE=n
+# Фильтр повторов в контроллере: каждый маячок один раз за окно сканирования (хосту меньше работы).
+# Хост хранит не больше 50 неразобранных отчётов о рекламе (по умолчанию 100).
+CONFIG_BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_NUM=50
+CONFIG_BT_CTRL_BLE_SCAN_DUPL=y
+CONFIG_BT_CTRL_SCAN_DUPL_TYPE_DEVICE=y
+CONFIG_BT_CTRL_SCAN_DUPL_CACHE_SIZE=20
+
+# ── сосуществование с Wi-Fi ──
+# Программное разделение эфира включено по умолчанию, когда есть и Wi-Fi, и BLE (ESP_COEX_SW_COEXIST_ENABLE=y).
+# Режим экономии питания коэкзистенции (ESP_COEX_POWER_MANAGEMENT) не нужен: Wi-Fi у колонки без сна.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
