@@ -21,6 +21,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -28,6 +29,7 @@ from typing import Any
 
 from .brain import Brain
 from .gemini_fallback import CHAT_NOTE as OVERLOAD_NOTE, Notice
+from .health import GEMINI_ERRORS
 from .voice import system_prompt
 
 log = logging.getLogger(__name__)
@@ -56,6 +58,29 @@ async def urllib_post(url: str, payload: dict[str, Any], headers: dict[str, str]
     def run() -> dict:
         req = urllib.request.Request(url, json.dumps(payload).encode(), {
             "Content-Type": "application/json", **headers})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode(errors='replace')}") from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"нет связи: {e.reason}") from None
+    return await asyncio.to_thread(run)
+
+
+async def urllib_upload(url: str, fields: dict[str, str], filename: str, data: bytes, timeout: float) -> dict:
+    """POST multipart/form-data с одним файлом в поле document (Bot API sendDocument)."""
+    boundary = "----jarvis" + uuid.uuid4().hex
+    crlf = "\r\n"
+    body = b""
+    for k, v in fields.items():
+        body += f'--{boundary}{crlf}Content-Disposition: form-data; name="{k}"{crlf}{crlf}{v}{crlf}'.encode()
+    head = (f'--{boundary}{crlf}Content-Disposition: form-data; name="document"; filename="{filename}"{crlf}'
+            f"Content-Type: application/octet-stream{crlf}{crlf}")
+    body += head.encode() + data + f"{crlf}--{boundary}--{crlf}".encode()
+
+    def run() -> dict:
+        req = urllib.request.Request(url, body, {"Content-Type": f"multipart/form-data; boundary={boundary}"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
@@ -96,7 +121,8 @@ class Telegram:
                  brain: Brain | None = None, now: Callable[[], datetime] = datetime.now,
                  sarcasm: Callable[[], int] = lambda: 60,
                  device_send: Callable[[dict], Awaitable[None]] = _no_device,
-                 http: Http = urllib_post, fallback_model: str = "", clock: Callable[[], float] = time.monotonic):
+                 http: Http = urllib_post, fallback_model: str = "", clock: Callable[[], float] = time.monotonic,
+                 upload=urllib_upload):
         self.token, self.chat_ids, self.api_key, self.model = token, chat_ids, api_key, model
         self.brain, self.now, self.sarcasm, self.http = brain, now, sarcasm, http
         self.device_send = device_send
@@ -104,6 +130,7 @@ class Telegram:
         self._clock = clock
         self._notice = Notice()
         self._fell_back = False                   # в этом запросе пришлось уйти на запасную модель
+        self.upload = upload
         self.presence = None     # Presence: команда «presence here|away|auto» из чата
         self._history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY))
         self._offset = 0
@@ -128,6 +155,21 @@ class Telegram:
                 ok = True
             except Exception as e:
                 log.warning("telegram: не отправилось в %s: %s", cid, e)
+        return ok
+
+    async def send_document(self, filename: str, data: bytes, caption: str = "",
+                            chat_id: int | None = None) -> bool:
+        """Отправить файл (sendDocument) во все разрешённые чаты или в один. True — дошло хотя бы одному."""
+        ok = False
+        for cid in [chat_id] if chat_id is not None else sorted(self.chat_ids):
+            try:
+                fields = {"chat_id": str(cid), **({"caption": caption[:1000]} if caption else {})}
+                r = await self.upload(API.format(token=self.token, method="sendDocument"), fields, filename, data, 120)
+                if not r.get("ok"):
+                    raise RuntimeError(r.get("description", r))
+                ok = True
+            except Exception as e:
+                log.warning("telegram: файл не отправился в %s: %s", cid, e)
         return ok
 
     # ── Gemini ──
@@ -221,6 +263,7 @@ class Telegram:
             reply = await self.ask(chat_id, text)
         except Exception as e:
             log.warning("telegram: Gemini не ответил: %s", e)
+            GEMINI_ERRORS.add("telegram")
             reply = "Не получилось спросить Gemini, попробуй ещё раз позже."
         await self.send(reply, chat_id)
 

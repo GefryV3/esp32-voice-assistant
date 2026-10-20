@@ -52,6 +52,12 @@ class Settings:
     presence_idle_min: float = 180           # столько минут без признаков при связи — «нет на месте»; 0 — не считать
     routines: bool = True                    # рутины: утренний брифинг, приветствие дома
     briefing_at: str = "08:00"               # брифинг по времени, если будильник не выключали
+    habits: bool = True                      # привычки: случайный вопрос «это сделано?» по задачам Google
+    habits_prob: float = 0.5                 # вероятность, что сегодня вообще спросят
+    habits_windows: str = "18:00-21:30"      # окна для вопроса, через запятую
+    habits_keywords: str = "тренировк,бассейн,хомяк,немецк,зарядк,спорт,гантел,растяжк"
+    digest: bool = True                      # недельная сводка и резерв brain.db в Telegram
+    digest_at: str = "19:00"                 # воскресенье, во сколько
     ha_url: str = ""                         # пусто — умного дома нет
     ha_token: str = ""
     telegram_token: str = ""                 # пусто — Telegram-бота нет
@@ -123,7 +129,24 @@ def load_settings(env_file: Path | str = ".env", environ: dict[str, str] | None 
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", briefing_at):
         raise ConfigError(f"JARVIS_BRIEFING_AT должен быть вида ЧЧ:ММ, например 08:00: {briefing_at!r}")
 
+    try:
+        habits_prob = min(max(float(env.get("JARVIS_HABITS_PROB", "0.5")), 0.0), 1.0)
+    except ValueError as e:
+        raise ConfigError(f"JARVIS_HABITS_PROB должен быть числом 0…1: {e}") from None
+    digest_at = env.get("JARVIS_DIGEST_AT", "19:00").strip()
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", digest_at):
+        raise ConfigError(f"JARVIS_DIGEST_AT должен быть вида ЧЧ:ММ: {digest_at!r}")
+
+    def on(key: str) -> bool:
+        return env.get(key, "on").strip().lower() not in ("0", "false", "no", "off")
+
     return Settings(
+        habits=on("JARVIS_HABITS"),
+        habits_prob=habits_prob,
+        habits_windows=env.get("JARVIS_HABITS_WINDOWS", "18:00-21:30"),
+        habits_keywords=env.get("JARVIS_HABITS_KEYWORDS", "тренировк,бассейн,хомяк,немецк,зарядк,спорт,гантел,растяжк"),
+        digest=on("JARVIS_DIGEST"),
+        digest_at=digest_at,
         device_token=token,
         presence=presence,
         presence_pc_min=minutes("JARVIS_PRESENCE_PC_MIN", "10"),

@@ -109,6 +109,7 @@ class Brain:
         self.lights = None       # Lights (jarvis.lights), ставит __main__
         self.mute_hook: Callable[[Any], Awaitable[dict]] | None = None   # Voice: режим тишины
         self.morning = None      # Morning (будильник по расписанию, автобус), ставит __main__
+        self.extensions: list[Any] = []   # модули со своими функциями Gemini: .TOOLS, .tool_names, async .call(name, args)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -224,9 +225,10 @@ class Brain:
         self.db.commit()
 
     def tools(self) -> list[dict[str, Any]]:
+        extra = [t for ext in self.extensions for t in ext.TOOLS]
         return (TOOLS + GERMAN_TOOLS + GAME_TOOLS + (HOME_TOOLS if self.ha else []) + (AGENT_TOOLS if self.agents else [])
                 + (GOOGLE_TOOLS if self.google else []) + (LIGHT_TOOLS if self.lights else [])
-                + (self.morning.tools() if self.morning else []))
+                + (self.morning.tools() if self.morning else []) + extra)
 
     async def call(self, name: str, args: dict[str, Any], send: Callable[[dict], Awaitable[None]]) -> dict:
         """Выполнить инструмент; результат — короткий словарь для Gemini. Ошибки не роняют разговор."""
@@ -240,6 +242,11 @@ class Brain:
         now = self.now().replace(tzinfo=None)
         if name in ("goodnight", "music_light") and self.lights:
             return await self.lights.call(name, args)
+        for ext in self.extensions:
+            if name in ext.tool_names:
+                return await ext.call(name, args)
+        if name == "save_idea" and self.google:
+            return await self.google.call(name, args)
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
         if name in MORNING_TOOL_NAMES and self.morning:
