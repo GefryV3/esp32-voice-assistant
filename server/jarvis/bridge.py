@@ -145,6 +145,7 @@ class Bridge:
         self._bedtime_day = ""
         self._loop_task: asyncio.Task | None = None
         self.on_wake: Callable[[], None] | None = None   # будильник выключен — человек проснулся
+        self.on_notif: Callable[[Message], None] | None = None   # каждое уведомление телефона (копилка школьных, school_inbox)
         self.on_slept: Callable[[float, datetime], None] | None = None   # (часов сна, когда лёг) — для недельной сводки
         self.on_pc_event: Callable[[Message], Awaitable[None]] | None = None   # skill_progress / skill_result от ноутбука
         self.on_pc_connect: Callable[[], Awaitable[None]] | None = None        # ноутбук подключился
@@ -334,6 +335,8 @@ class Bridge:
         elif t == "notif":
             key = str(msg.get("key", ""))
             self.notifs[key] = msg
+            if self.on_notif is not None:
+                self.on_notif(msg)
             while len(self.notifs) > 50:
                 self.notifs.pop(next(iter(self.notifs)))
             if self.should_mirror():

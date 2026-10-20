@@ -31,6 +31,9 @@ from .learning import Learning
 from .routines import Routines
 from .transit import Transit, TransitConfig
 from .umbrella import Umbrella, UmbrellaConfig
+from .memorize import Memorize
+from .school import School, SchoolConfig
+from .school_inbox import SchoolInbox
 from .untis import Untis, UntisConfig, FixedSchedule, WithFallback
 from .telegram import Telegram, parse_chat_ids
 from .quiet import make_mute_factory
@@ -177,6 +180,16 @@ async def main() -> None:
     health = Health(hub=hub, bridge=bridge, ha=ha, google=google)
     brain.extensions.append(health)
     extras.append(health)
+    school_env = {**read_env_file(Path(".env")), **os.environ}
+    inbox = SchoolInbox(brain.db)
+    bridge.on_notif = inbox.record
+    school = School(Untis(UntisConfig.from_env(school_env)), inbox, SchoolConfig.from_env(school_env),
+                    announce=voice.announce if voice else None, brain=brain,
+                    can_speak=lambda: not (voice.is_night() or voice.quiet.states) if voice else False)
+    memo = Memorize(brain.db)
+    brain.extensions += [school, memo]
+    extras += [school, memo]
+    school.start()
     habits = None
     if voice and google and settings.habits:
         habits = Habits(voice.announce, google=google, brain=brain, settings=lambda: bridge.store.values,
@@ -227,7 +240,7 @@ async def main() -> None:
         finally:
             if lights:
                 await lights.state.stop()
-            for module in (habits, digest):
+            for module in (habits, digest, school):
                 if module:
                     await module.stop()
             if learning:
