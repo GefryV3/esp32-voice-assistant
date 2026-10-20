@@ -60,6 +60,7 @@ class DeviceHub:
         self._server: Server | None = None
         self.devices: dict[str, Device] = {}
         self._handlers: list[MessageHandler] = []
+        self._audio_error_at = -1e9
         self._audio_handlers: list[AudioHandler] = []
         self._connect_handlers: list[Callable[[Device], Awaitable[None]]] = []
         self._routes: dict[str, RouteHandler] = {DEVICE_PATH: self._handle_device}
@@ -214,8 +215,16 @@ class DeviceHub:
 
     async def _dispatch(self, dev: Device, raw: str | bytes) -> None:
         if isinstance(raw, bytes):
+            if len(raw) & 1:       # PCM16: нечётный хвост — обрезанный кадр; из-за него np.frombuffer падал и рвал соединение
+                raw = raw[:-1]
             for audio_handler in self._audio_handlers:
-                audio_handler(dev, raw)
+                try:
+                    audio_handler(dev, raw)
+                except Exception:   # один плохой кадр не должен ронять связь с колонкой
+                    now = time.monotonic()
+                    if now - self._audio_error_at > 60:
+                        self._audio_error_at = now
+                        log.exception("%s: обработчик звука упал, кадр пропущен", dev.id)
             return
         try:
             msg = protocol.decode(raw)

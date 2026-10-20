@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.4 (firmware 0.7.2)
+- **Odd-size audio frame dropped the speaker's connection** (rare, seen twice): the frame is now trimmed to whole samples
+  and an exception in an audio handler is logged instead of closing the connection.
+- **Firmware 0.7.2**: claps reach the server more reliably (3 s wait, 3 attempts) and the face reacts at once; the
+  firmware image inside the add-on is now the 0.7.2 one (the 0.14.3 add-on still carried an early 0.7.1 build).
+
 ## 0.14.3 (firmware 0.7.1)
 - **Speaker answered nothing after 0.14.0** (fixed in 0.14.1): the `Health` extension had no `TOOLS`, so building the
   Gemini tool list failed on every conversation. Regression test added.

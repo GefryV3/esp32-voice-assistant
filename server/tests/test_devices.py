@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import numpy as np
 import pytest
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
@@ -131,3 +132,25 @@ async def test_reconnect_replaces_old_connection(hub):
             await wait_for(lambda: len(hub.devices) == 1)
             await hub.get().send(protocol.coin(1))
             assert json.loads(await new.recv())["name"] == "coin"
+
+
+async def test_odd_audio_frame_and_failing_handler_do_not_drop_the_speaker(hub):
+    # np.frombuffer падал на нечётном кадре и рвал соединение с колонкой («отключилась jarvis-hub»)
+    seen = []
+
+    def audio(dev, pcm):
+        seen.append(len(pcm))
+        np.frombuffer(pcm, dtype=np.int16)           # как в wake.py
+        if len(pcm) == 4:
+            raise RuntimeError("обработчик упал")
+
+    hub.on_audio(audio)
+    async with connect(url(hub)) as ws:
+        await ws.send(hello())
+        await ws.recv()
+        await ws.send(b"\x01\x02\x03")               # нечётный: хвост обрезается, обработчик получает 2 байта
+        await ws.send(b"\x01\x02\x03\x04")           # обработчик бросает исключение
+        await ws.send(json.dumps({"type": "status", "uptime": 5, "heap": 1, "psram": 1, "rssi": -50, "fps": 30}))
+        await wait_for(lambda: hub.get() is not None and hub.get().status.get("uptime") == 5)
+        assert seen == [2, 4]
+        assert hub.get() is not None                 # колонка всё ещё на связи
