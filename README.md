@@ -166,7 +166,6 @@ Details: [phone/README.md](phone/README.md).
 | [skills.md](docs/skills.md) | Writing plug-in skills |
 | [changes/](docs/changes) | Notes for every feature branch, including what to verify live |
 
-Most documents are written in Russian.
 
 ## Status
 

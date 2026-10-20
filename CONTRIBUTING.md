@@ -16,4 +16,4 @@ This is a personal project that runs in one bedroom, but issues, ideas and pull 
   with the code, and keep old firmware working when possible.
 - New settings go into `server/.env.example` with a short comment.
 - Never commit secrets: `.env`, `secrets.h` and built APKs stay local.
-- Docs and code comments are written in Russian; English is fine in issues and pull requests.
+- Documentation is written in English. Strings the assistant speaks or recognises stay in Russian.
