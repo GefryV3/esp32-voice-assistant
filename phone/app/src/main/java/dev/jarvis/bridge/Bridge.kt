@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
+import android.provider.AlarmClock
 import android.net.Uri
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
@@ -294,7 +295,36 @@ object Bridge {
             "media" -> Media.command(m.optString("cmd"))
             "call" -> Calls.decline(app, m.optString("sms").takeIf { it.isNotBlank() })
             "open_url" -> showLink(m.optString("url"))
+            "set_alarm" -> setAlarm(m.optInt("hour", -1), m.optInt("minute", -1), m.optString("label"))
         }
+    }
+
+    /**
+     * Будильник от сервера: интент часов AlarmClock.ACTION_SET_ALARM без их экрана. Из фона Android 10+
+     * может не дать открыть активити, тогда показываем уведомление: нажал, и будильник поставлен.
+     */
+    private fun setAlarm(hour: Int, minute: Int, label: String) {
+        if (hour !in 0..23 || minute !in 0..59) return
+        val set = Intent(AlarmClock.ACTION_SET_ALARM)
+            .putExtra(AlarmClock.EXTRA_HOUR, hour)
+            .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+            .putExtra(AlarmClock.EXTRA_MESSAGE, label.ifBlank { "Подъём" })
+            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val ok = try { app.startActivity(set); true } catch (e: Exception) { false }
+        send("alarm_set") { put("hour", hour); put("minute", minute); put("direct", ok) }
+        if (ok) return
+        val tap = PendingIntent.getActivity(
+            app, 7000 + hour * 60 + minute, set, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = Notification.Builder(app, App.CH_ALERT)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Поставить будильник на %02d:%02d".format(hour, minute))
+            .setContentText("Нажми, чтобы Мага поставил его в часах")
+            .setContentIntent(tap)
+            .setAutoCancel(true)
+            .build()
+        app.getSystemService(NotificationManager::class.java).notify(7000 + hour * 60 + minute, n)
     }
 
     /** Ссылка с компьютера: уведомление, по нажатию — браузер. */

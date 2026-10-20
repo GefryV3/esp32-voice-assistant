@@ -127,6 +127,7 @@
 | `call` | `state`: `ringing` / `active` / `idle`; `number`, `name` | звонок |
 | `media` | `state`, `title`, `artist`, `app`, `pos`, `dur` (мс), `at` | смена трека или паузы |
 | `alarm` | `event`: `ringing` / `dismissed` | будильник зазвонил / выключен |
+| `alarm_set` | `hour`, `minute`, `direct` | ответ на `set_alarm`: `direct` — часы открыли без экрана, иначе показано уведомление «нажми» |
 | `bt` | `devices`: [{`name`, `level`}] | заряд подключённых наушников |
 | `share` | `text` | «Поделиться → Открыть на компьютере» |
 | `settings` | `values`: настройки колонки | поменяли в приложении |
@@ -135,7 +136,7 @@
 **Сервер → телефон:** `settings` (`values`, `speaker`: {`online`, `fps`, `screen`}, `pc`), `ring` (`on`),
 `reply` (`key`, `text`), `action` (`key`, `title`), `dismiss` (`key`), `media` (`cmd`:
 `play` / `pause` / `toggle` / `next` / `prev`), `call` (`sms` — сбросить и написать),
-`open_url` (`url`).
+`open_url` (`url`), `set_alarm` (`hour`, `minute`, `label`: поставить будильник через AlarmClock).
 
 **Компьютер → сервер:** `pc` (`idle` — секунд без мыши и клавиатуры, `battery`, `charging`)
 раз в 15 с; `to_phone` (`url`). **Сервер → компьютер:** `open_url` (`url`).

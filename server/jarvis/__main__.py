@@ -19,12 +19,16 @@ from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
 from .presence import Presence
+from .morning import Morning, MorningConfig
 from .routines import Routines
+from .transit import Transit, TransitConfig
+from .umbrella import Umbrella, UmbrellaConfig
+from .untis import Untis, UntisConfig
 from .telegram import Telegram, parse_chat_ids
 from .voice import Voice
 from .wake import WakeWord, ensure_models
 from .wake_vosk import MultiWake, VoskWake, ensure_model
-from .config import ConfigError, load_settings
+from .config import ConfigError, load_settings, read_env_file
 from .console import RecentLogHandler, add_admin_route, run_console
 from .devices import DeviceHub
 
@@ -102,11 +106,22 @@ async def main() -> None:
         voice = None
         logging.getLogger("jarvis").warning("нет GEMINI_API_KEY — колонка без голоса")
     routines = None
+    morning = None
     if voice and settings.routines:
-        routines = hub.routines = Routines(voice.announce, settings=lambda: bridge.store.values, brain=brain,
-                                           ha=ha, briefing_at=settings.briefing_at)
+        env = {**read_env_file(Path(".env")), **os.environ}
+        mcfg = MorningConfig.from_env(env)
+        morning = hub.morning = brain.morning = Morning(
+            mcfg, voice.announce, untis=Untis(UntisConfig.from_env(env)), transit=Transit(TransitConfig.from_env(env)),
+            bridge=bridge, brain=brain, ha=ha)
+        umbrella = Umbrella(UmbrellaConfig.from_env(env), voice.announce, night=lambda: routines.night())
+        routines = hub.routines = Routines(
+            voice.announce, settings=lambda: bridge.store.values, brain=brain, ha=ha, briefing_at=settings.briefing_at,
+            soft_wake_s=mcfg.soft_wake_s if mcfg.soft_wake else None, wake_context=morning.wake_context,
+            on_leave=umbrella.on_leave)
+        morning.routines = routines
         bridge.on_wake = routines.wake_signal
         routines.start()
+        morning.start()
     chat_ids = parse_chat_ids(settings.telegram_chat_ids)
     tg = None
     if settings.telegram_token and chat_ids and settings.gemini_api_key:
@@ -143,6 +158,8 @@ async def main() -> None:
         finally:
             if routines:
                 await routines.stop()
+            if morning:
+                await morning.stop()
             if tg:
                 await tg.stop()
             if brain.agents:
