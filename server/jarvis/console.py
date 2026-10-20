@@ -51,6 +51,9 @@ HELP = """\
   tts [имя]                     голос Gemini на лету (Puck, Fenrir, Zephyr, Charon, Orus…)
   affect on|off                 эмоциональный диалог Gemini: отвечает в тон интонации
   log [строк]                   последние строки журнала сервера (по умолчанию 40)
+Колонка без сервера:
+  clap on|off [1..10]           хлопки (две серии) на колонке: вкл/выкл и чувствительность
+  plan                          отправить колонке план сигналов на случай обрыва связи
 Рутины:
   routine briefing|home        утренний брифинг / приветствие дома сразу, без ожидания срока
 Прошивка:
@@ -159,7 +162,8 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
         reply = await hub.audio.command(line)
         if reply is not None:
             return reply
-    for module in (hub.voice, hub.ota, hub.telegram, getattr(hub, "presence", None), hub.routines):
+    for module in (hub.voice, hub.ota, hub.telegram, getattr(hub, "presence", None), hub.routines,
+                   getattr(hub, "offline", None)):
         if module is not None:
             out = await module.command(line)
             if out is not None:

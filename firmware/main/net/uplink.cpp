@@ -3,6 +3,7 @@
 #include <sys/time.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -18,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "net/ota.h"
+#include "net/plan.h"
 #include "net/wifi.h"
 #include "secrets.h"
 #include "ui/ui.h"
@@ -33,6 +35,7 @@ constexpr size_t MAX_TEXT = 4096;
 esp_websocket_client_handle_t s_client = nullptr;
 TaskHandle_t s_status_task = nullptr;
 volatile bool s_online = false;
+std::atomic<int> s_clap_pending{0};   // хлопки, ждущие отправки (ставит задача микрофона)
 
 char s_rx[MAX_TEXT + 1];
 size_t s_rx_len = 0;
@@ -111,6 +114,19 @@ void report_ota(const char *state, int pct, const char *text) {
   ui::set_caption(face::Caption::Reply, line, face::Icon::None);
 }
 
+void send_clap(int count) {
+  cJSON *m = cJSON_CreateObject();
+  cJSON_AddStringToObject(m, "type", "clap");
+  cJSON_AddNumberToObject(m, "count", count);
+  send_json(m);
+}
+
+// из задачи микрофона: не ждём сеть, отправит status_task
+void on_clap(int count) {
+  s_clap_pending = count;
+  if (s_status_task) xTaskNotifyGive(s_status_task);
+}
+
 void send_status() {
   cJSON *m = cJSON_CreateObject();
   cJSON_AddStringToObject(m, "type", "status");
@@ -135,6 +151,7 @@ void on_welcome(const cJSON *m) {
   }
   s_online = true;
   ui::set_online(true);
+  plan::on_link(true);
   ota::confirm();   // сервер ответил — новая прошивка рабочая, откат не нужен
   time_t now = time(nullptr);
   struct tm lt;
@@ -185,9 +202,19 @@ void on_player(const cJSON *m) {
   ui::set_player(on, eq(state, "playing"), str(m, "title"), str(m, "artist"), num(m, "pos", 0), num(m, "dur", 0));
 }
 
+// Применяем только присланные поля: сервер шлёт и настройки сна, и хлопков отдельными сообщениями.
 void on_config(const cJSON *m) {
-  const char *clock = str(m, "sleep_clock");
-  ui::set_sleep((uint32_t)num(m, "sleep_after", 180), !eq(clock, "bottom"));
+  if (cJSON_GetObjectItemCaseSensitive(m, "sleep_after") || cJSON_GetObjectItemCaseSensitive(m, "sleep_clock")) {
+    const char *clock = str(m, "sleep_clock");
+    ui::set_sleep((uint32_t)num(m, "sleep_after", 180), !eq(clock, "bottom"));
+  }
+  if (cJSON_GetObjectItemCaseSensitive(m, "clap") || cJSON_GetObjectItemCaseSensitive(m, "clap_sens")) {
+    static int sens = 5;
+    static bool on = true;
+    sens = num(m, "clap_sens", sens);
+    on = num(m, "clap", on ? 1 : 0) != 0;
+    audio::set_clap(on, sens);
+  }
 }
 
 void on_message(const cJSON *m) {
@@ -213,6 +240,8 @@ void on_message(const cJSON *m) {
     ui::set_agenda(str(m, "accent"), str(m, "text"));
   } else if (eq(type, "config")) {
     on_config(m);
+  } else if (eq(type, "plan")) {
+    plan::on_plan(m);
   } else if (eq(type, "notify")) {
     on_notify(m);
   } else if (eq(type, "notify_hide")) {
@@ -278,6 +307,7 @@ void go_offline() {
   ui::set_online(false);
   audio::listen(false);
   audio::play_stop();
+  plan::on_link(false);
 }
 
 void on_ws_event(void *, esp_event_base_t, int32_t id, void *data) {
@@ -311,6 +341,10 @@ void on_ws_event(void *, esp_event_base_t, int32_t id, void *data) {
 void status_task(void *) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(STATUS_PERIOD_MS));
+    if (const int claps = s_clap_pending.exchange(0)) {
+      if (s_online) send_clap(claps);
+      continue;
+    }
     if (s_online) send_status();
   }
 }
@@ -319,6 +353,8 @@ void status_task(void *) {
 
 void start() {
   audio::start(send_mic, send_played, send_barge_in);
+  audio::set_clap_handler(on_clap);
+  plan::start();
   xTaskCreatePinnedToCore(status_task, "link_status", 3072, nullptr, 3, &s_status_task, 0);
 
   esp_websocket_client_config_t cfg = {};

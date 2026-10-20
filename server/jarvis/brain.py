@@ -103,6 +103,8 @@ class Brain:
         self.db.commit()
         self._task: asyncio.Task | None = None
         self.on_message: Callable[[], None] | None = None   # зовётся после каждой записи в общую историю
+        self.plan_changed: Callable[[], None] | None = None  # напоминания/таймеры поменялись: обновить план колонки
+        self.timers: list[tuple[float, str]] = []            # (Unix-время срабатывания, подпись) — для плана колонки
 
     # ── общая история разговоров (голос и Telegram) ──
     #
@@ -154,6 +156,7 @@ class Brain:
         cur = self.db.execute("INSERT INTO reminders (text, due) VALUES (?, ?)",
                               (text.strip(), due.isoformat(timespec="minutes")))
         self.db.commit()
+        self._plan_changed()
         return cur.lastrowid or 0
 
     def pending(self) -> list[tuple[int, str, datetime]]:
@@ -167,12 +170,33 @@ class Brain:
     def finish(self, rid: int) -> None:
         self.db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
         self.db.commit()
+        self._plan_changed()
 
     def cancel(self, needle: str) -> int:
         n = self.db.execute("UPDATE reminders SET done = 1 WHERE done = 0 AND "
                             "instr(lower(text), lower(?)) > 0", (needle,)).rowcount
         self.db.commit()
+        self._plan_changed()
         return n
+
+    # ── план для колонки без связи (docs/protocol-next.md, plan) ──
+
+    def _plan_changed(self) -> None:
+        if self.plan_changed is not None:
+            self.plan_changed()
+
+    def plan_rows(self) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+        """Ближайшие напоминания и таймеры как (Unix-время, подпись ≤31 байта), по возрастанию."""
+        now = self.now().replace(tzinfo=None)
+        stamp = now.timestamp()
+        self.timers = [(at, label) for at, label in self.timers if at > stamp]
+
+        def fit(text: str) -> str:
+            return text.strip().encode()[:31].decode(errors="ignore")
+
+        alarms = sorted((int(d.timestamp()), fit(t)) for _, t, d in self.pending() if d > now)
+        timers = sorted((int(at), fit(label or "Таймер")) for at, label in self.timers)
+        return alarms, timers
 
     # ── инструменты Gemini ──
 
@@ -253,6 +277,8 @@ class Brain:
             return {"ok": True, "cancelled": n}
         if name == "set_timer":
             sec = min(int(float(args.get("minutes", 0)) * 60), MAX_TIMER_S)
+            self.timers = [(now.timestamp() + sec, str(args.get("label", "")))] if sec > 0 else []
+            self._plan_changed()
             await send(protocol.timer(max(sec, 0), str(args.get("label", ""))))
             return {"ok": True, "seconds": max(sec, 0)}
         return {"ok": False, "error": f"нет такого инструмента: {name}"}
