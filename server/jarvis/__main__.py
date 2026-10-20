@@ -15,6 +15,9 @@ from .audio import Audio
 from .brain import Brain
 from .agents import Agents, make_search
 from .google import Google
+from .habits import Habits, parse_keywords, parse_windows
+from .health import GEMINI_ERRORS, Health
+from .digest import Digest
 from .ha import HomeAssistant
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
@@ -123,6 +126,27 @@ async def main() -> None:
         voice.presence = presence
     if tg:
         tg.presence = presence
+    brain.extensions = []
+    extras = hub.extras = []
+    GEMINI_ERRORS.bind(brain)
+    health = Health(hub=hub, bridge=bridge, ha=ha, google=google)
+    brain.extensions.append(health)
+    extras.append(health)
+    habits = None
+    if voice and google and settings.habits:
+        habits = Habits(voice.announce, google=google, brain=brain, settings=lambda: bridge.store.values,
+                        prob=settings.habits_prob, windows=parse_windows(settings.habits_windows),
+                        keywords=parse_keywords(settings.habits_keywords))
+        brain.extensions.append(habits)
+        extras.append(habits)
+        habits.start()
+    digest = None
+    if tg and settings.digest:
+        digest = Digest(tg, brain, google=google, habits=habits, backup_dir=Path(settings.data_dir) / "backup",
+                        at=settings.digest_at)
+        bridge.on_slept = digest.record_sleep
+        extras.append(digest)
+        digest.start()
     if voice or tg:
         async def remind(text: str) -> bool:
             # колонка не ответила (нет её или занята) — напоминание уходит в Telegram
@@ -141,6 +165,9 @@ async def main() -> None:
             else:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
+            for module in (habits, digest):
+                if module:
+                    await module.stop()
             if routines:
                 await routines.stop()
             if tg:

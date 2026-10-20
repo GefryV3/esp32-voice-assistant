@@ -24,6 +24,7 @@ from .brain import Brain
 from .config import Settings
 from .devices import Device, DeviceHub
 from .gemini_live import Event, LiveError, LiveSession
+from .health import GEMINI_ERRORS
 
 log = logging.getLogger(__name__)
 
@@ -325,6 +326,7 @@ class Conversation:
                 log.info("%s: разговор окончен (%s)", dev.id, why)
         except LiveError as e:
             log.warning("Gemini Live: %s", e)
+            GEMINI_ERRORS.add("голос")
             await dev.send(protocol.emotion("sorry", 3000))
             await dev.send(protocol.caption("reply", "Не могу связаться с Gemini"))
         finally:

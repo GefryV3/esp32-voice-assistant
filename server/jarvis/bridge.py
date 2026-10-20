@@ -145,6 +145,7 @@ class Bridge:
         self._bedtime_day = ""
         self._loop_task: asyncio.Task | None = None
         self.on_wake: Callable[[], None] | None = None   # будильник выключен — человек проснулся
+        self.on_slept: Callable[[float, datetime], None] | None = None   # (часов сна, когда лёг) — для недельной сводки
         self._background: set[asyncio.Task] = set()
         self._last_screen: dict[str, Any] = {}
         hub.bridge = self
@@ -423,6 +424,8 @@ class Bridge:
         slept = at - self._screen_off_at
         if 3 * 3600 < slept < 14 * 3600:
             lay = datetime.fromtimestamp(self._screen_off_at)
+            if self.on_slept is not None:
+                self.on_slept(slept / 3600, lay)
             h, m = divmod(int(slept // 60), 60)
             await self.speaker(protocol.notify("info", f"Спал {h} ч {m:02d} мин", f"Лёг в {lay:%H:%M}", ms=15_000))
         if self._watchdog is not None:
