@@ -115,15 +115,24 @@ void report_ota(const char *state, int pct, const char *text) {
   ui::set_caption(face::Caption::Reply, line, face::Icon::None);
 }
 
+// Хлопок редкий и важный, а общий WebSocket занят потоком микрофона: при заторе Wi-Fi обычная отправка
+// ждёт замок 1 с и молча пропадает. Здесь ждём дольше и повторяем (не вышло — в сеть ничего не ушло).
 void send_clap(int count) {
   cJSON *m = cJSON_CreateObject();
   cJSON_AddStringToObject(m, "type", "clap");
   cJSON_AddNumberToObject(m, "count", count);
-  send_json(m);
+  char *text = cJSON_PrintUnformatted(m);
+  bool sent = false;
+  for (int attempt = 0; text && !sent && attempt < 3 && s_client && esp_websocket_client_is_connected(s_client); ++attempt)
+    sent = esp_websocket_client_send_text(s_client, text, strlen(text), pdMS_TO_TICKS(3000)) >= 0;
+  if (!sent) ESP_LOGW(TAG, "хлопки не ушли на сервер");
+  cJSON_free(text);
+  cJSON_Delete(m);
 }
 
 // из задачи микрофона: не ждём сеть, отправит status_task
 void on_clap(int count) {
+  ui::show_expr(face::Expr::Happy, 700);   // сразу видно, что хлопок услышан, даже если сеть тормозит
   s_clap_pending = count;
   if (s_status_task) xTaskNotifyGive(s_status_task);
 }
