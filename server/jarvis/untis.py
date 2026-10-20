@@ -252,3 +252,43 @@ class Untis:
             except Exception:
                 pass
         return parse_timetable(rows or [])
+
+
+class FixedSchedule:
+    """Запасное расписание без WebUntis: по будням один первый урок в `start` (обычно 08:00).
+    Нужно, когда школа не даёт доступ к расписанию: будильник считается от обычного начала занятий,
+    а исключения («завтра с третьего урока») человек говорит голосом (`set_wake_alarm`)."""
+
+    enabled = True
+
+    def __init__(self, start: str = "08:00", length_min: int = 45):
+        h, m = int(start[:2]), int(start[3:5])
+        self.start_h, self.start_m, self.length = h, m, length_min
+
+    async def lessons(self, day: date) -> list[Lesson]:
+        if day.weekday() >= 5:
+            return []
+        begin = datetime(day.year, day.month, day.day, self.start_h, self.start_m)
+        return [Lesson(begin, begin + timedelta(minutes=self.length), "урок")]
+
+
+class WithFallback:
+    """Настоящее расписание, а если его не получить (нет доступа, нет сети) — запасное `FixedSchedule`."""
+
+    def __init__(self, primary: Untis, fallback: FixedSchedule):
+        self.primary, self.fallback = primary, fallback
+        self._warned = False
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    async def lessons(self, day: date) -> list[Lesson]:
+        if self.primary.enabled:
+            try:
+                return await self.primary.lessons(day)
+            except Exception as e:
+                if not self._warned:
+                    self._warned = True
+                    log.warning("WebUntis недоступен (%s): считаю по обычному расписанию", e)
+        return await self.fallback.lessons(day)

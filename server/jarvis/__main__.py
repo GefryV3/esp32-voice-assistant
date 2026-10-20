@@ -31,7 +31,7 @@ from .learning import Learning
 from .routines import Routines
 from .transit import Transit, TransitConfig
 from .umbrella import Umbrella, UmbrellaConfig
-from .untis import Untis, UntisConfig
+from .untis import Untis, UntisConfig, FixedSchedule, WithFallback
 from .telegram import Telegram, parse_chat_ids
 from .quiet import make_mute_factory
 from .voice import Voice
@@ -121,7 +121,7 @@ async def main() -> None:
         env = {**read_env_file(Path(".env")), **os.environ}
         mcfg = MorningConfig.from_env(env)
         morning = hub.morning = brain.morning = Morning(
-            mcfg, voice.announce, untis=Untis(UntisConfig.from_env(env)), transit=Transit(TransitConfig.from_env(env)),
+            mcfg, voice.announce, untis=WithFallback(Untis(UntisConfig.from_env(env)), FixedSchedule(mcfg.school_start)), transit=Transit(TransitConfig.from_env(env)),
             bridge=bridge, brain=brain, ha=ha)
         umbrella = Umbrella(UmbrellaConfig.from_env(env), voice.announce, night=lambda: routines.night())
         routines = hub.routines = Routines(

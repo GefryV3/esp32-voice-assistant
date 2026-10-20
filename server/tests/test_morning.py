@@ -457,3 +457,24 @@ async def test_umbrella_off_night_dry_and_error():
 def test_umbrella_config():
     c = UmbrellaConfig.from_env({"UMBRELLA": "off", "WEATHER_LAT": "x", "UMBRELLA_PROB": "30"})
     assert not c.enabled and c.lat == 48.208 and c.prob == 30
+
+
+async def test_fixed_schedule_and_fallback_give_620_wake():
+    from datetime import date
+    from jarvis.untis import FixedSchedule, Untis, UntisConfig, UntisError, WithFallback
+
+    class Broken(Untis):
+        @property
+        def enabled(self):
+            return True
+
+        async def lessons(self, day):
+            raise UntisError("WebUntis: bad credentials")
+
+    fixed = FixedSchedule("08:00")
+    assert await fixed.lessons(date(2026, 10, 24)) == []                       # суббота
+    wed = await fixed.lessons(date(2026, 10, 21))
+    assert [x.start.strftime("%H:%M") for x in wed] == ["08:00"]
+    both = WithFallback(Broken(UntisConfig()), fixed)
+    assert [x.start.strftime("%H:%M") for x in await both.lessons(date(2026, 10, 21))] == ["08:00"]
+    assert both.enabled and await both.lessons(date(2026, 10, 25)) == []        # воскресенье
