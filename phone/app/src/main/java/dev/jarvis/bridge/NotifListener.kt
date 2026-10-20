@@ -2,6 +2,7 @@ package dev.jarvis.bridge
 
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -11,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.palette.graphics.Palette
 
 /**
  * Служба уведомлений: её держит сама система, пока у приложения есть доступ к
@@ -85,6 +87,31 @@ object Media {
         sendCurrent()
     }
 
+    // палитра обложки считается один раз на трек: sendCurrent зовут и на каждое обновление позиции
+    private var paletteKey = ""
+    private var paletteCache: List<String> = emptyList()
+
+    /** 2–3 основных цвета обложки как «#RRGGBB» (для света под музыку); пусто, если обложки нет. */
+    private fun coverPalette(md: MediaMetadata?): List<String> {
+        if (md == null) return emptyList()
+        val key = md.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty() + "|" +
+            md.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty() + "|" +
+            md.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
+        if (key == paletteKey && paletteCache.isNotEmpty()) return paletteCache
+        val art: Bitmap = md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: return emptyList()
+        val small = Bitmap.createScaledBitmap(art, 64, 64, true)
+        val p = Palette.from(small).maximumColorCount(16).generate()
+        val ordered = listOfNotNull(p.vibrantSwatch, p.dominantSwatch, p.lightVibrantSwatch,
+            p.darkVibrantSwatch, p.mutedSwatch)
+        val colors = ordered.map { it.rgb }.distinct().take(3).map { String.format("#%06X", it and 0xFFFFFF) }
+        paletteKey = key
+        paletteCache = colors
+        return colors
+    }
+
     fun sendCurrent() {
         val c = ctrl
         val st = c?.playbackState
@@ -106,6 +133,8 @@ object Media {
             put("pos", pos)
             put("dur", md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
             put("at", System.currentTimeMillis())
+            val palette = try { coverPalette(md) } catch (e: Exception) { emptyList() }
+            if (palette.isNotEmpty()) put("palette", org.json.JSONArray(palette))
         }
     }
 

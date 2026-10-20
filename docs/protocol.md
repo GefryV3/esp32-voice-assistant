@@ -125,7 +125,7 @@
 | `notif` | `key`, `app`, `app_name`, `title`, `text`, `category`, `can_reply`, `actions`, `when` | новое уведомление |
 | `notif_gone` | `key` | уведомление убрано |
 | `call` | `state`: `ringing` / `active` / `idle`; `number`, `name` | звонок |
-| `media` | `state`, `title`, `artist`, `app`, `pos`, `dur` (мс), `at` | смена трека или паузы |
+| `media` | `state`, `title`, `artist`, `app`, `pos`, `dur` (мс), `at`, `palette` | смена трека или паузы. `palette` — до 3 основных цветов обложки `["#RRGGBB", …]` (Palette API; нет обложки — поля нет). Сервер красит по ним подсветку стола (`music_light`) |
 | `alarm` | `event`: `ringing` / `dismissed` | будильник зазвонил / выключен |
 | `bt` | `devices`: [{`name`, `level`}] | заряд подключённых наушников |
 | `share` | `text` | «Поделиться → Открыть на компьютере» |

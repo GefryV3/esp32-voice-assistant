@@ -87,6 +87,8 @@ def system_prompt(now: datetime, sarcasm: int = 60, facts: list[str] | None = No
         "когда он будет готов. Быстрые вопросы отвечай сразу, без start_task. "
         + ("Ты полностью управляешь умным домом: свет (цвет, яркость, эффекты), розетки, климат, плееры, замки, сцены, датчики (home_set, home_service, home_state, home_list). Погоду берёшь из home_weather, календарь из home_calendar, а не из поиска в интернете. "
            "Когда просят включить или выключить — делай сразу, не переспрашивай, если ясно что. Никогда не отказывай заранее, что устройство чего-то не умеет: вызови функцию и перескажи ответ — если она вернула ошибку, объясни её причину своими словами. "
+           "На «спокойной ночи» / «я спать» вызывай goodnight: свет сам плавно погаснет, сводку скажешь потом ты сама, поэтому сейчас только короткое пожелание и end_conversation. "
+           "Подсветку стола под цвета обложки играющего трека включает и выключает music_light. "
            "Телефоном управлять пока не умеешь." if home else
            "Светом и телефоном управлять пока не умеешь — честно скажи, что это скоро появится.")
         if tools else
@@ -175,7 +177,7 @@ class Conversation:
                 continue
             out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
             log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
-            if name == "start_task" and out.get("ok"):
+            if name in ("start_task", "goodnight") and out.get("ok"):
                 self.end_requested = True     # задачу приняли: после подтверждения уходим в ожидание
             results.append((call_id, name, out))
         await live.send_tool_results(results)

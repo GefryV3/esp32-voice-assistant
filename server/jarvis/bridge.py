@@ -345,6 +345,8 @@ class Bridge:
                 await self.speaker(protocol.notify_hide())
         elif t == "media":
             state = msg.get("state")
+            if (lights := getattr(self.hub, "lights", None)) is not None:
+                await lights.on_media(msg)       # свет под музыку: palette обложки
             await self.speaker(protocol.player(
                 state if state in ("playing", "paused") else "none",
                 str(msg.get("title", "")), str(msg.get("artist", "")),

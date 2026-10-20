@@ -159,7 +159,8 @@ async def execute(hub: DeviceHub, line: str) -> Reply:
         reply = await hub.audio.command(line)
         if reply is not None:
             return reply
-    for module in (hub.voice, hub.ota, hub.telegram, getattr(hub, "presence", None), hub.routines):
+    for module in (hub.voice, hub.ota, hub.telegram, getattr(hub, "presence", None), hub.routines,
+                   getattr(hub, "lights", None)):
         if module is not None:
             out = await module.command(line)
             if out is not None:

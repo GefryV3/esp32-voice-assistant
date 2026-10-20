@@ -71,6 +71,7 @@ class DeviceHub:
         self.ota: Any = None     # обновление прошивки по воздуху (jarvis.ota)
         self.presence: Any = None  # «на месте ли пользователь» (jarvis.presence)
         self.routines: Any = None  # рутины (jarvis.routines), если включены
+        self.lights: Any = None    # сценарии света (jarvis.lights)
         self.telegram: Any = None  # Telegram-бот (jarvis.telegram), если задан токен
 
     # ── жизненный цикл ──

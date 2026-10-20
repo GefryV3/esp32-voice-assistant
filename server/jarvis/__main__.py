@@ -16,6 +16,8 @@ from .brain import Brain
 from .agents import Agents, make_search
 from .google import Google
 from .ha import HomeAssistant
+from .lights import Lights
+from .lightstate import LightState
 from .bridge import Bridge, SettingsStore
 from .ota import Ota
 from .presence import Presence
@@ -107,6 +109,11 @@ async def main() -> None:
                                            ha=ha, briefing_at=settings.briefing_at)
         bridge.on_wake = routines.wake_signal
         routines.start()
+    lights = None
+    if ha:
+        lights = Lights(hub, ha, LightState(ha, path=Path(settings.data_dir) / "lightstate.json"),
+                        bridge=bridge, voice=voice, brain=brain)
+        brain.lights = lights
     chat_ids = parse_chat_ids(settings.telegram_chat_ids)
     tg = None
     if settings.telegram_token and chat_ids and settings.gemini_api_key:
@@ -133,6 +140,8 @@ async def main() -> None:
     async with hub:
         bridge.start()
         presence.start()
+        if lights:
+            lights.state.start()
         if tg:
             tg.start()
         try:
@@ -141,6 +150,8 @@ async def main() -> None:
             else:
                 await asyncio.Event().wait()   # аддон: работаем, пока не остановят
         finally:
+            if lights:
+                await lights.state.stop()
             if routines:
                 await routines.stop()
             if tg:
