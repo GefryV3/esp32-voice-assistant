@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.6
+- **Forgotten Google Tasks are ignored**: tasks whose due date passed more than a month ago (or, without a due date, were
+  not changed for a month) are no longer read aloud, counted or asked about, and no longer feed the self-learning.
+  `JARVIS_TASKS_MAX_AGE_DAYS` (default 30, 0 turns it off).
+
 ## 0.14.5
 - **Light colors by voice**: `home_set` knew only 22 color names, and an unknown one («crimson») was silently ignored: the
   lamps just turned on as they were and the answer was «done». Now ~70 names (Russian and English, endings like

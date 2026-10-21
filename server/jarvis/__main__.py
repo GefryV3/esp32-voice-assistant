@@ -110,8 +110,9 @@ async def main() -> None:
         logging.getLogger("jarvis").info("Home Assistant не настроен — умного дома нет")
     google = None
     if settings.google_client_id and settings.google_client_secret and settings.google_refresh_token:
+        tasks_days = int(read_env_file(Path(".env")).get("JARVIS_TASKS_MAX_AGE_DAYS", os.environ.get("JARVIS_TASKS_MAX_AGE_DAYS", "30")) or 30)
         google = Google(settings.google_client_id, settings.google_client_secret,
-                        settings.google_refresh_token, settings.google_tz)
+                        settings.google_refresh_token, settings.google_tz, tasks_max_age_days=tasks_days)
         logging.getLogger("jarvis").info("Google: календарь, почта, задачи подключены")
     brain = Brain(Path(settings.data_dir) / "brain.db", ha=ha, google=google)
     if settings.gemini_api_key:

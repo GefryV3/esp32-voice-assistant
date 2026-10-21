@@ -100,3 +100,26 @@ async def test_brain_routes_google_tools(g, tmp_path):
         pass
     assert (await brain.call("google_tasks_list", {}, send))["tasks"]
     assert "google_tasks_list" not in {t["name"] for t in Brain(tmp_path / "c.db").tools()}
+
+
+async def test_old_forgotten_tasks_are_ignored(http):
+    # по старым записям колонка спрашивала про хомяка и делала выводы о тебе: старше месяца не читаем
+    items = [
+        {"id": "a", "title": "Свежая без срока", "updated": "2026-10-10T08:00:00.000Z"},
+        {"id": "b", "title": "Забытая без срока", "updated": "2026-08-01T08:00:00.000Z"},
+        {"id": "c", "title": "Срок давно вышел", "due": "2026-07-01T00:00:00.000Z", "updated": "2026-10-15T00:00:00.000Z"},
+        {"id": "d", "title": "Срок недавно вышел", "due": "2026-10-05T00:00:00.000Z", "updated": "2026-08-01T00:00:00.000Z"},
+        {"id": "e", "title": "Срок впереди, правилась давно", "due": "2026-11-20T00:00:00.000Z", "updated": "2026-06-01T00:00:00.000Z"},
+        {"id": "f", "title": "Без дат"},
+    ]
+    orig = http.__call__
+
+    def with_items(method, url, headers, data):
+        if "/lists/@default/tasks" in url and method == "GET":
+            http.calls.append((method, url, headers, None))
+            return 200, {"items": items}
+        return orig(method, url, headers, data)
+    g = Google("cid", "secret", "refresh", http=with_items, now=lambda: NOW)
+    assert (await g.tasks_list())["tasks"] == ["Свежая без срока", "Срок недавно вышел", "Срок впереди, правилась давно", "Без дат"]
+    off = Google("cid", "secret", "refresh", http=with_items, now=lambda: NOW, tasks_max_age_days=0)
+    assert len((await off.tasks_list())["tasks"]) == 6

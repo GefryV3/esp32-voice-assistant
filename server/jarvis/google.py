@@ -124,7 +124,8 @@ def when_words(dt: datetime, now: datetime, all_day: bool = False) -> str:
 class Google:
     def __init__(self, client_id: str, client_secret: str, refresh_token: str, tz: str = "Europe/Vienna", *,
                  http: Callable = default_http, clock: Callable[[], float] = time.monotonic,
-                 now: Callable[[], datetime] = datetime.now):
+                 now: Callable[[], datetime] = datetime.now, tasks_max_age_days: int = 30):
+        self.tasks_max_age_days = tasks_max_age_days     # старше — задача считается забытой и не читается (0 — не фильтровать)
         self.client_id, self.client_secret, self.refresh_token = client_id, client_secret, refresh_token
         self.tz, self._http, self._clock, self.now = tz, http, clock, now
         self._token = ""
@@ -231,10 +232,27 @@ class Google:
 
     # ── задачи ──
 
+    def _stale(self, task: dict) -> bool:
+        """Забытая задача: срок вышел больше max_age дней назад, а без срока — не менялась столько же."""
+        if self.tasks_max_age_days <= 0:
+            return False
+        stamp = task.get("due") or task.get("updated")
+        if not stamp:
+            return False
+        try:
+            when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if when.tzinfo is not None:
+            when = when.astimezone().replace(tzinfo=None)      # точность до месяца: часовой пояс системы годится
+        return when < self.now() - timedelta(days=self.tasks_max_age_days)
+
     async def tasks_list(self) -> dict:
+        """Невыполненные задачи без забытых (старше месяца): иначе по ним Мага спрашивает и делает выводы о тебе."""
         items = (await self.api("GET", f"{TASKS}/lists/@default/tasks",
-                                {"showCompleted": "false", "maxResults": 30})).get("items", [])
-        return {"tasks": [t.get("title", "") for t in items if t.get("title")]}
+                                {"showCompleted": "false", "maxResults": 100})).get("items", [])
+        fresh = [t for t in items if not self._stale(t)]
+        return {"tasks": [t.get("title", "") for t in fresh if t.get("title")][:30]}
 
     async def tasks_add(self, title: str, due: str = "") -> dict:
         body: dict[str, Any] = {"title": title.strip()}
