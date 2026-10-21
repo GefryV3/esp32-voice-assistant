@@ -670,3 +670,29 @@ async def test_foreign_noise_is_not_answered(hub, voice, live):
         await log.wait(lambda m: m["type"] == "audio_start")
     finally:
         await ws.close()
+
+
+async def test_empty_turn_is_retried_once(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "listen_start")
+        task = voice.start(hub.get(), "скажи раз")
+        async with asyncio.timeout(2):
+            while not live.texts:
+                await asyncio.sleep(0.01)
+        await live.queue.put(Event("turn_complete"))          # ход без звука
+        async with asyncio.timeout(2):
+            while len(live.texts) < 2:
+                await asyncio.sleep(0.01)
+        assert live.texts == ["скажи раз", "скажи раз"]       # переспросили ровно один раз
+        await live.queue.put(Event("turn_complete"))          # опять пусто — больше не просим
+        await asyncio.sleep(0.1)
+        assert len(live.texts) == 2
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 2400, rate=24000))
+        await live.queue.put(Event("turn_complete"))
+        await log.wait(lambda m: m["type"] == "audio_start")
+        await live.queue.put(None)
+        await task
+    finally:
+        await ws.close()

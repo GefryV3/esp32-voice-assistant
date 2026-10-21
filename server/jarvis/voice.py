@@ -360,6 +360,7 @@ class Conversation:
                     why = ""
                     skip_old = False     # после перебивания хвост старого ответа Gemini не играем
                     answered = False     # Gemini уже начал отвечать: быстрый путь молчит
+                    empty_retries = 0    # сколько раз Gemini закончил ход без звука, а мы переспросили
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
@@ -386,6 +387,16 @@ class Conversation:
                             log.info("%s: не русская речь, похоже на шум («%s») — не отвечаю", dev.id, heard.strip())
                             skip_old = True
                             heard = ""
+                            continue
+                        if ev.kind == "turn_complete" and not answered:
+                            # Gemini закончил ход, не сказав ни звука (пустой ответ, отказ): раньше колонка
+                            # молча ждала 8 секунд и закрывала разговор. Просим ответить ещё раз, один раз.
+                            if empty_retries < 1 and (text or heard.strip()):
+                                empty_retries += 1
+                                log.warning("%s: Gemini закончил ход без звука — прошу ответить ещё раз", dev.id)
+                                await live.send_text(text if text else
+                                                     f"Пользователь сказал: «{heard.strip()}». Ответь вслух.")
+                                deadline = v.clock() + NO_SPEECH_S
                             continue
                         if ev.kind in ("audio", "tool_call"):
                             answered, self._fast = True, None
