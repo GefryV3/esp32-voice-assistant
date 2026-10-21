@@ -157,9 +157,10 @@ def tail_bytes(text: str, max_bytes: int = 120) -> str:
 
 
 def is_noise(heard: str) -> bool:
-    """Расшифровка без единой русской буквы («Oui», «Schutz», «7»): в русской колонке это шум или эхо,
-    а не просьба — отвечать на неё не нужно."""
-    return bool(heard.strip()) and not any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in heard)
+    """Расшифровка из чужих букв без единой русской («Oui», «Schutz»): в русской колонке это шум или эхо,
+    а не просьба — отвечать на неё не нужно. Цифры и время («14:00») шумом не считаются."""
+    cyr = lambda ch: "а" <= ch.lower() <= "я" or ch.lower() == "ё"
+    return any(ch.isalpha() for ch in heard) and not any(cyr(ch) for ch in heard)
 
 
 def is_affective_reject(err: object) -> bool:
@@ -379,7 +380,7 @@ class Conversation:
                                 skip_old = False       # старый ответ кончился, дальше — новый
                             if ev.kind in ("audio", "said", "interrupted", "turn_complete"):
                                 continue
-                        if ev.kind == "audio" and is_noise(heard) and not (v.brain and v.brain.long_talk):
+                        if ev.kind == "audio" and not answered and is_noise(heard) and not (v.brain and v.brain.long_talk):
                             # Микрофон поймал шум, Gemini «расслышал» иностранное слово и отвечает на него:
                             # молчим, ответ выбрасываем, слушаем дальше (в немецком и переводчике речь не русская)
                             log.info("%s: не русская речь, похоже на шум («%s») — не отвечаю", dev.id, heard.strip())

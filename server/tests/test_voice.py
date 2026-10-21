@@ -642,7 +642,8 @@ async def test_away_ignores_wake_and_ask_but_not_service(hub, voice, caplog):
 
 
 def test_is_noise():
-    assert voice_mod.is_noise("Oui.") and voice_mod.is_noise("Schutz") and voice_mod.is_noise("7")
+    assert voice_mod.is_noise("Oui.") and voice_mod.is_noise("Schutz")
+    assert not voice_mod.is_noise("14:00") and not voice_mod.is_noise("7")
     assert not voice_mod.is_noise("") and not voice_mod.is_noise("включи свет")
     assert not voice_mod.is_noise("YouTube включи") and not voice_mod.is_noise("Ёлка")
 
