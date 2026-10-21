@@ -156,6 +156,12 @@ def tail_bytes(text: str, max_bytes: int = 120) -> str:
     return "…" + data[-(max_bytes - 3):].decode(errors="ignore").lstrip()
 
 
+def is_noise(heard: str) -> bool:
+    """Расшифровка без единой русской буквы («Oui», «Schutz», «7»): в русской колонке это шум или эхо,
+    а не просьба — отвечать на неё не нужно."""
+    return bool(heard.strip()) and not any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in heard)
+
+
 def is_affective_reject(err: object) -> bool:
     """1007 / invalid argument: модель не знает поля enableAffectiveDialog."""
     text = str(err)
@@ -368,13 +374,20 @@ class Conversation:
                                 continue
                             why = "быстрый путь"
                             break
-                        if ev.kind in ("audio", "tool_call"):
-                            answered, self._fast = True, None
                         if skip_old:
                             if ev.kind in ("interrupted", "turn_complete"):
                                 skip_old = False       # старый ответ кончился, дальше — новый
                             if ev.kind in ("audio", "said", "interrupted", "turn_complete"):
                                 continue
+                        if ev.kind == "audio" and is_noise(heard) and not (v.brain and v.brain.long_talk):
+                            # Микрофон поймал шум, Gemini «расслышал» иностранное слово и отвечает на него:
+                            # молчим, ответ выбрасываем, слушаем дальше (в немецком и переводчике речь не русская)
+                            log.info("%s: не русская речь, похоже на шум («%s») — не отвечаю", dev.id, heard.strip())
+                            skip_old = True
+                            heard = ""
+                            continue
+                        if ev.kind in ("audio", "tool_call"):
+                            answered, self._fast = True, None
                         if ev.kind == "tool_call":
                             await self._tools(live, ev)
                             deadline = v.clock() + NO_SPEECH_S

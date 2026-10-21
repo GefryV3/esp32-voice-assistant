@@ -639,3 +639,33 @@ async def test_away_ignores_wake_and_ask_but_not_service(hub, voice, caplog):
         assert voice.start(dev, "напоминание", service=True) is not None   # служебное звучит
     finally:
         await ws.close()
+
+
+def test_is_noise():
+    assert voice_mod.is_noise("Oui.") and voice_mod.is_noise("Schutz") and voice_mod.is_noise("7")
+    assert not voice_mod.is_noise("") and not voice_mod.is_noise("включи свет")
+    assert not voice_mod.is_noise("YouTube включи") and not voice_mod.is_noise("Ёлка")
+
+
+async def test_foreign_noise_is_not_answered(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "listen_start")
+        await ws.send(b"WAKE" + b"\x00" * 3196)
+        await log.wait(is_voice("listening"))
+        await live.queue.put(Event("heard", text="Schutz"))
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 2400, rate=24000))
+        await live.queue.put(Event("said", text="Опять иностранный?"))
+        await live.queue.put(Event("turn_complete"))
+        await asyncio.sleep(0.15)
+        assert not any(isinstance(m, dict) and m["type"] == "audio_start" for m in log.msgs)
+        assert live.stream_ends == 0                     # микрофон остался открытым
+        assert "Опять" not in voice.reply_text
+        # настоящая русская фраза после шума отвечается
+        await live.queue.put(Event("heard", text="который час"))
+        await live.queue.put(Event("audio", data=b"\x03\x00" * 2400, rate=24000))
+        await live.queue.put(Event("turn_complete"))
+        await log.wait(lambda m: m["type"] == "audio_start")
+    finally:
+        await ws.close()
