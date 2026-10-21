@@ -141,7 +141,8 @@ async def main() -> None:
         routines = hub.routines = Routines(
             voice.announce, settings=lambda: bridge.store.values, brain=brain, ha=ha, briefing_at=settings.briefing_at,
             soft_wake_s=mcfg.soft_wake_s if mcfg.soft_wake else None, wake_context=morning.wake_context,
-            on_leave=umbrella.on_leave, briefing_extra=news.briefing_extra)
+            on_leave=umbrella.on_leave, briefing_extra=news.briefing_extra,
+            phone_home=lambda: presence.phone_on_lan())     # presence создаётся ниже
         morning.routines = routines
         bridge.on_wake = routines.wake_signal
         routines.start()

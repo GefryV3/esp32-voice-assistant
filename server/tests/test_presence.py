@@ -425,3 +425,30 @@ async def test_room_calibrate_needs_speaker_and_uuid(env):
     assert "не подключена" in await p.command("room calibrate")
     p.hub = SimpleNamespace(get=lambda: Dev())
     assert "UUID" in await p.command("room calibrate")
+
+
+def phone_at(bridge, ip, **state):
+    bridge.phone = SimpleNamespace(ws=SimpleNamespace(remote_address=(ip, 51234)))
+    bridge.phone_state = state
+
+
+async def test_phone_on_home_wifi_beats_flapping_ha_gps(env):
+    # person.* в HA по GPS 71 раз за сутки менял «дома/не дома» и глушил колонку, пока человек дома
+    p, bridge, _, clock = env
+    p.ha = FakeHA(("person.mag", "not_home"))
+    await p.refresh()
+    phone_at(bridge, "192.168.178.20")
+    assert p.here() and "домашней сети" in p.reason
+    clock.advance(1)
+    phone_at(bridge, "10.0.0.7")
+    assert p.here()
+
+
+async def test_phone_from_outside_the_home_network_does_not_count_as_home(env):
+    p, bridge, _, clock = env
+    p.ha = FakeHA(("person.mag", "not_home"))
+    await p.refresh()
+    for ip in ("100.101.1.5", "8.8.8.8", "127.0.0.1", "не адрес"):
+        phone_at(bridge, ip)
+        clock.advance(1)
+        assert not p.here() and "HA" in p.reason, ip

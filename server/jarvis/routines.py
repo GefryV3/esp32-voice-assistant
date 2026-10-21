@@ -50,8 +50,12 @@ class Routines:
                  soft_wake_s: float | None = None,
                  wake_context: Callable[[], Awaitable[str]] | None = None,
                  on_leave: Callable[[], Awaitable[Any]] | None = None,
-                 briefing_extra: Callable[[], Awaitable[str]] | None = None):
-        """settings() → настройки моста (нужны night_start и night_end).
+                 briefing_extra: Callable[[], Awaitable[str]] | None = None,
+                 phone_home: Callable[[], bool] | None = None):
+        """phone_home() — телефон сейчас в домашней сети: человек дома, что бы ни показала GPS-метка HA
+        (она прыгает «дома / не дома» десятки раз в сутки и давала ложные «ушёл» с зонтом и «вернулся» с приветствием).
+
+        settings() → настройки моста (нужны night_start и night_end).
 
         soft_wake_s — через сколько секунд после будильника тихо поздороваться (None: брифинг как раньше,
         когда кончится ночь); wake_context() даёт факты (урок, автобус) в эту же реплику;
@@ -66,6 +70,7 @@ class Routines:
         self._woke_day = ""                   # день, когда выключили будильник
         self._woke_at = 0.0
         self.soft_wake_s, self.wake_context, self.on_leave = soft_wake_s, wake_context, on_leave
+        self.phone_home = phone_home
         self.briefing_extra = briefing_extra   # добавка к обычному брифингу (новости по темам), '' — нечего
         self._left = False
         self._due_since: float | None = None  # когда брифинг стал нужен (для отсчёта «до часа»)
@@ -170,7 +175,7 @@ class Routines:
             eid = s.get("entity_id", "")
             if not eid.startswith("person."):
                 continue
-            home = s.get("state") == "home"
+            home = s.get("state") == "home" or bool(self.phone_home is not None and self.phone_home())
             was = self._was_home.get(eid)
             if was is True and not home:
                 self._away_since[eid] = now

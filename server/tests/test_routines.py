@@ -219,3 +219,23 @@ def test_import_memory_template(tmp_path):
     brain = Brain(tmp_path / "b.db")
     s = tool().import_memory(brain, template)
     assert s["facts"] == 2 and s["reminders"] == 0
+
+
+
+async def test_phone_on_home_wifi_ignores_gps_flapping():
+    # GPS-метка HA прыгает «дома / не дома» без причины: колонка говорила «возьми зонт» и «с возвращением» дома
+    ha = FakeHA()
+    on_wifi = [True]
+    r, say, c = make(datetime(2026, 10, 19, 14, 0), ha=ha, phone_home=lambda: on_wifi[0])
+    assert not await r.poll_home()
+    ha.persons["person.mag"] = "not_home"                 # скачок GPS, телефон на домашнем Wi-Fi
+    assert not await r.poll_home() and not r._left
+    c.advance(hours=2)
+    ha.persons["person.mag"] = "home"
+    assert not await r.poll_home()                        # «вернулся» тоже не выдумываем
+    on_wifi[0] = False                                    # телефон реально ушёл из сети
+    ha.persons["person.mag"] = "not_home"
+    assert not await r.poll_home() and r._left            # настоящий уход виден
+    c.advance(hours=2)
+    on_wifi[0] = True                                     # телефон снова в домашней сети: человек дома
+    assert await r.poll_home()

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.7
+- **Presence no longer trusts the GPS flapping of Home Assistant**: `person.*` changed «home / not home» 71 times in 26 hours
+  (also at night, while the owner slept), so the speaker ignored the wake word, spoke «take an umbrella» and greeted
+  «welcome home» for no reason. A phone connected to the server from a private network address (home Wi-Fi) now counts as
+  «at home» for both presence and the routines (leave / return). HA is used only when the phone is not on the home network.
+
 ## 0.14.6
 - **Forgotten Google Tasks are ignored**: tasks whose due date passed more than a month ago (or, without a due date, were
   not changed for a month) are no longer read aloud, counted or asked about, and no longer feed the self-learning.

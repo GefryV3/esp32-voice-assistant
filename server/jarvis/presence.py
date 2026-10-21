@@ -7,6 +7,8 @@ presence только для разговора, начатого человек
   1. Ручное переопределение here/away (brain.db, ключ presence) — главнее всего.
   2. Компьютер активен (мышь/клавиатура за последние pc_min минут) — на месте:
      компьютер стоит дома, телефон же может быть в кармане на улице.
+  2а. Телефон подключён к серверу из домашней сети (адрес 192.168.x, 10.x, 172.16-31.x) — на месте. GPS-метка HA
+      «дома / не дома» прыгает без причины (71 смена за сутки, в том числе ночью), поэтому она слабее этого.
   3. HA говорит, что никого нет дома (все person.* не home) — нет на месте.
   4. Ночь (окно night_start..night_end из моста) и человек дома или HA молчит — на месте:
      колонка стоит у кровати, спящего «нет признаков активности» не должны отключать.
@@ -27,6 +29,7 @@ JARVIS_PRESENCE=off — колонка всегда «на месте», ком�
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import time
 from typing import Any, Callable
@@ -213,6 +216,16 @@ class Presence:
         phone = bool(st.get("screen")) or (unlocked > 0 and now - unlocked < self.phone_s)
         return pc, phone, pc_on or b.phone is not None
 
+    def phone_on_lan(self) -> bool:
+        """Приложение телефона подключено к серверу с адреса частной сети: телефон дома, на домашнем Wi-Fi."""
+        peer = getattr(self.bridge, "phone", None) if self.bridge is not None else None
+        addr = getattr(getattr(peer, "ws", None), "remote_address", None)
+        try:
+            ip = ipaddress.ip_address(addr[0])
+        except (TypeError, ValueError, IndexError):
+            return False
+        return ip.is_private and not ip.is_loopback and not ip.is_link_local
+
     def _night(self) -> bool:
         try:
             return bool(self.bridge is not None and self.bridge.night())
@@ -242,6 +255,9 @@ class Presence:
         if pc:
             self._last_signal = self._clock()
             return True, "компьютер активен"
+        if self.phone_on_lan():
+            self._last_signal = self._clock()
+            return True, "телефон в домашней сети"
         if home is False:
             return False, "по HA никого нет дома"
         if self._night():
