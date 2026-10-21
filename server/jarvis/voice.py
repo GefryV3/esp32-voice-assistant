@@ -360,13 +360,19 @@ class Conversation:
                     why = ""
                     skip_old = False     # после перебивания хвост старого ответа Gemini не играем
                     answered = False     # Gemini уже начал отвечать: быстрый путь молчит
+                    got_event = False    # от Gemini пришло хоть что-то
                     empty_retries = 0    # сколько раз Gemini закончил ход без звука, а мы переспросили
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
                         except TimeoutError:
                             why = "тишина"
+                            if text and not got_event:
+                                # на запрос Gemini не прислал ничего (сессия молча умерла): один раз пробуем заново
+                                self.retry_plain = True
+                                why += ", Gemini молчит — повторю на новой сессии"
                             break
+                        got_event = True
                         if ev is None or ev.kind == "go_away":
                             why = "Gemini закрыл сессию" if ev is None else "Gemini попросил переподключиться"
                             break

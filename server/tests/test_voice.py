@@ -696,3 +696,15 @@ async def test_empty_turn_is_retried_once(hub, voice, live):
         await task
     finally:
         await ws.close()
+
+
+async def test_dead_session_text_is_retried_on_fresh_session(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "listen_start")
+        task = voice.start(hub.get(), "скажи раз")
+        await task                                           # Gemini молчит весь разговор: ни одного события
+        assert live.texts == ["скажи раз", "скажи раз"]      # перезапущено один раз, не бесконечно
+    finally:
+        await ws.close()
