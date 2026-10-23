@@ -41,7 +41,8 @@ POLL_S = 30            # сколько Telegram держит getUpdates отк�
 MAX_LEN = 4000         # лимит сообщения Telegram — 4096
 MAX_ROUNDS = 5         # сколько раз подряд Gemini может звать функции
 MAX_FILE = 4_000_000   # больше голосовое сообщение для колонки не скачиваем
-HISTORY = 12           # реплик общей истории в подсказке (и в памяти, если нет Brain)
+HISTORY = 12           # реплик общей истории в памяти, если нет Brain
+TURNS = 24             # реплик общей истории (голос и Telegram), которые Gemini видит настоящими ходами диалога
 RETRY_S = 5.0
 RETRY_GEMINI_S = 2.0
 
@@ -196,11 +197,31 @@ class Telegram:
 
     def _system(self) -> str:
         b = self.brain
-        history = b.recent_messages(HISTORY) if b else None
         return system_prompt(self.now(), self.sarcasm(), b.facts() if b else None,
-                             b is not None, b is not None and b.ha is not None, history,
-                             history_lines=HISTORY,
+                             b is not None, b is not None and b.ha is not None, None,
                              learned=b.learning.prompt_section() if b and b.learning else "") + CHAT_NOTE
+
+    def _turns(self) -> list[dict[str, Any]]:
+        """Shared speaker+Telegram history as real chat turns, so the conversation continues across channels."""
+        if self.brain is None:
+            return []
+        now = self.now()
+        out: list[dict[str, Any]] = []
+        for ts, source, role, text in self.brain.recent_messages(TURNS):
+            tag = ""
+            if source == "голос":
+                tag = "[голосом через колонку] " if role == "user" else "[вслух на колонке] "
+            if ts.date() != now.date():
+                tag = f"[{ts:%d.%m %H:%M}] " + tag
+            who = "user" if role == "user" else "model"
+            part = {"text": tag + text}
+            if out and out[-1]["role"] == who:
+                out[-1]["parts"].append(part)
+            else:
+                out.append({"role": who, "parts": [part]})
+        while out and out[0]["role"] != "user":
+            out.pop(0)
+        return out
 
     async def _gemini(self, body: dict[str, Any]) -> dict:
         """Запрос к Gemini; перегрузка (429/503) обычна и коротка — пробуем ещё несколько раз."""
@@ -232,7 +253,7 @@ class Telegram:
     async def ask(self, chat_id: int, text: str) -> str:
         """Текст пользователя → ответ Gemini (с вызовами функций). История хранится по чатам."""
         hist = self._history[chat_id]
-        contents = ([] if self.brain is not None else list(hist)) + [{"role": "user", "parts": [{"text": text}]}]
+        contents = (self._turns() if self.brain is not None else list(hist)) + [{"role": "user", "parts": [{"text": text}]}]
         body: dict[str, Any] = {"systemInstruction": {"parts": [{"text": self._system()}]}}
         if self.brain is not None:
             self.brain.log_message("telegram", "user", text)    # после сборки подсказки: сама реплика в ней не нужна

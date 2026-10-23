@@ -559,7 +559,7 @@ def test_system_prompt_history_block_is_short_and_marked():
     assert "Недавний разговор" in p
     assert "- вчера 22:10, голос, пользователь: старое" in p
     assert "- 11:31, telegram, ты: ответ" in p
-    assert "x" * 181 not in p and "…" in p
+    assert "x" * 301 not in p and "…" in p
     assert "Недавний разговор" not in system_prompt(now)
 
 
@@ -726,22 +726,3 @@ async def test_tool_call_on_foreign_noise_is_refused(hub, voice, live):
         assert res[1] == "goodnight" and res[2]["ok"] is False and "не расслышана" in res[2]["error"]
     finally:
         await ws.close()
-
-
-async def test_speaker_conversation_is_mirrored_to_telegram(hub, voice):
-    sent = []
-
-    class Tg:
-        async def send(self, text, chat_id=None):
-            sent.append(text)
-            return True
-
-    hub.telegram = Tg()
-    voice.log("user", "который час")
-    voice.log("assistant", "Девять.")
-    await asyncio.sleep(0.05)
-    assert sent == ["🎙 который час", "🔊 Девять."]
-    assert "выкл" in await voice.command("tgmirror off")
-    voice.log("user", "тихо")
-    await asyncio.sleep(0.05)
-    assert len(sent) == 2

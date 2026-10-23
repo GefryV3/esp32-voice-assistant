@@ -48,8 +48,8 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
           "сентября", "октября", "ноября", "декабря")
 
 
-HISTORY_LINES = 10      # реплик в блоке «Недавний разговор»
-HISTORY_CHARS = 180     # длиннее реплику обрезаем: подсказка не должна пухнуть
+HISTORY_LINES = 16      # реплик в блоке «Недавний разговор»
+HISTORY_CHARS = 300     # длиннее реплику обрезаем: подсказка не должна пухнуть
 
 
 def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
@@ -535,7 +535,6 @@ class Voice:
         self.whisper = WhisperConfig(brain)       # шёпот в ответ
         if brain is not None:
             brain.mute_hook = self.quiet.mute_tool
-        self._mirror_flag = True        # Telegram mirror when there is no Brain to keep the preference
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -556,27 +555,6 @@ class Voice:
     def log(self, role: str, text: str) -> None:
         if self.brain is not None:
             self.brain.log_message("голос", role, text)
-        self._mirror(role, text)
-
-    def mirror_on(self) -> bool:
-        if self.brain is not None:
-            return self.brain.pref("tg_mirror", "1") != "0"
-        return self._mirror_flag
-
-    def _mirror(self, role: str, text: str) -> None:
-        """Mirror speaker conversation lines into Telegram so chat and speaker read as one thread."""
-        tg = getattr(self.hub, "telegram", None)
-        text = " ".join(text.split())
-        if tg is None or not text or not self.mirror_on():
-            return
-        self._spawn(self._mirror_send(tg, ("🎙 " if role == "user" else "🔊 ") + text))
-
-    @staticmethod
-    async def _mirror_send(tg: Any, text: str) -> None:
-        try:
-            await tg.send(text)
-        except Exception as e:
-            log.warning("зеркало в Telegram: %r", e)
 
     def _history_changed(self) -> None:
         """В общую историю дописали реплику: заготовленная сессия Gemini устарела — заменить свежей.
@@ -870,13 +848,6 @@ class Voice:
             return await self.fast.command(line)
         if parts and parts[0].lower() == "whisper":
             return await self.whisper.command(line)
-        if parts and parts[0].lower() == "tgmirror":
-            arg = parts[1].strip().lower() if len(parts) > 1 else ""
-            if arg in ("on", "off"):
-                self._mirror_flag = arg == "on"
-                if self.brain:
-                    self.brain.set_pref("tg_mirror", "1" if arg == "on" else "0")
-            return f"зеркало разговоров в Telegram: {'вкл' if self.mirror_on() else 'выкл'} (tgmirror on|off)"
         if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect", "mute", "de", "game"):
             return None
         if parts[0].lower() == "mute":

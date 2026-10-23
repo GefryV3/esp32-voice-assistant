@@ -163,10 +163,10 @@ async def test_telegram_shares_history_with_voice(brain):
     tg = make(http, brain)
     await tg.poll_once()
     payload = next(c[1] for c in http.calls if c[0].startswith("https://generativelanguage"))
-    system = payload["systemInstruction"]["parts"][0]["text"]
-    assert "Недавний разговор" in system and "голос, пользователь: какая завтра погода" in system
-    assert payload["contents"] == [{"role": "user", "parts": [{"text": "что я спрашивал у колонки?"}]}]
-    assert "что я спрашивал у колонки?" not in system      # текущая реплика в блок не попадает
+    assert payload["contents"] == [
+        {"role": "user", "parts": [{"text": "[голосом через колонку] какая завтра погода"}]},
+        {"role": "model", "parts": [{"text": "[вслух на колонке] Дождь, возьми зонт."}]},
+        {"role": "user", "parts": [{"text": "что я спрашивал у колонки?"}]}]   # колонка и чат — один диалог
     got = [(m[1], m[2], m[3]) for m in brain.recent_messages()][-2:]
     assert got == [("telegram", "user", "что я спрашивал у колонки?"), ("telegram", "assistant", "Про погоду.")]
 
@@ -178,4 +178,5 @@ async def test_second_telegram_message_sees_first(brain):
     http.updates = [update(2, 42, "второе")]
     await tg.poll_once()
     payload = [c[1] for c in http.calls if c[0].startswith("https://generativelanguage")][-1]
-    assert "telegram, пользователь: первое" in payload["systemInstruction"]["parts"][0]["text"]
+    texts = [p["text"] for c in payload["contents"] for p in c["parts"]]
+    assert texts == ["первое", "Ок.", "второе"]
