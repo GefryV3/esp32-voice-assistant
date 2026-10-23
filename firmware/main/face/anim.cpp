@@ -647,7 +647,7 @@ void targets(const Input &in) {
       }
       gx = st.jit_x * 0.5f + 1.6f * st.level * sinf(t * 38);
       gy = st.jit_y * 0.5f - 4 * st.level;
-      T[FACE_Y] = 110 - 3 * st.level;
+      T[FACE_Y] = 98 - 3 * st.level;
       quiet();
       T[CAP_A] = 1;
       T[RING] = .55f + .7f * st.level;
@@ -663,7 +663,7 @@ void targets(const Input &in) {
       }
       gx = 10;
       gy = -9;
-      T[FACE_Y] = 110;
+      T[FACE_Y] = 98;
       quiet();
       T[CAP_A] = 1;
       T[RING] = .7f;
