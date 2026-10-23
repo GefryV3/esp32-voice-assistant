@@ -535,7 +535,7 @@ void glyph(const text::Font &f, const text::Glyph *g, float ox, float oy, float 
 }
 
 // Строка; center — по центру от x, иначе от x вправо; tracking — разрядка. Возвращает ширину.
-float draw_text(const text::Font &f, const char *s, float x, float base, float sc, bool center, const Rgb &c,
+float draw_text_raw(const text::Font &f, const char *s, float x, float base, float sc, bool center, const Rgb &c,
                 float alpha, float tracking = 0) {
   if (base - f.size > s_y1 || base + f.size * 0.4f < s_y0) return 0;  // строка не в этой полосе
   const float w = text::width(f, s, tracking) * sc;
@@ -548,6 +548,18 @@ float draw_text(const text::Font &f, const char *s, float x, float base, float s
     pen += (g->adv / 16.0f + tracking) * sc;
   }
   return w;
+}
+
+// Text with a thin dark outline: it stays readable straight on top of the LED grid (no backing plate).
+// The outline is drawn first, in black, at eight small offsets around the glyphs.
+bool s_halo = true;
+float draw_text(const text::Font &f, const char *s, float x, float base, float sc, bool center, const Rgb &c, float alpha,
+                float tracking = 0) {
+  if (s_halo && alpha > 0.02f && (c.r + c.g + c.b) > 30) {
+    static const float OFF[8][2] = {{-1.6f, 0}, {1.6f, 0}, {0, -1.6f}, {0, 1.6f}, {-1.2f, -1.2f}, {1.2f, -1.2f}, {-1.2f, 1.2f}, {1.2f, 1.2f}};
+    for (const auto &o : OFF) draw_text_raw(f, s, x + o[0], base + o[1], sc, center, {0, 0, 0}, alpha * 0.9f, tracking);
+  }
+  return draw_text_raw(f, s, x, base, sc, center, c, alpha, tracking);
 }
 
 // Обрезать строку по ширине, добавив «…»
@@ -1327,14 +1339,13 @@ void build_led(const Scene &s) {
   }
   const float grid_dim = 1 - 0.85f * fmaxf(clamp01(s.card_a), clamp01(s.game_a));  // the grid goes quiet under a card or a game
   const float base = 0.075f * s.bg * grid_dim;
-  const float cap_dim = (s.caption != Caption::None && s.caption_text[0]) ? 0.75f * clamp01(s.cap_a) : 0;
   const int wkey = mus > fmaxf(lis, spk) ? 2 : (lis > spk ? 1 : 0);
   const float rate = s.timer_total ? (float)s.timer_rem / s.timer_total : 0;
   for (int m = -LK; m <= LK; m++)
     for (int k = -LK; k <= LK; k++) {
       Dot &D = s_dots[m + LK][k + LK];
       const float x = C + k * LP, y = C + m * LP, dx = x - C, dy = y - C, r2 = dx * dx + dy * dy;
-      if (r2 > 112.0f * 112.0f || (boot < 1 && y > front)) {
+      if (r2 > 118.0f * 118.0f || (boot < 1 && y > front)) {
         D.a = 0;
         continue;
       }
@@ -1358,12 +1369,12 @@ void build_led(const Scene &s) {
           col = ci == 0 ? ink : (ci == 1 ? L_TIMER : L_Z);
         }
       }
-      const bool ring_zone = r > 80;
+      const bool ring_zone = r > 86;
       float a = 0;
       if (ring_zone && (act > 0.02f || mus > 0.02f)) {
         a = atan2f(dx, -dy) * (1 / TAU);
         if (a < 0) a += 1;
-        const float sp = s_spec[(int)(a * NB) % NB], len = sp * 28, edge = 112 - r;
+        const float sp = s_spec[(int)(a * NB) % NB], len = sp * 28, edge = 118 - r;
         if (sp > 0.03f && edge < len) {
           const float w = edge / fmaxf(len, 1);
           const float wv = 0.35f + 0.65f * (1 - w);
@@ -1375,7 +1386,7 @@ void build_led(const Scene &s) {
           }
         }
       }
-      if (r > 103.5f) {
+      if (r > 109.5f) {
         if (!(act > 0.02f || mus > 0.02f) && (thk > 0.02f || s.timer_a > 0.05f)) {
           a = atan2f(dx, -dy) * (1 / TAU);
           if (a < 0) a += 1;
@@ -1389,7 +1400,7 @@ void build_led(const Scene &s) {
             col = cm > 0.7f ? lerp_rgb(L_THINK, L_WHITE, 0.4f) : L_THINK;
           }
         }
-        if (s.timer_a > 0.05f && r < 111) {
+        if (s.timer_a > 0.05f && r < 117) {
           if (s.alert_mode) {
             const float av = s.timer_a * (0.45f + 0.55f * s.timer_pulse);
             if (av > v) v = av, col = L_TIMER;
@@ -1400,13 +1411,12 @@ void build_led(const Scene &s) {
         }
       }
       // thinking: a quiet, muted rain over the background; eyes and time are not touched by it
-      if (thk > 0.02f && r < 106 && s_rain_on[k + LK] > 0) {
+      if (thk > 0.02f && r < 112 && s_rain_on[k + LK] > 0) {
         const float ph = fmodf(t * 0.5f + s_rain_ph[k + LK], 1), ey = ph * (240 + 6 * LP) - 3 * LP, dd = (y - ey) / LP;
         const float drop = (dd <= 0.5f && dd > -5) ? 1 - fmaxf(0, -dd) / 5 : 0, rv = 0.3f * drop * thk;
         if (rv > v) v = rv, col = L_THINK;
       }
       float ba = base;
-      if (cap_dim > 0 && y > 152 && y < 206 && fabsf(dx) < 88) ba = base * (1 - cap_dim);  // quieter grid under the caption
       if (boot < 1) {  // sweep: a bright edge runs top to bottom
         if (y > front - 12) v = fmaxf(v, 0.95f), col = L_WHITE;
       }
@@ -1507,10 +1517,10 @@ void draw_led_date(const Scene &s) {
   const Rgb ink = rgb(s.ink);
   char fitted[96];
   const float a = s.clock_a * boot_a * 0.55f;
-  if (date_a > 0.01f) draw_text(text::kUi, line, C, 207, 0.85f, true, ink, a * date_a);
+  if (date_a > 0.01f) draw_text(text::kUi, line, C, 207, 1, true, ink, a * date_a);
   if (agenda_a > 0.01f) {
-    fit(text::kUi, agenda, 170 / 0.85f, fitted, sizeof fitted);
-    draw_text(text::kUi, fitted, C, 207, 0.85f, true, ink, a * agenda_a * 1.3f);
+    fit(text::kUi, agenda, 170, fitted, sizeof fitted);
+    draw_text(text::kUi, fitted, C, 207, 1, true, ink, a * agenda_a * 1.3f);
   }
 }
 
@@ -1543,7 +1553,7 @@ void draw_led_caption(const Scene &s) {
   one[n] = 0;
   char fitted[128];
   fit(text::kUiBold, one, 164, fitted, sizeof fitted);
-  draw_text(text::kUiBold, fitted, C, 178 + (1 - a) * 5, 1.12f, true, rgb(s.ink), a * s.led_spk * 0.95f);
+  draw_text(text::kUiBold, fitted, C, 178 + (1 - a) * 5, 1, true, rgb(s.ink), a * s.led_spk * 0.95f);
 }
 
 // Таблицы дизеринга: порог Байера × значение канала → 5/6 бит, сразу с яркостью
