@@ -10,12 +10,14 @@ in the order we agreed to pick it up (mockups: `screen-rest.html`, face: `screen
 - [x] Thinking: slow comet, quiet background rain
 - [x] Speaking: white-to-cyan wave, reply (one phrase, big font)
 - [x] Emotions (eye shapes): skeptic, surprise, sorry, tired, bored, roll, side (checked: skeptic, surprise)
-- [x] Timer: big dot digits, dot ring that counts down, label, amber pulse when it fires
 - [x] Sleep: closed eyes, dim red time, floating "Z"
 - [x] Power-on sweep (only at boot)
 - [x] Text outline instead of a backing plate; grid reaches the edge of the circle (r = 118)
 
 ## Not redrawn yet (to do, do not show in the demo)
+
+Timer, redraw in the web mockup first (the user wants it redone):
+- [ ] Timer: digits, ring, label and the pulse when it fires
 
 Emotions, redraw in the web mockup first:
 - [ ] Happy: the current eye shape (top half with a concave cut) does not read as joy - redesign
