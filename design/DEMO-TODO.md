@@ -10,11 +10,14 @@ in the order we agreed to pick it up (mockups: `screen-rest.html`, face: `screen
 - [x] Thinking: slow comet, quiet background rain
 - [x] Speaking: white-to-cyan wave, reply (one phrase, big font)
 - [x] Emotions (eye shapes): skeptic, surprise, sorry, tired, bored, roll, side (checked: skeptic, surprise)
-- [x] Sleep: closed eyes, dim red time, floating "Z"
+- [x] Falling asleep (drowsy eyes, yawn) - approved
 - [x] Power-on sweep (only at boot)
 - [x] Text outline instead of a backing plate; grid reaches the edge of the circle (r = 118)
 
 ## Not redrawn yet (to do, do not show in the demo)
+
+Sleep screen itself (closed eyes, dim red time, floating "Z"), redraw in the web mockup first:
+- [ ] Sleep state
 
 Timer, redraw in the web mockup first (the user wants it redone):
 - [ ] Timer: digits, ring, label and the pulse when it fires
