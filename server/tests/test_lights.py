@@ -319,3 +319,20 @@ async def test_brain_and_console_routing(env):
     assert await lights.command("hello") is None
     assert "light.palka" in await lights.command("lights")
     assert (await lights.command("music_light on")).startswith("{'ok': True")
+
+
+async def test_audit_records_own_actions_and_flags_foreign_switch_off(env):
+    ha, _, state, hub, voice, lights, *_ = env
+    await state.lamps(fresh=True)                          # all lamps seen as they are
+    ha.states["light.palka"]["state"] = "on"
+    await state.lamps(fresh=True)
+    clock = state._clock
+    clock.t += 100                                         # long after any own command
+    ha.states["light.palka"]["state"] = "off"              # somebody else switched it off
+    await state.lamps(fresh=True)
+    assert any("не колонка" in line and "погасла сама" in line for line in lights.history)
+    n = len(lights.history)
+    await lights.clap(2)                                   # our own toggle is recorded as ours
+    assert any("хлопки" in line for line in list(lights.history)[n:])
+    assert not any("не колонка" in line for line in list(lights.history)[n:])
+    assert "хлопки" in await lights.command("lights why 5")

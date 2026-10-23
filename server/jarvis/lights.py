@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -79,6 +80,8 @@ class Lights:
         self.now = now
         self._clock = clock or asyncio.get_running_loop().time
         self._last_clap = -1e9
+        self.history: deque[str] = deque(maxlen=60)    # who changed the lights and why (`lights why`)
+        state.on_external = self._external_off
         self._goodnight: asyncio.Task | None = None
         self.music_lamp = os.environ.get("JARVIS_MUSIC_LAMP", MUSIC_LAMP)
         self.music_on = bool(brain and brain.pref("music_light") == "1")
@@ -90,6 +93,25 @@ class Lights:
         self._effects: dict[str, tuple[dict[str, int], dict[str, int]]] = {}
         hub.lights = self
         hub.on_message(self._on_message)
+
+    # ── журнал причин ──
+
+    def audit(self, source: str, text: str) -> None:
+        """Record what the speaker did to the lights and why; an unrecorded switch-off later means not us."""
+        line = f"{self.now():%d.%m %H:%M:%S} {source}: {text}"
+        self.history.append(line)
+        self.state.note_own(45)
+        log.info("свет · %s", line)
+        path = self.state.path
+        if path is not None:
+            try:
+                with path.with_name("light_audit.log").open("a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+            except OSError:
+                pass
+
+    def _external_off(self, lamp: Lamp) -> None:
+        self.audit("не колонка", f"«{lamp.name}» погасла сама (автоматизация HA, выключатель, приложение или ручка WLED)")
 
     # ── общее ──
 
@@ -135,6 +157,7 @@ class Lights:
     # ── «спокойной ночи» ──
 
     async def goodnight(self) -> dict:
+        self.audit("спокойной ночи", "плавно гашу свет")
         if self._goodnight and not self._goodnight.done():
             return {"ok": True, "note": "уже гашу"}
         self._goodnight = asyncio.create_task(self._goodnight_run())
@@ -206,7 +229,9 @@ class Lights:
         if t - self._last_clap < CLAP_COOLDOWN_S:
             return "слишком часто"
         self._last_clap = t
-        return await self.toggle_room()
+        res = await self.toggle_room()
+        self.audit("хлопки ×2", res)
+        return res
 
     async def toggle_room(self) -> str:
         lamps = [l for l in await self.state.lamps(fresh=True) if l.alive]
@@ -248,6 +273,7 @@ class Lights:
             await asyncio.gather(
                 self._call("turn_off", [l.entity_id for l in lit], {"transition": 0.5}),
                 *(self.state.wled_post(l.host, {"on": False, "transition": 5}) for l in lit if l.is_wled))
+            self.audit("быстрая команда", "выключил свет")
             return {"ok": True, "note": "Свет выключен"}
         if action in ("dim", "bright"):
             if not lit:
@@ -376,6 +402,9 @@ class Lights:
         if not parts or parts[0].lower() not in ("goodnight", "music_light", "clap", "lights"):
             return None
         cmd, args = parts[0].lower(), parts[1:]
+        if cmd == "lights" and args[:1] == ["why"]:
+            n = int(args[1]) if len(args) > 1 and args[1].isdigit() else 15
+            return "\n".join(list(self.history)[-n:]) or "колонка со светом ещё ничего не делала с запуска"
         if cmd == "goodnight":
             return "→ " + (await self.goodnight())["note"]
         if cmd == "music_light":

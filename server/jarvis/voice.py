@@ -193,6 +193,7 @@ class Conversation:
         self.close_error = ""      # с чем Gemini закрыл сессию посреди разговора
         self.retry_plain = False   # Gemini отверг эмоциональный режим на первом ответе — повторить обычным
         self.t_start = voice.clock()
+        self._ctx = ""            # what the speaker heard before a tool call (for the lights audit)
 
     def on_barge_in(self) -> None:
         if self.speaking:
@@ -271,6 +272,9 @@ class Conversation:
                 continue
             out = await brain.call(name, args, self.dev.send) if brain else {"ok": False, "error": "нет инструментов"}
             log.info("%s: %s(%s) → %s", self.dev.id, name, args, out)
+            lights = getattr(self.voice.hub, "lights", None)
+            if lights is not None and (name == "goodnight" or name.startswith("home_set") or name == "home_service"):
+                lights.audit("голос", f"{name}({args}) после «{self._ctx or 'текст'}»")
             if name == "mute_listening" and out.get("ok"):
                 self.end_requested = True     # после подтверждения уходим в ожидание, звук в Gemini закрыт
                 self.listening = False
@@ -407,6 +411,17 @@ class Conversation:
                         if ev.kind in ("audio", "tool_call"):
                             answered, self._fast = True, None
                         if ev.kind == "tool_call":
+                            self._ctx = heard.strip()
+                            if not text and is_noise(heard) and not (v.brain and v.brain.long_talk):
+                                # Gemini "heard" a command in foreign noise ("sná režim sna" -> goodnight -> lights off):
+                                # run nothing, ask the user to repeat
+                                log.warning("%s: инструмент %s на шум «%s» — не выполняю", dev.id,
+                                            ", ".join(c[1] for c in ev.calls), heard.strip())
+                                await live.send_tool_results([
+                                    (cid, name, {"ok": False, "error": "команда не расслышана, ничего не сделано; "
+                                                 "скажи пользователю, что не расслышал, и попроси повторить по-русски"})
+                                    for cid, name, _ in ev.calls])
+                                continue
                             await self._tools(live, ev)
                             deadline = v.clock() + NO_SPEECH_S
                         elif ev.kind == "heard":
@@ -520,6 +535,7 @@ class Voice:
         self.whisper = WhisperConfig(brain)       # шёпот в ответ
         if brain is not None:
             brain.mute_hook = self.quiet.mute_tool
+        self._mirror_flag = True        # Telegram mirror when there is no Brain to keep the preference
         self._detectors: dict[str, Any] = {}
         self._talks: dict[str, Conversation] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -540,6 +556,27 @@ class Voice:
     def log(self, role: str, text: str) -> None:
         if self.brain is not None:
             self.brain.log_message("голос", role, text)
+        self._mirror(role, text)
+
+    def mirror_on(self) -> bool:
+        if self.brain is not None:
+            return self.brain.pref("tg_mirror", "1") != "0"
+        return self._mirror_flag
+
+    def _mirror(self, role: str, text: str) -> None:
+        """Mirror speaker conversation lines into Telegram so chat and speaker read as one thread."""
+        tg = getattr(self.hub, "telegram", None)
+        text = " ".join(text.split())
+        if tg is None or not text or not self.mirror_on():
+            return
+        self._spawn(self._mirror_send(tg, ("🎙 " if role == "user" else "🔊 ") + text))
+
+    @staticmethod
+    async def _mirror_send(tg: Any, text: str) -> None:
+        try:
+            await tg.send(text)
+        except Exception as e:
+            log.warning("зеркало в Telegram: %r", e)
 
     def _history_changed(self) -> None:
         """В общую историю дописали реплику: заготовленная сессия Gemini устарела — заменить свежей.
@@ -833,6 +870,13 @@ class Voice:
             return await self.fast.command(line)
         if parts and parts[0].lower() == "whisper":
             return await self.whisper.command(line)
+        if parts and parts[0].lower() == "tgmirror":
+            arg = parts[1].strip().lower() if len(parts) > 1 else ""
+            if arg in ("on", "off"):
+                self._mirror_flag = arg == "on"
+                if self.brain:
+                    self.brain.set_pref("tg_mirror", "1" if arg == "on" else "0")
+            return f"зеркало разговоров в Telegram: {'вкл' if self.mirror_on() else 'выкл'} (tgmirror on|off)"
         if not parts or parts[0].lower() not in ("ask", "wake", "last", "barge", "tts", "affect", "mute", "de", "game"):
             return None
         if parts[0].lower() == "mute":

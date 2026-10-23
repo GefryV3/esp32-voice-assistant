@@ -708,3 +708,40 @@ async def test_dead_session_text_is_retried_on_fresh_session(hub, voice, live):
         assert live.texts == ["скажи раз", "скажи раз"]      # перезапущено один раз, не бесконечно
     finally:
         await ws.close()
+
+
+async def test_tool_call_on_foreign_noise_is_refused(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "listen_start")
+        await ws.send(b"WAKE" + b"\x00" * 3196)
+        await log.wait(is_voice("listening"))
+        await live.queue.put(Event("heard", text="sná režim sna"))
+        await live.queue.put(Event("tool_call", calls=(("c1", "goodnight", {}),)))
+        async with asyncio.timeout(2):
+            while not live.tool_results:
+                await asyncio.sleep(0.01)
+        res = live.tool_results[0][0]
+        assert res[1] == "goodnight" and res[2]["ok"] is False and "не расслышана" in res[2]["error"]
+    finally:
+        await ws.close()
+
+
+async def test_speaker_conversation_is_mirrored_to_telegram(hub, voice):
+    sent = []
+
+    class Tg:
+        async def send(self, text, chat_id=None):
+            sent.append(text)
+            return True
+
+    hub.telegram = Tg()
+    voice.log("user", "который час")
+    voice.log("assistant", "Девять.")
+    await asyncio.sleep(0.05)
+    assert sent == ["🎙 который час", "🔊 Девять."]
+    assert "выкл" in await voice.command("tgmirror off")
+    voice.log("user", "тихо")
+    await asyncio.sleep(0.05)
+    assert len(sent) == 2

@@ -91,6 +91,9 @@ class LightState:
         self.views: dict[str, dict[str, Any]] = {}      # entity_id → вид
         self._lamps: tuple[float, list[Lamp]] | None = None
         self._hold_until = 0.0
+        self._own_until = 0.0                 # until then, light changes are ours
+        self._was_on: dict[str, bool] = {}
+        self.on_external: Callable[[Lamp], None] | None = None   # a lamp went off and we did not do it
         self._dawn_since: float | None = None
         self._captured_at = -1e9
         self._task: asyncio.Task | None = None
@@ -124,6 +127,7 @@ class LightState:
                 if s := states.get(eid):
                     lamp.state = s["state"]
                     lamp.brightness = s.get("attributes", {}).get("brightness")
+            self._watch(list(known.values()))
             return list(known.values())
         states, reg, devices = await asyncio.gather(
             self.ha.request("get_states"), self.ha.request("config/entity_registry/list"),
@@ -154,6 +158,7 @@ class LightState:
                 host = urlparse(url).hostname or ""
             out.append(Lamp(eid, attrs.get("friendly_name") or eid, s["state"], host, attrs.get("brightness")))
         self._lamps = (self._clock(), out)
+        self._watch(out)
         return list(out)
 
     async def wled_lamps(self) -> list[Lamp]:
@@ -188,6 +193,17 @@ class LightState:
                 "seg": [{k: seg[k] for k in SEG_VIEW if k in seg} for seg in st.get("seg") or []]}
 
     # ── удержание: не запоминать, пока идёт наша сцена или рассвет ──
+
+    def note_own(self, seconds: float) -> None:
+        self._own_until = max(self._own_until, self._clock() + seconds)
+
+    def _watch(self, lamps: list[Lamp]) -> None:
+        own = self._clock() < self._own_until or self.held
+        for l in lamps:
+            was = self._was_on.get(l.entity_id)
+            self._was_on[l.entity_id] = l.on
+            if was and not l.on and not own and self.on_external is not None:
+                self.on_external(l)
 
     def hold(self, seconds: float) -> None:
         self._hold_until = max(self._hold_until, self._clock() + seconds)
