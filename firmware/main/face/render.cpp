@@ -770,6 +770,47 @@ int wrap2_fit(const text::Font &f, const char *s, float maxw, char out[2][128]) 
   return n;
 }
 
+// Word wrap into at most n (<= 4) lines; widths[i] is the width limit of line i (lines near the bottom of the
+// circle are narrower). When text is left over, the last line gets an ellipsis and *cut is set.
+int wrap_n(const text::Font &f, const char *s, const float *widths, int n, char out[4][128], bool *cut = nullptr) {
+  for (int i = 0; i < n; i++) out[i][0] = 0;
+  int line = 0;
+  size_t len = 0;
+  while (*s && line < n) {
+    while (*s == ' ') s++;
+    const char *e = s;
+    while (*e && *e != ' ') e++;
+    char cand[128];
+    const size_t wl = (size_t)(e - s);
+    if (len + 1 + wl >= sizeof cand) break;
+    memcpy(cand, out[line], len);
+    size_t cl = len;
+    if (cl) cand[cl++] = ' ';
+    memcpy(cand + cl, s, wl);
+    cl += wl;
+    cand[cl] = 0;
+    if (len && text::width(f, cand) > widths[line]) {
+      line++;
+      len = 0;
+      continue;
+    }
+    memcpy(out[line], cand, cl + 1);
+    len = cl;
+    s = e;
+  }
+  while (*s == ' ') s++;
+  int used = 0;
+  for (int i = 0; i < n; i++)
+    if (out[i][0]) used = i + 1;
+  if (cut) *cut = *s != 0;
+  if (*s && used > 0) {
+    char tmp[136];
+    snprintf(tmp, sizeof tmp, "%sâ¦", out[used - 1]);
+    fit(f, tmp, widths[used - 1], out[used - 1], 128);
+  }
+  return used;
+}
+
 // ── Значки ──
 
 void sun(float x, float y, float s, float alpha) {
@@ -1531,29 +1572,41 @@ void draw_led_timer_label(const Scene &s) {
   draw_text(text::kUi, label, C, 196, 1, true, {255, 179, 64}, s.timer_a);
 }
 
-// Text under the eyes. What was heard / said keeps the old two-line look (the user needs to see that
-// the speaker understood them); the reply is one short phrase without the full stop
+// Text under the eyes. There is a lot of free room below them (from y 145 to the edge), so the text gets up to
+// three lines. What was heard / said keeps the calm regular look; the reply is the first sentence in a big
+// font when it fits in two lines, otherwise in bold at three.
 void draw_led_caption(const Scene &s) {
   const float a = s.cap_a;
-  if (a < 0.02f || s.caption == Caption::None || !s.caption_text[0] || s_y1 < 150 || s_y0 > 210) return;
+  if (a < 0.02f || s.caption == Caption::None || !s.caption_text[0] || s_y1 < 140 || s_y0 > 210) return;
+  const float lift = (1 - a) * 6;
+  char lines[4][128];
   if (s.caption == Caption::Heard || s.caption == Caption::Said) {
-    char lines[2][128];
-    const int n = wrap2(text::kUi, s.caption_text, 168, lines);
-    const float k = s.caption == Caption::Heard ? 0.85f : 0.5f, y0 = n > 1 ? 180 : 188, lift = (1 - a) * 6;
-    for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, y0 + i * 19 + lift, 1, true, rgb(s.ink), a * k);
+    static const float W3[3] = {188, 176, 164};
+    const int n = wrap_n(text::kUi, s.caption_text, W3, 3, lines);
+    const float k = s.caption == Caption::Heard ? 0.9f : 0.55f, y0 = n == 1 ? 190 : (n == 2 ? 176 : 158);
+    for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, y0 + i * 20 + lift, 1, true, rgb(s.ink), a * k);
     return;
   }
   if (s.led_spk < 0.02f) return;
   char one[128];
-  size_t n = 0;
-  for (const char *p = s.caption_text; *p && n + 1 < sizeof one; p++) {
+  size_t len = 0;
+  for (const char *p = s.caption_text; *p && len + 1 < sizeof one; p++) {
     if (*p == '.' || *p == '!' || *p == '?' || *p == '\n') break;
-    one[n++] = *p;
+    one[len++] = *p;
   }
-  one[n] = 0;
-  char fitted[128];
-  fit(text::kUiBold, one, 164, fitted, sizeof fitted);
-  draw_text(text::kUiBold, fitted, C, 178 + (1 - a) * 5, 1, true, rgb(s.ink), a * s.led_spk * 0.95f);
+  one[len] = 0;
+  const float al = a * s.led_spk * 0.95f;
+  bool cut = false;
+  static const float WT[2] = {176, 164}, WB[3] = {188, 176, 164};
+  int n = wrap_n(text::kTitle, one, WT, 2, lines, &cut);
+  if (!cut) {
+    const float y0 = n == 1 ? 184 : 168;
+    for (int i = 0; i < n; i++) draw_text(text::kTitle, lines[i], C, y0 + i * 27 + lift, 1, true, rgb(s.ink), al);
+    return;
+  }
+  n = wrap_n(text::kUiBold, one, WB, 3, lines);
+  const float y0 = n == 1 ? 190 : (n == 2 ? 176 : 158);
+  for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * 20 + lift, 1, true, rgb(s.ink), al);
 }
 
 // Таблицы дизеринга: порог Байера × значение канала → 5/6 бит, сразу с яркостью
