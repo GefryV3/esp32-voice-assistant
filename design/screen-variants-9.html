@@ -356,7 +356,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
           else { const f = clamp((p - 0.3) / 0.55); if (lineOn) v = Math.max(v, 0.95 * (1 - f)); v *= f > 0.05 ? Math.max(f, best ? 1 : 0) : (best ? 1 : 0); baseA *= f; }
         } else { v *= bootF; baseA *= bootF; }          // мерцание
       }
-      const s = P * (0.5 + 0.28 * v), fill = col ? rgb(col, 0.07 + 0.93 * v) : (v > 0.07 ? rgb(eyeV >= v - 0.001 ? dotTint : eyeTint, 0.075 + 0.925 * v) : `rgba(255,255,255,${(baseA + (1 - baseA) * v).toFixed(3)})`);
+      const s = P * (0.64 + 0.16 * v), fill = col ? rgb(col, 0.07 + 0.93 * v) : (v > 0.07 ? rgb(eyeV >= v - 0.001 ? dotTint : eyeTint, 0.075 + 0.925 * v) : `rgba(255,255,255,${(baseA + (1 - baseA) * v).toFixed(3)})`);
       ctx.fillStyle = fill;
       if (v > 0.45) { const ba = 0.16 * v; ctx.fillStyle = col ? rgb(col, ba) : rgb(eyeV >= v - 0.001 ? dotTint : eyeTint, ba); ctx.beginPath(); ctx.roundRect(x - s, y - s, s * 2, s * 2, s * 0.8); ctx.fill(); ctx.fillStyle = fill; }
       ctx.beginPath(); ctx.roundRect(x - s / 2, y - s / 2, s, s, s * 0.22); ctx.fill();

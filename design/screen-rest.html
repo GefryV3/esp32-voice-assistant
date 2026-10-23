@@ -150,7 +150,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       let base = 0.075;
       for (const mk of masks) if (x > mk[0] && x < mk[2] && y > mk[1] && y < mk[3]) base *= 1 - mk[4];
       const col = v > 0.01 ? [CR[i], CG[i], CB[i]] : theme.grid;
-      const alpha = base + (1 - base) * v, s = P * (0.5 + 0.28 * v), h = s / 2;
+      const alpha = base + (1 - base) * v, s = P * (0.64 + 0.16 * v), h = s / 2;
       if (v > 0.45) { c.fillStyle = rgb(col, 0.16 * v); c.beginPath(); c.roundRect(x - s, y - s, s * 2, s * 2, s * 0.8); c.fill(); }
       c.fillStyle = rgb(col, alpha); c.beginPath(); c.roundRect(x - h, y - h, s, s, s * 0.22); c.fill();
     }

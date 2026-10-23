@@ -1327,6 +1327,7 @@ void build_led(const Scene &s) {
   }
   const float grid_dim = 1 - 0.85f * fmaxf(clamp01(s.card_a), clamp01(s.game_a));  // the grid goes quiet under a card or a game
   const float base = 0.075f * s.bg * grid_dim;
+  const float cap_dim = (s.caption != Caption::None && s.caption_text[0]) ? 0.75f * clamp01(s.cap_a) : 0;
   const int wkey = mus > fmaxf(lis, spk) ? 2 : (lis > spk ? 1 : 0);
   const float rate = s.timer_total ? (float)s.timer_rem / s.timer_total : 0;
   for (int m = -LK; m <= LK; m++)
@@ -1405,6 +1406,7 @@ void build_led(const Scene &s) {
         if (rv > v) v = rv, col = L_THINK;
       }
       float ba = base;
+      if (cap_dim > 0 && y > 152 && y < 206 && fabsf(dx) < 88) ba = base * (1 - cap_dim);  // quieter grid under the caption
       if (boot < 1) {  // sweep: a bright edge runs top to bottom
         if (y > front - 12) v = fmaxf(v, 0.95f), col = L_WHITE;
       }
@@ -1425,7 +1427,7 @@ uint8_t s_cov_core[64][4], s_cov_bloom[64][6];
 
 void init_led_tables() {
   for (int l = 0; l < 64; l++) {
-    const float v = (l + 0.5f) / 64, h = LP * (0.5f + 0.28f * v) * 0.5f;
+    const float v = (l + 0.5f) / 64, h = LP * (0.64f + 0.16f * v) * 0.5f;
     for (int j = 0; j < 4; j++) s_cov_core[l][j] = u8f(255 * clamp01(h - j));
     for (int j = 0; j < 6; j++) s_cov_bloom[l][j] = u8f(255 * clamp01(2 * h - j));
   }
@@ -1519,10 +1521,19 @@ void draw_led_timer_label(const Scene &s) {
   draw_text(text::kUi, label, C, 196, 1, true, {255, 179, 64}, s.timer_a);
 }
 
-// Reply under the eyes: one short phrase without the full stop, only while the speaker talks
+// Text under the eyes. What was heard / said keeps the old two-line look (the user needs to see that
+// the speaker understood them); the reply is one short phrase without the full stop
 void draw_led_caption(const Scene &s) {
-  const float a = s.cap_a * s.led_spk;
-  if (a < 0.02f || s.caption != Caption::Reply || !s.caption_text[0] || s_y1 < 150 || s_y0 > 196) return;
+  const float a = s.cap_a;
+  if (a < 0.02f || s.caption == Caption::None || !s.caption_text[0] || s_y1 < 150 || s_y0 > 210) return;
+  if (s.caption == Caption::Heard || s.caption == Caption::Said) {
+    char lines[2][128];
+    const int n = wrap2(text::kUi, s.caption_text, 168, lines);
+    const float k = s.caption == Caption::Heard ? 0.85f : 0.5f, y0 = n > 1 ? 180 : 188, lift = (1 - a) * 6;
+    for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, y0 + i * 19 + lift, 1, true, rgb(s.ink), a * k);
+    return;
+  }
+  if (s.led_spk < 0.02f) return;
   char one[128];
   size_t n = 0;
   for (const char *p = s.caption_text; *p && n + 1 < sizeof one; p++) {
@@ -1532,7 +1543,7 @@ void draw_led_caption(const Scene &s) {
   one[n] = 0;
   char fitted[128];
   fit(text::kUiBold, one, 164, fitted, sizeof fitted);
-  draw_text(text::kUiBold, fitted, C, 178 + (1 - s.cap_a) * 5, 1.12f, true, rgb(s.ink), a * 0.95f);
+  draw_text(text::kUiBold, fitted, C, 178 + (1 - a) * 5, 1.12f, true, rgb(s.ink), a * s.led_spk * 0.95f);
 }
 
 // Таблицы дизеринга: порог Байера × значение канала → 5/6 бит, сразу с яркостью
