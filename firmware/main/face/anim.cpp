@@ -1197,6 +1197,16 @@ const Scene &animate(const Input &in, float dt) {
       ESP_LOGW("anim", "нечисло: общий параметр %d исправлен", i);
     }
   build_scene(in);
+  // LED panel: state weights glide smoothly; loudness comes from the microphone (listening) or the speech envelope (speaking)
+  auto toward = [&](float &v, float target, float rate) { v += (target - v) * (1 - expf(-dt * rate)); };
+  toward(sc.led_lis, st.mode == Mode::Listen ? 1.0f : 0.0f, 7);
+  toward(sc.led_thk, st.mode == Mode::Think ? 1.0f : 0.0f, 6);
+  toward(sc.led_spk, st.mode == Mode::Speak ? 1.0f : 0.0f, 7);
+  toward(sc.led_mus, (sc.player && sc.player_playing) ? 1.0f : 0.0f, 6);
+  const float amp = st.mode == Mode::Listen ? 0.2f + 0.8f * clamp01(st.level * 1.3f)
+                    : st.mode == Mode::Speak ? 0.15f + 0.85f * clamp01(st.amp * 1.4f)
+                                             : 0.0f;
+  toward(sc.led_amp, amp, 16);
   return sc;
 }
 

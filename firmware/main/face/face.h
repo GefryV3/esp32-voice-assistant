@@ -131,6 +131,8 @@ struct Scene {
   float cell_a[9] = {};
   int reminders = 0;
   float rem_a = 0, quiet_a = 0;
+  // LED panel: how much it is listening / thinking / speaking / playing music right now (0..1, smoothed) and the loudness
+  float led_lis = 0, led_thk = 0, led_spk = 0, led_mus = 0, led_amp = 0;
 };
 
 bool init();

@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED-панель — цвет волны</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+<style>
+:root { --bg: #0A0A0C; --fg: #F2F2F5; --muted: #8E8E96; --line: #26262C; --chip: #17171B; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 Inter, system-ui, sans-serif; padding: 28px max(16px, env(safe-area-inset-left)) 56px; }
+.wrap { max-width: 1180px; margin: 0 auto; }
+h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+.lead { margin: 0 0 20px; color: var(--muted); max-width: 68ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; padding: 10px 0 4px; }
+.bar.sticky { position: sticky; top: 0; background: linear-gradient(var(--bg) 78%, transparent); z-index: 5; }
+.bar .lbl { color: var(--muted); font-size: 12.5px; width: 100%; margin: 6px 0 -2px; }
+.bar .sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+button.chip { font: 500 14px/1 Inter, sans-serif; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 10px 15px; min-height: 40px; cursor: pointer; }
+button.chip:hover { border-color: #55555E; }
+button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border-color: var(--fg); }
+:focus-visible { outline: 2px solid #7AA7FF; outline-offset: 2px; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 28px; margin-top: 26px; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); gap: 56px; } }
+.card { display: grid; justify-items: center; gap: 24px; align-content: start; }
+.puck {
+  position: relative; width: min(340px, 100%); aspect-ratio: 1; border-radius: 50%; padding: 5.5%;
+  background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.35), transparent 38%), conic-gradient(from 200deg, #45484F, #B9BCC3, #5D6068, #24262B, #8A8E96, #45484F);
+  box-shadow: 0 40px 70px -28px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.06), inset 0 1.5px 1px rgba(255,255,255,.45), inset 0 -3px 6px rgba(0,0,0,.5);
+}
+.bezel { position: relative; width: 100%; height: 100%; border-radius: 50%; padding: 3%; background: #030304; box-shadow: inset 0 3px 8px #000, 0 1px 0 rgba(255,255,255,.12); }
+.bezel canvas { display: block; width: 100%; height: 100%; border-radius: 50%; background: #000; }
+.bezel::after { content: ""; position: absolute; inset: 3%; border-radius: 50%; pointer-events: none; background: linear-gradient(140deg, rgba(255,255,255,.13) 0%, rgba(255,255,255,.03) 32%, transparent 48%); }
+.meta { max-width: 340px; width: 100%; }
+.meta h2 { margin: 0 0 4px; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.meta .tag { color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+.meta ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 14px; color: #C9C9D0; }
+.meta li { padding-left: 16px; position: relative; }
+.meta li::before { content: ""; position: absolute; left: 0; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--c, #fff); }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.swatches span { display: inline-flex; align-items: center; gap: 6px; }
+.swatches i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.foot { margin-top: 44px; color: var(--muted); font-size: 13.5px; max-width: 80ch; }
+
+.lab { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 36px; align-items: start; margin-top: 18px; }
+@media (max-width: 900px) { .lab { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: sticky; top: 8px; display: grid; gap: 14px; justify-items: center; }
+.stage .puck { width: min(440px, 100%); }
+.group { display: grid; gap: 8px; margin-bottom: 18px; }
+.group h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.group .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.hint { margin: 0; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LED-панель: цвет волны</h1>
+  <p class="lead">Слушает: полная радуга по краю, глаза остаются белыми. Говорит: от белого к голубому. Музыка: два цвета. Думает: медленная комета и приглушённый дождь по фону. Включение: четыре варианта на выбор, по умолчанию из яркой линии, как включение ТВ. Кнопка «Включить» проигрывает его заново.</p>
+  <div class="bar sticky" role="group" aria-label="Состояния">
+    <button class="chip" type="button" data-mode="idle" aria-pressed="true">Покой</button>
+    <button class="chip" type="button" data-mode="listen" aria-pressed="false">Слушает</button>
+    <button class="chip" type="button" data-mode="think" aria-pressed="false">Думает</button>
+    <button class="chip" type="button" data-mode="speak" aria-pressed="false">Говорит</button>
+    <button class="chip" type="button" data-mode="music" aria-pressed="false">Музыка</button>
+    <button class="chip" type="button" data-mode="timer" aria-pressed="false">Таймер</button>
+    <button class="chip" type="button" data-mode="sleep" aria-pressed="false">Сон</button>
+    <span class="sep"></span>
+    <button class="chip" type="button" id="auto" aria-pressed="false">Демо по кругу</button>
+    <button class="chip" type="button" id="bootNow">Включить</button>
+  </div>
+  <div class="lab">
+    <div class="stage">
+      <div class="puck"><div class="bezel"><canvas id="cv" width="480" height="480" aria-label="LED-панель"></canvas></div></div>
+    </div>
+    <div id="controls"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const TAU = Math.PI * 2, PI = Math.PI;
+  const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const pad2 = n => String(n).padStart(2, '0');
+  const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const DAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const MON_S = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const dateShort = n => `${DAYS[n.getDay()]} ${n.getDate()} ${MON_S[n.getMonth()]}`;
+  const DYN = [[30, 7], [16, 4.5], [9, 2.2]];
+  const NB = 72, TIMER_TOTAL = 30;
+  const WHITE = [255, 255, 255];
+  const COL = { listen: [255, 69, 58], think: [191, 90, 242], speak: [100, 210, 255], timer: [255, 179, 64], music: [48, 209, 88], happy: [255, 200, 90] };
+
+  // Эмоции: цели для сглаженных параметров лица
+  const EXPR = {
+    none: { lidL: 0, lidR: 0, smile: 0, sc: 1, wink: 0, tilt: 0, dy: 0, ra: 0 },
+    skeptic: { lidL: 0.42, lidR: 0.08, smile: 0, sc: 1, wink: 0, tilt: 0, dy: 0, ra: 0 },
+    happy: { lidL: 0, lidR: 0, smile: 1, sc: 0.95, wink: 0, tilt: 0, dy: -2, ra: 12 },
+    surprise: { lidL: 0, lidR: 0, smile: 0, sc: 1.28, wink: 0, tilt: 0, dy: -2, ra: 24 },
+    wink: { lidL: 0, lidR: 0, smile: 0.5, sc: 1, wink: 1, tilt: 0, dy: 0, ra: 4 },
+    sorry: { lidL: 0.12, lidR: 0.12, smile: 0, sc: 0.96, wink: 0, tilt: 0.55, dy: 3, ra: -7 },
+  };
+  const M = {
+    mode: 'idle', noteOn: false, expr: 'none', t: 0, prevKey: '',
+    open: 1, gx: 0, gy: 0, tgx: 0, tgy: 0, lis: 0, thk: 0, spk: 0, slp: 0, tmr: 0, mus: 0, note: 0, amp: 0, beat: 0,
+    blink: 0, blinkT: -1, nextBlink: 2, nextGaze: 1, spec: new Float32Array(NB),
+    ex: { ...EXPR.none }, scV: 0, ra: 27, raV: 0, rot: 0, ripples: [], nextAmbient: 6, timerT0: 0, eq: new Float32Array(11),
+  };
+  M.ck = 1; M.sty = { colL: 3, colS: 1, colM: 2, play: 0, thk: 1, dyn: 1, boot: 2 }; M.hist = new Float32Array(200); M.hi = 0; M._ha = 0; M.boot = 1; M.dbl = false; M.round = false; M.gvx = 0; M.gvy = 0;
+  const NOTE = { app: 'Telegram', color: [42, 171, 238], title: 'Мама', text: 'Ужин готов, спускайся. И телефон захвати' };
+
+  function ripple(col) { M.ripples.push({ t0: M.t, col }); if (M.ripples.length > 4) M.ripples.shift(); }
+  function accent() {
+    const w = [[M.lis, COL.listen], [M.thk, COL.think], [M.spk, COL.speak], [M.tmr, COL.timer], [M.mus, COL.music], [M.ex.smile > 0.6 ? 1 : 0, COL.happy]];
+    let s = 0, c = [0, 0, 0];
+    for (const [k, col] of w) { s += k; c[0] += col[0] * k; c[1] += col[1] * k; c[2] += col[2] * k; }
+    return s < 0.01 ? { col: WHITE, k: 0 } : { col: [c[0] / s, c[1] / s, c[2] / s], k: clamp(s) };
+  }
+
+  function updateModel(dt) {
+    M.t += dt;
+    const t = M.t, k = r => 1 - Math.exp(-dt * r), m = M.mode;
+    const key = m + '|' + M.expr + '|' + M.noteOn;
+    if (key !== M.prevKey) {
+      if (M.prevKey) { const a = m === 'idle' && M.expr === 'none' ? [255, 255, 255] : (M.expr !== 'none' ? (M.expr === 'happy' ? COL.happy : [255, 255, 255]) : (COL[m] || WHITE)); ripple(a); }
+      if (m === 'timer') M.timerT0 = t;
+      M.prevKey = key;
+    }
+    M.lis += ((m === 'listen' ? 1 : 0) - M.lis) * k(7);
+    M.thk += ((m === 'think' ? 1 : 0) - M.thk) * k(6);
+    M.spk += ((m === 'speak' ? 1 : 0) - M.spk) * k(7);
+    M.slp += ((m === 'sleep' ? 1 : 0) - M.slp) * k(2.2);
+    M.tmr += ((m === 'timer' ? 1 : 0) - M.tmr) * k(6);
+    M.mus += ((m === 'music' ? 1 : 0) - M.mus) * k(6);
+    M.note += ((M.noteOn ? 1 : 0) - M.note) * k(6);
+    M.ck += (((m === 'idle' || m === 'sleep' || m === 'timer') ? 1 : 0) - M.ck) * k(6);
+    if (m === 'speak' && M._pm !== 'speak') M.spkT0 = t; if (m === 'music' && M._pm !== 'music') M.musT0 = t; M._pm = m;
+    M.open += ((m === 'sleep' ? 0.03 : 1) - M.open) * k(m === 'sleep' ? 3 : 10);
+    // выражение лица плавно перетекает к цели; удивление отскакивает пружиной
+    const tg = EXPR[M.expr];
+    for (const p of ['lidL', 'lidR', 'smile', 'wink', 'tilt', 'dy']) M.ex[p] += (tg[p] - M.ex[p]) * k(11);
+    M.scV += ((tg.sc - M.ex.sc) * 320 - M.scV * 20) * dt; M.ex.sc += M.scV * dt;
+    // голос и музыка
+    const syll = Math.abs(Math.sin(t * 8.3) * Math.sin(t * 2.7 + 1.2)) * (0.55 + 0.45 * Math.sin(t * 1.3));
+    const raw = clamp(M.spk * (0.25 + 0.95 * syll) + M.lis * (0.15 + 0.85 * Math.abs(Math.sin(t * 5.1 + Math.sin(t * 1.7) * 2))), 0, 1);
+    M.amp += (raw - M.amp) * k(16);
+    const bt = (t * 2.1) % 1; M.beat = M.mus * Math.pow(1 - bt, 3);
+    const act = Math.max(M.lis, M.spk);
+    for (let i = 0; i < NB; i++) {
+      const a = i / NB, mirror = Math.abs(a - 0.5) * 2;
+      const band = 0.35 + 0.65 * Math.abs(Math.sin(i * 0.83 + t * 6.1) * Math.cos(i * 0.31 - t * 3.7 + mirror * 2));
+      // музыка: плавная бегущая волна, сила чуть дышит в такт
+      const flow = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(i * 0.35 - t * 2.4)) * (0.5 + 0.5 * Math.sin(i * 0.11 + t * 0.9));
+      const tgt = Math.max(act * M.amp * band, M.mus * (0.26 + 0.62 * M.beat) * flow) * (0.5 + 0.5 * mirror);
+      const rt = DYN[M.sty.dyn || 0]; M.spec[i] += (tgt - M.spec[i]) * (tgt > M.spec[i] ? k(rt[0]) : k(rt[1]));
+    }
+    for (let i = 0; i < 11; i++) {
+      const tgt = M.mus * clamp(0.25 + 0.75 * Math.abs(Math.sin(t * (3.1 + i * 0.7) + i * 1.9)) * (0.45 + 0.55 * M.beat + 0.25));
+      M.eq[i] += (tgt - M.eq[i]) * (tgt > M.eq[i] ? k(22) : k(6));
+    }
+    M._ha += dt; const lvl = Math.max(M.amp * Math.max(M.lis, M.spk), M.mus * (0.35 + 0.35 * M.beat)); while (M._ha >= 0.01) { M._ha -= 0.01; M.hi = (M.hi + 1) % M.hist.length; M.hist[M.hi] = lvl; }
+    // моргание и взгляд
+    if (m !== 'sleep' && t > M.nextBlink && M.blinkT < 0) { M.blinkT = 0; M.nextBlink = t + 2.4 + Math.random() * 3.6; }
+    if (M.blinkT >= 0) { M.blinkT += dt; M.blink = Math.sin(clamp(M.blinkT / 0.17) * PI); if (M.blinkT > 0.17) { M.blinkT = -1; M.blink = 0; } }
+    if (m === 'think') { M.tgx = 0.7; M.tgy = -0.8; M.nextGaze = t + 1; }
+    else if (m === 'sleep') { M.tgx = 0; M.tgy = 0; }
+    else if (m === 'listen') { M.tgx = 0; M.tgy = -0.1; }
+    else if (m === 'timer') { M.tgx = 0; M.tgy = 0.45; M.nextGaze = t + 1; }
+    else if (m === 'music') { M.tgx = Math.sin(t * 1.5) * 0.62; M.tgy = 0.05; M.nextGaze = t + 1; }
+    else if (t > M.nextGaze) { M.tgx = (Math.random() * 2 - 1) * (m === 'speak' ? 0.45 : 0.9); M.tgy = (Math.random() * 2 - 1) * 0.55; M.nextGaze = t + 1.6 + Math.random() * 3.2; if (Math.random() < 0.35) { M.tgx = 0; M.tgy = 0; } }
+    M.gx += (M.tgx - M.gx) * k(13); M.gy += (M.tgy - M.gy) * k(13);
+    if (M.boot < 1) M.boot = Math.min(1, M.boot + dt / 1.5);
+    // диафрагма: пружина, чтобы раскрывалась живо и с лёгким отскоком
+    const raT = (m === 'sleep' ? 1.5 : m === 'listen' ? 41 : m === 'think' ? 21 : m === 'speak' ? 27 + 22 * M.amp : m === 'timer' ? 24 : m === 'music' ? 24 + 17 * M.beat : 27 + 1.6 * Math.sin(t * 1.4)) * 1.25 + M.ex.ra * (m === 'sleep' ? 0 : 1.2);
+    M.raV += ((raT - M.ra) * 300 - M.raV * 22) * dt; M.ra += M.raV * dt;
+    M.rot += dt * (0.07 + 3.2 * M.thk + 0.5 * M.spk * M.amp);
+    // фоновая рябь раз в несколько секунд, чтобы покой не был мёртвым
+    if (m === 'idle' && M.expr === 'none' && t > M.nextAmbient) { ripple([255, 255, 255]); M.ripples[M.ripples.length - 1].soft = true; M.nextAmbient = t + 8 + Math.random() * 4; }
+    M.ripples = M.ripples.filter(r => t - r.t0 < 1.5);
+  }
+
+  // ── Общие мелочи ──
+  function wrap(ctx, text, maxW) {
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur); return lines;
+  }
+  function noteCard(ctx, a, ink, sub, y0) {
+    if (a < 0.02) return;
+    ctx.save(); ctx.globalAlpha *= a; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.font = '500 12px Inter, sans-serif';
+    const tw = ctx.measureText(NOTE.app).width;
+    ctx.fillStyle = rgb(NOTE.color); ctx.beginPath(); ctx.arc(120 - tw / 2 - 8, y0 - 4, 3.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = sub; ctx.fillText(NOTE.app, 124, y0);
+    ctx.fillStyle = ink; ctx.font = '600 20px Inter, sans-serif'; ctx.fillText(NOTE.title, 120, y0 + 30 - (1 - a) * 6);
+    ctx.fillStyle = sub; ctx.font = '400 14px Inter, sans-serif';
+    wrap(ctx, NOTE.text, 142).slice(0, 2).forEach((l, i) => ctx.fillText(l, 120, y0 + 54 + i * 19));
+    ctx.restore();
+  }
+  function remaining() { return Math.max(0, TIMER_TOTAL - ((M.t - M.timerT0) % (TIMER_TOTAL + 3))); }
+
+  // ───────────────────────── LED-панель: утверждённая база ─────────────────────────
+  const G3 = {
+    '0': ['111', '101', '101', '101', '111'], '1': ['010', '110', '010', '010', '111'], '2': ['111', '001', '111', '100', '111'],
+    '3': ['111', '001', '111', '001', '111'], '4': ['101', '101', '111', '001', '001'], '5': ['111', '100', '111', '001', '111'],
+    '6': ['111', '100', '111', '101', '111'], '7': ['111', '001', '001', '001', '001'], '8': ['111', '101', '111', '101', '111'],
+    '9': ['111', '101', '111', '001', '111'], 'z': ['111', '001', '010', '100', '111'],
+  };
+  const tcache = {};
+  function glyphSet(s, cols, row0) {
+    const key = s + '|' + row0; if (tcache[key]) return tcache[key];
+    const set = new Set();
+    [...s].forEach((ch, i) => G3[ch].forEach((row, ry) => [...row].forEach((b, rx) => { if (b === '1') set.add((cols[i] + rx) + ',' + (row0 + ry)); })));
+    return (tcache[key] = set);
+  }
+  const P = 6, K = 20, NK = 2 * K + 1;
+  const RND = new Float32Array(NK * NK).map(() => Math.random());
+  const hash3 = (a, b, c) => { const x = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453; return x - Math.floor(x); };
+
+  function eyesA() {
+    const ex = M.ex, note = M.note, sc = (1 - 0.5 * note) * ex.sc;
+    const cy0 = lerp(94 + ex.dy + 16 * (1 - M.ck) * (1 - Math.max(M.spk, M.mus)), 58, note) - 3 * M.beat * (1 - note);
+    const bo = (M.boot < 1 && M.sty.boot === 2) ? clamp((M.boot - 0.3) / 0.4) : 1;
+    const open = clamp(M.open * (1 - M.blink * 0.96) * bo, 0.04, 1.3);
+    const mk = s => {
+      const wob = 1 + 0.12 * M.lis + 0.08 * M.amp * M.spk + 0.04 * M.beat;
+      const w = 38 * sc, op = s > 0 ? open * (1 - ex.wink * 0.93) : open;
+      const h = Math.max(54 * sc * op * wob * (1 + 0.3 * ex.smile), 7);
+      return { cx: 120 + s * 31 * sc + M.gx * 7 * sc, cy: cy0 + M.gy * 5 * sc + (s < 0 ? -3 * ex.lidL * 2.4 : 0), w, h, r: Math.min(13 * sc, w / 2, h / 2),
+        lid: clamp(0.2 * M.thk + (s < 0 ? ex.lidL : ex.lidR), 0, 1), tilt: ex.tilt * 0.9, s, smile: ex.smile * (s > 0 ? 1 - ex.wink * 0.3 : 1) };
+    };
+    return [mk(-1), mk(1)];
+  }
+  function sdEyeA(e, x, y) {
+    const qx = Math.abs(x - e.cx) - (e.w / 2 - e.r), qy = Math.abs(y - e.cy) - (e.h / 2 - e.r);
+    let d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - e.r;
+    d = Math.max(d, (e.cy - e.h / 2 + e.lid * e.h + e.tilt * (x - e.cx) * e.s * 0.6) - y);
+    if (e.smile > 0.01) { const R = e.w * 0.9, ccy = e.cy + e.h / 2 + R * (1.05 - 0.86 * e.smile); d = Math.max(d, R - Math.hypot(x - e.cx, y - ccy)); }
+    return d;
+  }
+  // задержанная громкость: как звучал голос delay секунд назад
+  function histAt(delay) { const n = M.hist.length; return M.hist[((M.hi - Math.floor(delay / 0.01)) % n + n) % n]; }
+  const LEN_TAB = [28, 40, 54];
+
+  // ── Текст под глазами: коротко и гладко ──
+  const SAY = ['Свет включён', 'Дождь, плюс 12', 'Таймер на 7 минут', 'Готово'], WPS = 2.6, HOLD = 1.1;
+  const TRACK = { title: 'Take Five', artist: 'Dave Brubeck' };
+  function drawLaconic(ctx, t, bf) {
+    const aS = (1 - M.note) * M.spk * bf, aM = (1 - M.note) * M.mus * bf;
+    ctx.save(); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
+    if (aS > 0.02) {
+      // одна фраза за раз: слова проявляются в темп речи, в конце фраза тает
+      const lens = SAY.map(p => p.split(' ').length / WPS + HOLD + 0.5), total = lens.reduce((a, b) => a + b, 0);
+      let el = (t - (M.spkT0 || 0)) % total, i = 0; while (el > lens[i]) { el -= lens[i]; i++; }
+      const words = SAY[i].split(' '), shown = el * WPS, fadeOut = clamp((lens[i] - el) / 0.5);
+      ctx.font = '600 18px Inter, sans-serif';
+      const sp = ctx.measureText(' ').width, ws = words.map(w => ctx.measureText(w).width), full = ws.reduce((a, b) => a + b, 0) + sp * (words.length - 1);
+      let x = 120 - full / 2; ctx.textAlign = 'left';
+      words.forEach((w, j) => {
+        const vis = clamp(shown - j); ctx.globalAlpha = aS * vis * fadeOut * 0.95; ctx.fillStyle = '#fff'; ctx.fillText(w, x, 176 - (1 - vis) * 3); x += ws[j] + sp;
+      });
+    }
+    if (aM > 0.02) {
+      ctx.globalAlpha = aM; ctx.fillStyle = '#fff'; ctx.font = '600 18px Inter, sans-serif'; ctx.fillText(TRACK.title, 120, 174);
+      ctx.globalAlpha = aM * 0.55; ctx.font = '500 13px Inter, sans-serif'; ctx.fillText(TRACK.artist, 120, 194);
+    }
+    ctx.restore();
+  }
+
+  // Волна по краю: прежняя форма (штрихи от кромки к центру)
+  const PAL = { listen: [[255, 69, 58], [255, 190, 70]], speak: [[100, 210, 255], [150, 130, 255]], music: [[48, 209, 88], [100, 225, 255]] };
+  const HUE0 = { listen: 6, speak: 195, music: 140 };
+  function hsl(h, s, l) {
+    h = ((h % 360) + 360) % 360; const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2; let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; } else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; } else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+    return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+  }
+  function waveDot(a, r, t) {
+    const S = M.sty, edge = 112 - r, LEN = 28;
+    if (Math.max(M.lis, M.spk, M.mus) < 0.02 || edge < 0 || edge > LEN + 4) return null;
+    let idx;
+    if (S.play === 1) idx = ((((a + t * 0.05) % 1) + 1) % 1 * NB) | 0;          // дрейф: рисунок медленно едет по кругу
+    else if (S.play === 2) idx = (Math.abs(a - 0.5) * 2 * NB) | 0;               // зеркало: левая и правая половины одинаковые
+    else idx = (a * NB) | 0;
+    idx = Math.min(NB - 1, idx);
+    const sp = M.spec[idx], len = sp * LEN; if (sp < 0.03 || edge >= len) return null;
+    const w = edge / Math.max(len, 1); return { v: 0.35 + 0.65 * (1 - w), w, h: sp };
+  }
+  function waveColor(wd, a, t, key) {
+    const [A, B] = PAL[key], cm = (key === 'listen' ? M.sty.colL : key === 'speak' ? M.sty.colS : M.sty.colM) || 0, w = wd.w;
+    if (cm === 0) return key === 'speak' ? mix(A, WHITE, 0.35 * (1 - w)) : A;       // как было
+    if (cm === 1) return mix(WHITE, A, clamp(w * 1.5));                              // от белого к цвету
+    if (cm === 2) return mix(A, B, w);                                               // два цвета вдоль штриха
+    if (cm === 3) return hsl(a * 360 + t * 45, 0.95, 0.56 + 0.1 * (1 - w));  // полная радуга по кругу, медленно крутится
+    return w > 0.82 && wd.h > 0.75 ? WHITE : mix(A, B, clamp(wd.h * 1.25));         // цвет от громкости, пики белые
+  }
+
+  function drawLED(ctx, t, now) {
+    const S = M.sty;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 240, 240);
+    const E = eyesA(), ac = accent(), tint = mix(WHITE, ac.col, 0.3 * ac.k * (1 - Math.max(M.lis, M.mus)));
+    const dim = 1 - 0.65 * M.slp, showTime = (1 - M.note) * M.ck, base = 0.075;
+    const rem = remaining(), tr = Math.ceil(rem);
+    const str = M.tmr > 0.5 ? pad2((tr / 60) | 0) + pad2(tr % 60) : pad2(now.getHours()) + pad2(now.getMinutes());
+    const set = glyphSet(str, [-8, -4, 2, 6], 6), colonOn = 0.3 + 0.7 * (Math.sin(t * PI) > 0 ? 1 : 0), breathe = 1 + 0.12 * Math.sin(t * 1.6) * M.slp;
+    const timeCol = mix(WHITE, COL.timer, M.tmr), rate = M.tmr > 0.5 ? clamp(rem / TIMER_TOTAL) : 0;
+    const zs = [];
+    if (M.slp > 0.4) for (let i = 0; i < 3; i++) { const u = (t * 0.22 + i / 3) % 1; zs.push({ k: 8 + Math.round(u * 3 + i), m: -3 - Math.round(u * 5), a: Math.sin(u * PI) * M.slp }); }
+    const bf0 = M.boot < 1 ? (S.boot === 0 ? clamp((M.boot * 290 - 14 - 198) / 14) : clamp(M.boot * 2 - 0.6)) : 1;
+    const bootF = M.boot < 1 ? (Math.floor(t * 26) % 3 === 0 ? M.boot * 0.4 : M.boot) : 1;
+    const wcKey = M.mus > Math.max(M.lis, M.spk) ? 'music' : M.lis > M.spk ? 'listen' : 'speak';
+    const textA = Math.max(M.spk, M.mus) * (1 - M.note) * bf0;
+    for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
+      const x = 120 + k * P, y = 120 + m * P, dx = x - 120, dy = y - 120, r = Math.hypot(dx, dy);
+      if (r > 112) continue;
+      const rn = RND[(m + K) * NK + (k + K)];
+      let v = 0, col = null, best = null, dotTint = tint;
+      for (const e of E) { const q = clamp(0.5 - sdEyeA(e, x, y) / (P * 1.05)); if (q > v) { v = q; best = e; } }
+      v *= dim * breathe;
+      const eyeV = v; let eyeTint = tint;
+      const tv = (set.has(k + ',' + m) ? 0.9 : ((k === 0 && (m === 7 || m === 9)) ? 0.9 * colonOn : 0)) * dim * showTime;
+      if (tv > v) { v = tv; eyeTint = timeCol; }
+      for (const z of zs) { const gx = k - z.k, gy = m - z.m; if (gx >= 0 && gx < 3 && gy >= 0 && gy < 5 && G3.z[gy][gx] === '1') { v = Math.max(v, 0.9 * z.a); eyeTint = [150, 175, 255]; } }
+      // думает: тихий приглушённый дождь по фону, глаза и время его не касаются
+      if (S.thk >= 1 && M.thk > 0.02 && r < 106 && hash3(k, 2, 5) < 0.5) {
+        const ph = (t * 0.5 + hash3(k, 0, 9)) % 1, ey = ph * (240 + 6 * P) - 3 * P, dd = (y - ey) / P;
+        const drop = dd <= 0.5 && dd > -5 ? 1 - Math.max(0, -dd) / 5 : 0, rv = 0.3 * drop * M.thk * dim;
+        if (rv > v) { v = rv; col = COL.think; }
+      }
+      const a = ((Math.atan2(dy, dx) / TAU + 0.25) % 1 + 1) % 1;
+      if (r > 56) {
+        const wd = waveDot(a, r, t);
+        if (wd && wd.v > v) {
+          v = wd.v; col = waveColor(wd, a, t, wcKey);
+          if (S.play === 3 && wd.w > 0.7 && wd.h > 0.5 && hash3(k, m, Math.floor(t * 14)) < 0.55) { v = 1; col = WHITE; }   // блёстки на пиках
+        }
+        // думает: комета по краю, голова впереди, хвост за ней
+        if (S.thk <= 1 && r > 103.5) { const da = (((t * 0.3 - a) % 1) + 1) % 1, com = M.thk * Math.pow(clamp(1 - da * 3.2), 1.6); if (com > 0.04 && com > v) { v = com; col = com > 0.7 ? mix(COL.think, WHITE, 0.4) : COL.think; } }
+        if (M.tmr > 0.05 && r > 103.5 && r < 111 && a < rate) { const last = a > rate - 0.03; v = Math.max(v, M.tmr * (last ? 0.6 + 0.4 * Math.sin(t * 8) : 0.85)); col = COL.timer; }
+      }
+      let baseA = base;
+      if (textA > 0.02 && y > 152 && y < 204 && Math.abs(dx) < 86) baseA *= 1 - 0.8 * textA;   // под текстом сетка тише
+      if (M.boot < 1) {
+        const p = M.boot, bs = S.boot;
+        if (bs === 0) {                                  // развёртка сверху вниз с яркой кромкой
+          const front = p * 290 - 14; if (y > front) continue; if (y > front - 12) { v = Math.max(v, 0.95); col = null; }
+        } else if (bs === 1) {                           // шум: точки загораются вразнобой и вспыхивают
+          const thr = p * 1.3 - 0.1; if (rn > thr) continue; if (rn > thr - 0.12) { v = Math.max(v, 0.95); col = null; }
+        } else if (bs === 2) {                           // из линии: яркая черта растёт в стороны, потом глаза раскрываются
+          const lineOn = m === -4, half = clamp(p / 0.3) * 116;
+          if (p < 0.3) { if (!(lineOn && Math.abs(dx) < half)) continue; v = Math.max(v, 0.95); col = null; }
+          else { const f = clamp((p - 0.3) / 0.55); if (lineOn) v = Math.max(v, 0.95 * (1 - f)); v *= f > 0.05 ? Math.max(f, best ? 1 : 0) : (best ? 1 : 0); baseA *= f; }
+        } else { v *= bootF; baseA *= bootF; }          // мерцание
+      }
+      const s = P * (0.5 + 0.28 * v), fill = col ? rgb(col, 0.07 + 0.93 * v) : (v > 0.07 ? rgb(eyeV >= v - 0.001 ? dotTint : eyeTint, 0.075 + 0.925 * v) : `rgba(255,255,255,${(baseA + (1 - baseA) * v).toFixed(3)})`);
+      ctx.fillStyle = fill;
+      if (v > 0.45) { const ba = 0.16 * v; ctx.fillStyle = col ? rgb(col, ba) : rgb(eyeV >= v - 0.001 ? dotTint : eyeTint, ba); ctx.beginPath(); ctx.roundRect(x - s, y - s, s * 2, s * 2, s * 0.8); ctx.fill(); ctx.fillStyle = fill; }
+      ctx.beginPath(); ctx.roundRect(x - s / 2, y - s / 2, s, s, s * 0.22); ctx.fill();
+    }
+    ctx.save(); ctx.font = '500 12px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    const bf = M.boot < 1 ? (S.boot === 0 ? clamp((M.boot * 290 - 14 - 198) / 14) : clamp(M.boot * 2 - 0.6)) : 1;   // при развёртке подпись ждёт линию
+    ctx.globalAlpha = showTime * dim * 0.5 * bf; ctx.fillText(M.tmr > 0.5 ? 'таймер · паста' : dateShort(now) + '  ·  12°', 120, 205);
+    ctx.restore();
+    drawLaconic(ctx, t, bf0);
+    noteCard(ctx, M.note, '#fff', 'rgba(255,255,255,.62)', 108);
+  }
+
+  // ── Что ещё можно крутить ──
+  const STYLES = [
+    { key: 'colL', title: 'Слушает: цвет волны', opts: ['Как было', 'От белого к цвету', 'Два цвета вдоль штриха', 'Полная радуга', 'Цвет от громкости'], preview: 'listen' },
+    { key: 'colS', title: 'Говорит: цвет волны', opts: ['Как было', 'От белого к цвету', 'Два цвета вдоль штриха', 'Полная радуга', 'Цвет от громкости'], preview: 'speak' },
+    { key: 'colM', title: 'Музыка: цвет волны', opts: ['Как было', 'От белого к цвету', 'Два цвета вдоль штриха', 'Полная радуга', 'Цвет от громкости'], preview: 'music' },
+    { key: 'boot', title: 'Включение', opts: ['Развёртка сверху вниз', 'Шум и вспышки', 'Из линии, как включение ТВ', 'Мерцание'], preview: null },
+    { key: 'thk', title: 'Думает', opts: ['Только комета', 'Комета и тихий дождь на фоне', 'Только тихий дождь на фоне'], preview: 'think' },
+  ];
+
+  // ── Запуск ──
+  const cv = document.getElementById('cv'), cctx = cv.getContext('2d');
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    updateModel(dt);
+    cctx.save(); cctx.setTransform(2, 0, 0, 2, 0, 0); cctx.beginPath(); cctx.arc(120, 120, 120, 0, TAU); cctx.clip();
+    drawLED(cctx, M.t, new Date()); cctx.restore();
+    requestAnimationFrame(frame);
+  }
+  const modeBtns = [...document.querySelectorAll('[data-mode]')], autoBtn = document.getElementById('auto');
+  const controls = document.getElementById('controls');
+  STYLES.forEach(g => {
+    const d = document.createElement('div'); d.className = 'group'; d.setAttribute('role', 'group'); d.setAttribute('aria-label', g.title);
+    d.innerHTML = `<h3>${g.title}</h3><div class="row">${g.opts.map((o, i) => `<button class="chip" type="button" data-sty="${g.key}" data-i="${i}" aria-pressed="${i === M.sty[g.key]}">${o}</button>`).join('')}</div>`;
+    controls.appendChild(d);
+  });
+  function sync() {
+    modeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === M.mode)));
+    document.querySelectorAll('[data-sty]').forEach(b => b.setAttribute('aria-pressed', String(M.sty[b.dataset.sty] === +b.dataset.i)));
+  }
+  let auto = false, autoIdx = 0, autoTimer = 0;
+  const STEPS = [{ mode: 'idle', d: 3 }, { mode: 'listen', d: 4 }, { mode: 'think', d: 3.5 }, { mode: 'speak', d: 5 }, { mode: 'music', d: 5 }, { mode: 'idle', d: 2 }, { mode: 'sleep', d: 5 }];
+  function runAuto() { clearTimeout(autoTimer); if (!auto) return; const s = STEPS[autoIdx++ % STEPS.length]; M.mode = s.mode; sync(); autoTimer = setTimeout(runAuto, s.d * 1000); }
+  function manual() { auto = false; autoBtn.setAttribute('aria-pressed', 'false'); clearTimeout(autoTimer); }
+  modeBtns.forEach(b => b.addEventListener('click', () => { manual(); M.mode = b.dataset.mode; sync(); }));
+  autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); if (auto) { autoIdx = 0; runAuto(); } else clearTimeout(autoTimer); });
+  const PREVIEW = Object.fromEntries(STYLES.map(g => [g.key, g.preview]));
+  document.querySelectorAll('[data-sty]').forEach(b => b.addEventListener('click', () => {
+    manual(); M.sty[b.dataset.sty] = +b.dataset.i;
+    if (PREVIEW[b.dataset.sty]) M.mode = PREVIEW[b.dataset.sty];
+    if (b.dataset.sty === 'boot') M.boot = 0;
+    sync();
+  }));
+  document.getElementById('bootNow').addEventListener('click', () => { M.boot = 0; });
+  window.__M = M; window.__sync = sync;
+  Promise.all(['400 14px Inter', '500 12px Inter', '600 20px Inter'].map(f => document.fonts.load(f))).catch(() => {})
+    .then(() => { M.boot = 0; M.mode = 'speak'; sync(); requestAnimationFrame(frame); });
+})();
+</script>
+</body>
+</html>

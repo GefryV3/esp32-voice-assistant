@@ -164,7 +164,7 @@ void init_grid() {
     }
 }
 
-void build_grid(const Scene &s) {
+[[maybe_unused]] void build_grid(const Scene &s) {
   const float inv = 1.0f / (64 * 64);
   const bool aura = s.aura > 0.003f;
   float ac[3][3];
@@ -220,7 +220,7 @@ void build_grid(const Scene &s) {
 
 static_assert(GS == 8, "fill_bg рассчитан на шаг сетки 8 px");
 
-IRAM_ATTR void fill_bg() {
+[[maybe_unused]] IRAM_ATTR void fill_bg() {
   for (int y = s_y0; y < s_y1; y++) {
     const int gy = y / GS, fy = y % GS;
     int32_t row[GN][3];  // ×512
@@ -258,7 +258,7 @@ inline float fsin(float x) {  // синус по таблице
 
 float s_rim[RING_E + 2];  // тонкая яркая кромка у самого края: 0.6·e^(−e/1.6)
 
-void build_ring(const Scene &s) {
+[[maybe_unused]] void build_ring(const Scene &s) {
   const bool ring = s.ring > 0.004f, alert = s.alert > 0.004f;
   s_ring_on = ring || alert;
   if (!s_ring_on) return;
@@ -317,7 +317,7 @@ inline void add_sat(uint8_t *p, int c, int v) {
   p[c] = s > 255 ? 255 : (uint8_t)s;
 }
 
-IRAM_ATTR void draw_ring() {
+[[maybe_unused]] IRAM_ATTR void draw_ring() {
   if (!s_ring_on) return;
   constexpr float rmin = 120 - RING_E;
   for (int y = s_y0; y < s_y1; y++) {
@@ -354,7 +354,7 @@ IRAM_ATTR void draw_ring() {
 
 // ── Глаза: скруглённый прямоугольник, веки, изгиб, объём. Свечение уже в фоне ──
 
-IRAM_ATTR void draw_eye(const Scene &s, const Eye &e) {
+[[maybe_unused]] IRAM_ATTR void draw_eye(const Scene &s, const Eye &e) {
   const float w = e.w, h = e.h;
   if (h <= 0) return;
   const EyeGeo geo = eye_geo(e);
@@ -784,7 +784,7 @@ void cloud(float x, float y, float alpha) {
 
 // Погода: значок и температура сверху. cond: 0 ясно, 1 переменная облачность, 2 облачно,
 // 3 дождь, 4 снег, 5 гроза, 6 туман, 7 ясная ночь.
-void draw_weather(const Scene &s) {
+[[maybe_unused]] void draw_weather(const Scene &s) {
   const float a = s.wx_a;
   if (a < 0.01f || s.wcond < 0) return;
   char label[24];
@@ -821,7 +821,7 @@ void draw_weather(const Scene &s) {
   draw_text(text::kUi, label, start + 28, y + 6, 1, false, rgb(s.ink), a);
 }
 
-void draw_clock(const Scene &s) {
+[[maybe_unused]] void draw_clock(const Scene &s) {
   if (s.clock_a < 0.01f || !s.have_time) return;
   const float half = s.clock_size * 0.6f;
   if (s.clock_y + half < s_y0 || s.clock_y - half > s_y1) return;
@@ -835,7 +835,7 @@ const char *const MONTHS[12] = {"ЯНВАРЯ", "ФЕВРАЛЯ", "МАРТА", 
                                 "ИЮЛЯ", "АВГУСТА", "СЕНТЯБРЯ", "ОКТЯБРЯ", "НОЯБРЯ", "ДЕКАБРЯ"};
 
 // Сверху по дуге — день и дата, снизу — ближайшее дело. Перестраивается при смене текста.
-void build_arcs(const Scene &s) {
+[[maybe_unused]] void build_arcs(const Scene &s) {
   if (!s_tile_bits) return;
   char key[256];
   snprintf(key, sizeof key, "%d|%d|%d|%d|%s|%s", s.have_time, s.wday, s.mday, s.month, s.agenda_accent,
@@ -857,7 +857,7 @@ void build_arcs(const Scene &s) {
   }
 }
 
-void draw_arcs(const Scene &s) {
+[[maybe_unused]] void draw_arcs(const Scene &s) {
   const float a = s.arc_a;
   if (a < 0.01f) return;
   const Rgb acc = rgb(s.accent);
@@ -887,7 +887,7 @@ void bulb(float x, float y, float alpha) {
 }
 
 // Низ экрана в разговоре: что слышит, что понял, что сделал
-void draw_caption(const Scene &s) {
+[[maybe_unused]] void draw_caption(const Scene &s) {
   const float a = s.cap_a;
   if (a < 0.01f || s.caption == Caption::None || !s.caption_text[0] || s_y1 < 145) return;
   char lines[2][128];
@@ -958,7 +958,7 @@ void ring_band(float R, float hw, float frac, const Rgb &o, float alpha, float t
 
 void timer_ring(float frac, float alpha) { ring_band(110, 3, frac, {255, 159, 10}, alpha, 0.2f); }
 
-void draw_timer(const Scene &s) {
+[[maybe_unused]] void draw_timer(const Scene &s) {
   const float a = s.timer_a;
   if (a < 0.01f) return;
   timer_ring(s.alert_mode ? 0 : (float)s.timer_rem / s.timer_total, a);
@@ -972,7 +972,7 @@ void draw_timer(const Scene &s) {
   draw_text(text::kUi, label, C, 172, 1, true, {255, 159, 10}, a);
 }
 
-void draw_zs(const Scene &s) {
+[[maybe_unused]] void draw_zs(const Scene &s) {
   const text::Glyph *g = text::find(text::kUi, 'z');
   for (int i = 0; i < s.nz; i++) {
     const Scene::Z &z = s.z[i];
@@ -1183,6 +1183,358 @@ void draw_card(const Scene &s) {
 
 #include "face/games.inc"
 
+// ── LED panel. The face is a 41x41 grid of LEDs with a 6 px pitch (mockup: design/screen-variants-9.html).
+//    Eyes, time, the edge wave, the comet, rain, "Z" and the power-on sweep are computed once per frame
+//    into a dot table; the screen strips only lay out glowing squares from it ──
+
+constexpr int LK = 20, LN = 2 * LK + 1, NB = 72;
+constexpr float LP = 6;
+struct Dot {
+  uint8_t r, g, b, a, v;  // colour; a - core opacity; v - brightness (size and glow); a == 0 - no dot
+};
+Dot s_dots[LN][LN];
+uint8_t s_txt[LN][LN], s_txt_c[LN][LN];  // stencil of digits and icons: opacity and colour index
+float s_spec[NB];                        // heights of the edge wave bars
+float s_led_t = -1, s_boot_t0 = -1, s_boot = 0;
+float s_rain_on[LN], s_rain_ph[LN];
+
+const uint8_t G3[11][5] = {{7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7},
+                           {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7}, {7, 1, 2, 4, 7}};  // 0..9 and 'z', 3 bits per row
+const Rgb L_THINK = {191, 90, 242}, L_SPEAK = {100, 210, 255}, L_TIMER = {255, 179, 64};
+const Rgb L_MUS_A = {48, 209, 88}, L_MUS_B = {100, 225, 255}, L_WHITE = {255, 255, 255}, L_Z = {150, 175, 255};
+
+inline float hash3(float a, float b, float c) {
+  const float x = sinf(a * 12.9898f + b * 78.233f + c * 37.719f) * 43758.5453f;
+  return x - floorf(x);
+}
+inline Rgb lerp_rgb(const Rgb &a, const Rgb &b, float t) { return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t}; }
+
+Rgb hsl(float h, float s, float l) {
+  h -= 360 * floorf(h / 360);
+  const float c = (1 - fabsf(2 * l - 1)) * s, x = c * (1 - fabsf(fmodf(h / 60, 2) - 1)), m = l - c / 2;
+  float r = 0, g = 0, b = 0;
+  if (h < 60) r = c, g = x;
+  else if (h < 120) r = x, g = c;
+  else if (h < 180) g = c, b = x;
+  else if (h < 240) g = x, b = c;
+  else if (h < 300) r = x, b = c;
+  else r = c, b = x;
+  return {(r + m) * 255, (g + m) * 255, (b + m) * 255};
+}
+
+void stamp_glyph(const uint8_t *g, int k0, int m0, int sc, uint8_t a, uint8_t ci) {
+  for (int ry = 0; ry < 5; ry++)
+    for (int rx = 0; rx < 3; rx++) {
+      if (!((g[ry] >> (2 - rx)) & 1)) continue;
+      for (int dy = 0; dy < sc; dy++)
+        for (int dx = 0; dx < sc; dx++) {
+          const int k = k0 + rx * sc + dx, m = m0 + ry * sc + dy;
+          if (k < -LK || k > LK || m < -LK || m > LK) continue;
+          s_txt[m + LK][k + LK] = a;
+          s_txt_c[m + LK][k + LK] = ci;
+        }
+    }
+}
+
+// "12:34" in 3x5 dot digits (sc - how many dots one cell is stretched to); column 0 is the screen centre
+void stamp_time(const char *s, int sc, int m0, uint8_t a, uint8_t ci, bool colon_on) {
+  int total = 0, n = 0;
+  for (const char *p = s; *p; p++, n++) total += (*p == ':' ? sc : 3 * sc) + (n ? 1 : 0);
+  int k = -(total / 2);
+  for (const char *p = s; *p; p++) {
+    if (*p == ':') {
+      if (colon_on)
+        for (int r = 1; r <= 3; r += 2)
+          for (int dy = 0; dy < sc; dy++)
+            for (int dx = 0; dx < sc; dx++) {
+              const int kk = k + dx, mm = m0 + r * sc + dy;
+              if (kk < -LK || kk > LK || mm < -LK || mm > LK) continue;
+              s_txt[mm + LK][kk + LK] = a;
+              s_txt_c[mm + LK][kk + LK] = ci;
+            }
+      k += sc + 1;
+    } else {
+      if (*p >= '0' && *p <= '9') stamp_glyph(G3[*p - '0'], k, m0, sc, a, ci);
+      k += 3 * sc + 1;
+    }
+  }
+}
+
+void init_led() {
+  for (int k = 0; k < LN; k++) {
+    s_rain_on[k] = hash3(k - LK, 2, 5) < 0.5f ? 1.0f : 0.0f;
+    s_rain_ph[k] = hash3(k - LK, 0, 9);
+  }
+  memset(s_dots, 0, sizeof s_dots);
+}
+
+void build_led(const Scene &s) {
+  const float t = s.t, dt = s_led_t < 0 ? 0.016f : fminf(0.05f, fmaxf(0.001f, t - s_led_t));
+  s_led_t = t;
+  if (s_boot_t0 < 0) s_boot_t0 = t;  // power-on: a top-down sweep over 1.5 s
+  const float boot = clamp01((t - s_boot_t0) / 1.5f), front = boot * 290 - 14;
+  s_boot = boot;
+  const float lis = s.led_lis, thk = s.led_thk, spk = s.led_spk, mus = s.led_mus, amp = s.led_amp;
+  const float act = fmaxf(lis, spk), bt = fmodf(t * 2.1f, 1), nb = 1 - bt, beat = mus * nb * nb * nb;
+  // edge wave: each bar rises fast and settles slowly (soft dynamics)
+  const float ka = 1 - expf(-16 * dt), kr = 1 - expf(-4.5f * dt);
+  for (int i = 0; i < NB; i++) {
+    const float mirror = fabsf((float)i / NB - 0.5f) * 2;
+    const float band = 0.35f + 0.65f * fabsf(sinf(i * 0.83f + t * 6.1f) * cosf(i * 0.31f - t * 3.7f + mirror * 2));
+    const float flow = 0.3f + 0.7f * (0.5f + 0.5f * sinf(i * 0.35f - t * 2.4f)) * (0.5f + 0.5f * sinf(i * 0.11f + t * 0.9f));
+    const float tgt = fmaxf(act * amp * band, mus * (0.26f + 0.62f * beat) * flow) * (0.5f + 0.5f * mirror);
+    s_spec[i] += (tgt - s_spec[i]) * (tgt > s_spec[i] ? ka : kr);
+  }
+  // eyes: the same shapes as the old face, a bit narrower and shifted to fit the grid
+  Eye le[2];
+  EyeGeo eg[2];
+  for (int e = 0; e < 2; e++) {
+    le[e] = s.eye[e];
+    le[e].cx = C + (s.eye[e].cx - C) * 0.74f;
+    le[e].cy = s.eye[e].cy - 4;
+    le[e].w = fmaxf(1, s.eye[e].w * 0.76f);
+    le[e].h = fmaxf(3.5f, s.eye[e].h * 0.87f);
+    le[e].r = s.eye[e].r * 0.85f;
+    eg[e] = eye_geo(le[e]);
+  }
+  // eye tint by state: violet (thinking), cyan (speaking), amber (timer); listening and music keep white eyes
+  const float tw = fminf(1, s.timer_a);
+  const float wsum = thk + spk + tw;
+  Rgb eye_col = rgb(s.eye_col);
+  if (wsum > 0.01f) {
+    const Rgb ac = {(L_THINK.r * thk + L_SPEAK.r * spk + L_TIMER.r * tw) / wsum, (L_THINK.g * thk + L_SPEAK.g * spk + L_TIMER.g * tw) / wsum,
+                    (L_THINK.b * thk + L_SPEAK.b * spk + L_TIMER.b * tw) / wsum};
+    eye_col = lerp_rgb(eye_col, ac, 0.3f * clamp01(wsum));
+  }
+  // stencil: time, timer, "Z"
+  memset(s_txt, 0, sizeof s_txt);
+  const Rgb ink = rgb(s.ink);
+  if (s.have_time && s.clock_a > 0.01f) {
+    char tm[8];
+    snprintf(tm, sizeof tm, "%02d:%02d", s.hour % 100, s.minute % 100);
+    stamp_time(tm, 1, 6, (uint8_t)(255 * clamp01(s.clock_a)), 0, sinf(t * PI) > 0 || s.clock_a < 0.6f);
+  }
+  if (s.timer_a > 0.01f) {
+    const uint32_t secs = (s.timer_rem + 999) / 1000;
+    char tm[12];
+    if (secs >= 3600) snprintf(tm, sizeof tm, "%u:%02u", (unsigned)(secs / 3600), (unsigned)(secs / 60 % 60));
+    else snprintf(tm, sizeof tm, "%02u:%02u", (unsigned)(secs / 60), (unsigned)(secs % 60));
+    stamp_time(tm, 2, -1, (uint8_t)(255 * clamp01(s.timer_a * s.timer_pulse)), 1, true);
+  }
+  for (int i = 0; i < s.nz; i++) {
+    const Scene::Z &z = s.z[i];
+    stamp_glyph(G3[10], (int)lroundf((z.x - C) / LP) - 1, (int)lroundf((z.y - C) / LP) - 4, 1, (uint8_t)(255 * clamp01(z.a / 0.45f * 0.9f)), 2);
+  }
+  const float grid_dim = 1 - 0.85f * fmaxf(clamp01(s.card_a), clamp01(s.game_a));  // the grid goes quiet under a card or a game
+  const float base = 0.075f * s.bg * grid_dim;
+  const int wkey = mus > fmaxf(lis, spk) ? 2 : (lis > spk ? 1 : 0);
+  const float rate = s.timer_total ? (float)s.timer_rem / s.timer_total : 0;
+  for (int m = -LK; m <= LK; m++)
+    for (int k = -LK; k <= LK; k++) {
+      Dot &D = s_dots[m + LK][k + LK];
+      const float x = C + k * LP, y = C + m * LP, dx = x - C, dy = y - C, r2 = dx * dx + dy * dy;
+      if (r2 > 112.0f * 112.0f || (boot < 1 && y > front)) {
+        D.a = 0;
+        continue;
+      }
+      const float r = sqrtf(r2);
+      float v = 0;
+      Rgb col = eye_col;
+      for (int e = 0; e < 2; e++) {
+        if (fabsf(x - le[e].cx) > le[e].w + 9 || fabsf(y - le[e].cy) > le[e].h + fabsf(le[e].bend) + 9) continue;
+        float py;
+        const float d = eye_sdf(eg[e], x - le[e].cx, y - le[e].cy, py);
+        const float q = clamp01(0.5f - d / (LP * 1.05f)) * le[e].bright;
+        if (q > v) v = q;
+      }
+      // time, timer, "Z"
+      const uint8_t ta = s_txt[m + LK][k + LK];
+      if (ta) {
+        const float tv = ta * (1 / 255.0f) * 0.9f;
+        if (tv > v) {
+          v = tv;
+          const uint8_t ci = s_txt_c[m + LK][k + LK];
+          col = ci == 0 ? ink : (ci == 1 ? L_TIMER : L_Z);
+        }
+      }
+      const bool ring_zone = r > 80;
+      float a = 0;
+      if (ring_zone && (act > 0.02f || mus > 0.02f)) {
+        a = atan2f(dx, -dy) * (1 / TAU);
+        if (a < 0) a += 1;
+        const float sp = s_spec[(int)(a * NB) % NB], len = sp * 28, edge = 112 - r;
+        if (sp > 0.03f && edge < len) {
+          const float w = edge / fmaxf(len, 1);
+          const float wv = 0.35f + 0.65f * (1 - w);
+          if (wv > v) {
+            v = wv;
+            if (wkey == 2) col = lerp_rgb(L_MUS_A, L_MUS_B, w);               // music: two colours along the bar
+            else if (wkey == 1) col = hsl(a * 360 + t * 45, 0.95f, 0.56f + 0.1f * (1 - w));  // listening: full rainbow
+            else col = lerp_rgb(L_WHITE, L_SPEAK, clamp01(w * 1.5f));          // speaking: white to cyan
+          }
+        }
+      }
+      if (r > 103.5f) {
+        if (!(act > 0.02f || mus > 0.02f) && (thk > 0.02f || s.timer_a > 0.05f)) {
+          a = atan2f(dx, -dy) * (1 / TAU);
+          if (a < 0) a += 1;
+        }
+        if (thk > 0.02f) {  // the comet runs clockwise, head in front, tail behind
+          float da = fmodf(t * 0.3f - a, 1);
+          if (da < 0) da += 1;
+          const float cm = thk * powf(clamp01(1 - da * 3.2f), 1.6f);
+          if (cm > 0.04f && cm > v) {
+            v = cm;
+            col = cm > 0.7f ? lerp_rgb(L_THINK, L_WHITE, 0.4f) : L_THINK;
+          }
+        }
+        if (s.timer_a > 0.05f && r < 111) {
+          if (s.alert_mode) {
+            const float av = s.timer_a * (0.45f + 0.55f * s.timer_pulse);
+            if (av > v) v = av, col = L_TIMER;
+          } else if (a < rate) {
+            const float tv = s.timer_a * (a > rate - 0.03f ? 0.6f + 0.4f * sinf(t * 8) : 0.85f);
+            if (tv > v) v = tv, col = L_TIMER;
+          }
+        }
+      }
+      // thinking: a quiet, muted rain over the background; eyes and time are not touched by it
+      if (thk > 0.02f && r < 106 && s_rain_on[k + LK] > 0) {
+        const float ph = fmodf(t * 0.5f + s_rain_ph[k + LK], 1), ey = ph * (240 + 6 * LP) - 3 * LP, dd = (y - ey) / LP;
+        const float drop = (dd <= 0.5f && dd > -5) ? 1 - fmaxf(0, -dd) / 5 : 0, rv = 0.3f * drop * thk;
+        if (rv > v) v = rv, col = L_THINK;
+      }
+      float ba = base;
+      if (boot < 1) {  // sweep: a bright edge runs top to bottom
+        if (y > front - 12) v = fmaxf(v, 0.95f), col = L_WHITE;
+      }
+      if (v < 0.001f) col = L_WHITE;
+      const float alpha = ba + (1 - ba) * v;
+      D.r = u8f(col.r);
+      D.g = u8f(col.g);
+      D.b = u8f(col.b);
+      D.a = u8f(alpha * 255);
+      D.v = u8f(v * 255);
+      if (!D.a) D.a = 1;  // the dot exists even if barely visible
+    }
+}
+
+// Per-axis coverage of a square of half-size h by the pixel |j| steps away from its centre (centres sit on pixel
+// borders, so the geometry is symmetric); 64 brightness levels, values 0..255
+uint8_t s_cov_core[64][4], s_cov_bloom[64][6];
+
+void init_led_tables() {
+  for (int l = 0; l < 64; l++) {
+    const float v = (l + 0.5f) / 64, h = LP * (0.5f + 0.28f * v) * 0.5f;
+    for (int j = 0; j < 4; j++) s_cov_core[l][j] = u8f(255 * clamp01(h - j));
+    for (int j = 0; j < 6; j++) s_cov_bloom[l][j] = u8f(255 * clamp01(2 * h - j));
+  }
+}
+
+// Blend a colour into one pixel, alpha 0..256
+inline void blend(uint8_t *p, int r, int g, int b, int a) {
+  p[0] = (uint8_t)(p[0] + (((r - p[0]) * a) >> 8));
+  p[1] = (uint8_t)(p[1] + (((g - p[1]) * a) >> 8));
+  p[2] = (uint8_t)(p[2] + (((b - p[2]) * a) >> 8));
+}
+
+// One square of the LED grid: optional glow spilling onto the neighbours, then the bright core
+IRAM_ATTR inline void led_dot(int cx, int cy, const Dot &D) {
+  const int lvl = D.v >> 2;
+  const int glow = D.v > 115 ? (int)(0.16f * D.v) : 0;  // glow opacity 0..40 of 255
+  const uint8_t *cc = s_cov_core[lvl], *cb = s_cov_bloom[lvl];
+  const int reach = glow ? 5 : 3;
+  for (int ty = -reach; ty < reach; ty++) {
+    const int y = cy + ty;
+    if (y < s_y0 || y >= s_y1) continue;
+    const int jy = ty >= 0 ? ty : -ty - 1;
+    const int gy = glow && jy < 6 ? cb[jy] : 0, ky = jy < 4 ? cc[jy] : 0;
+    if (!gy && !ky) continue;
+    for (int tx = -reach; tx < reach; tx++) {
+      const int x = cx + tx;
+      if (x < 0 || x >= W) continue;
+      const int jx = tx >= 0 ? tx : -tx - 1;
+      uint8_t *p = px(x, y);
+      if (gy && jx < 6) {
+        const int ga = (cb[jx] * gy >> 8) * glow >> 8;  // 0..255 * glow/256
+        if (ga) blend(p, D.r, D.g, D.b, ga);
+      }
+      if (ky && jx < 4) {
+        const int ka = (cc[jx] * ky >> 8) * D.a >> 8;
+        if (ka) blend(p, D.r, D.g, D.b, ka);
+      }
+    }
+  }
+}
+
+IRAM_ATTR void draw_led() {
+  memset(s_work, 0, (size_t)(s_y1 - s_y0) * W * 3);
+  int mlo = (int)ceilf((s_y0 - 5 - C) / LP), mhi = (int)floorf((s_y1 + 5 - C) / LP);
+  if (mlo < -LK) mlo = -LK;
+  if (mhi > LK) mhi = LK;
+  for (int m = mlo; m <= mhi; m++) {
+    const int cy = C + m * 6;
+    for (int k = -LK; k <= LK; k++) {
+      const Dot &D = s_dots[m + LK][k + LK];
+      if (D.a) led_dot(C + k * 6, cy, D);
+    }
+  }
+}
+
+const char *const DAYS_L[7] = {"вс", "пн", "вт", "ср", "чт", "пт", "сб"};
+const char *const MON_S[12] = {"янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"};
+
+// Under the time: "ср 21 окт · 12°"; when there is an upcoming item the two lines cross-fade
+void draw_led_date(const Scene &s) {
+  if (!s.have_time || s.clock_a < 0.01f || s_y1 < 190 || s_y0 > 216) return;
+  const float boot_a = s_boot < 1 ? clamp01((s_boot * 290 - 14 - 198) / 14) : 1;
+  char line[96];
+  int n = snprintf(line, sizeof line, "%s %d %s", DAYS_L[s.wday % 7], s.mday, MON_S[s.month % 12]);
+  if (s.wcond >= 0) {
+    if (s.wtemp < 0) snprintf(line + n, sizeof line - n, "  \xC2\xB7  \xE2\x88\x92%d\xC2\xB0", -s.wtemp);
+    else snprintf(line + n, sizeof line - n, "  \xC2\xB7  %d\xC2\xB0", s.wtemp);
+  }
+  float date_a = 1, agenda_a = 0;
+  char agenda[96] = "";
+  if (s.agenda_accent[0] || s.agenda_text[0]) {
+    snprintf(agenda, sizeof agenda, "%s%s%s", s.agenda_accent, s.agenda_accent[0] && s.agenda_text[0] ? " " : "", s.agenda_text);
+    const float q = fmodf(s.t, 12.0f);  // 5.6 s date, cross-fade, 5.2 s agenda
+    agenda_a = smooth(q < 5.6f ? 0 : (q < 6.2f ? (q - 5.6f) / 0.6f : (q < 11.4f ? 1 : (12 - q) / 0.6f)));
+    date_a = 1 - agenda_a;
+  }
+  const Rgb ink = rgb(s.ink);
+  char fitted[96];
+  const float a = s.clock_a * boot_a * 0.55f;
+  if (date_a > 0.01f) draw_text(text::kUi, line, C, 207, 0.85f, true, ink, a * date_a);
+  if (agenda_a > 0.01f) {
+    fit(text::kUi, agenda, 170 / 0.85f, fitted, sizeof fitted);
+    draw_text(text::kUi, fitted, C, 207, 0.85f, true, ink, a * agenda_a * 1.3f);
+  }
+}
+
+// Timer label under the digits
+void draw_led_timer_label(const Scene &s) {
+  if (s.timer_a < 0.01f || s_y1 < 176 || s_y0 > 210) return;
+  const char *label = s.alert_mode ? "Готово" : s.timer_label;
+  draw_text(text::kUi, label, C, 196, 1, true, {255, 179, 64}, s.timer_a);
+}
+
+// Reply under the eyes: one short phrase without the full stop, only while the speaker talks
+void draw_led_caption(const Scene &s) {
+  const float a = s.cap_a * s.led_spk;
+  if (a < 0.02f || s.caption != Caption::Reply || !s.caption_text[0] || s_y1 < 150 || s_y0 > 196) return;
+  char one[128];
+  size_t n = 0;
+  for (const char *p = s.caption_text; *p && n + 1 < sizeof one; p++) {
+    if (*p == '.' || *p == '!' || *p == '?' || *p == '\n') break;
+    one[n++] = *p;
+  }
+  one[n] = 0;
+  char fitted[128];
+  fit(text::kUiBold, one, 164, fitted, sizeof fitted);
+  draw_text(text::kUiBold, fitted, C, 178 + (1 - s.cap_a) * 5, 1.12f, true, rgb(s.ink), a * 0.95f);
+}
+
 // Таблицы дизеринга: порог Байера × значение канала → 5/6 бит, сразу с яркостью
 void build_lut(int bright) {
   for (int t = 0; t < 16; t++)
@@ -1259,31 +1611,19 @@ void render_strip(const Scene &s, uint32_t g) {
   s_y1 = s_y0 + SH;
   {
     Tick t(pf.bg);
-    fill_bg();
-  }
-  {
-    Tick t(pf.ring);
-    draw_ring();
-  }
-  {
-    Tick t(pf.eyes);
-    draw_eye(s, s.eye[0]);
-    draw_eye(s, s.eye[1]);
+    draw_led();
   }
   {
     Tick t(pf.over);
-    draw_weather(s);
     draw_offline(s);
-    draw_arcs(s);
-    draw_clock(s);
-    draw_caption(s);
-    draw_timer(s);
+    draw_led_date(s);
+    draw_led_timer_label(s);
+    draw_led_caption(s);
     draw_card(s);
     draw_task(s);
     draw_reminders(s);
     draw_quiet(s);
     draw_game(s);
-    draw_zs(s);
   }
   pf.strips++;
 }
@@ -1367,6 +1707,8 @@ bool init() {
     }
   for (int i = 0; i < 258; i++) s_exp[i] = expf(-i / 32.0f);
   init_grid();
+  init_led();
+  init_led_tables();
   for (int i = 0; i < 257; i++) s_sin[i] = sinf(i * TAU / 256);
   for (int e = 0; e < RING_E + 2; e++) s_rim[e] = 0.6f * expf(-e / 1.6f);
   for (auto &r : s_ready) r.store(UINT32_MAX);
@@ -1424,9 +1766,7 @@ Timing render(const Scene &s) {
   const int64_t t0 = esp_timer_get_time();
   {
     Tick t(s_prof_tables);
-    build_grid(s);
-    build_ring(s);
-    build_arcs(s);
+    build_led(s);
     if (s.bright != s_lut_bright) build_lut(s.bright);
   }
   s_job = &s;
