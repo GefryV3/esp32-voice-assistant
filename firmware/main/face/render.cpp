@@ -1370,17 +1370,17 @@ void build_led(const Scene &s) {
   // reminders badge: a bell and a count in dots at the top, above the eyes (the date line owns the bottom)
   if (s.reminders > 0 && s.rem_a > 0.01f) {
     const uint8_t ra = (uint8_t)(255 * clamp01(s.rem_a));
-    static const char *const BELL[5] = {"..#..", ".###.", ".###.", "#####", "..#.."};
-    for (int ry = 0; ry < 5; ry++)
-      for (int rx = 0; rx < 5; rx++)
+    static const char *const BELL[7] = {"...#...", "..###..", ".#####.", ".#####.", ".#####.", "#######", "...#..."};
+    for (int ry = 0; ry < 7; ry++)
+      for (int rx = 0; rx < 7; rx++)
         if (BELL[ry][rx] == '#') {
-          s_txt[-16 + ry + LK][-5 + rx + LK] = ra;
-          s_txt_c[-16 + ry + LK][-5 + rx + LK] = 1;
+          s_txt[-16 + ry + LK][-6 + rx + LK] = ra;
+          s_txt_c[-16 + ry + LK][-6 + rx + LK] = 1;
         }
     char nb[8];
     snprintf(nb, sizeof nb, "%d", s.reminders > 99 ? 99 : s.reminders);
-    int k = 1;
-    for (const char *q = nb; *q; q++, k += 4) stamp_glyph(G3[*q - '0'], k, -16, 1, ra, 0);
+    int k = 2;
+    for (const char *q = nb; *q; q++, k += 4) stamp_glyph(G3[*q - '0'], k, -15, 1, ra, 0);
   }
   if (s.timer_a > 0.01f) {
     const uint32_t secs = (s.timer_rem + 999) / 1000;
