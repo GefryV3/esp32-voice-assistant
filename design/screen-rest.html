@@ -319,7 +319,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   function gameEyes(extra = {}) { eyes({ s: 0.4, cy: 36, gy: 0.9, ...extra }); }
   const GL = { 'Р': ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'], 'О': ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'] };
   function coin(lt) {
-    const T = 2.4, p = clamp(lt / T), result = 1, turns = 7 + result, GOLD = [255, 205, 90];
+    const T = 2.4, p = clamp(lt / T), result = 1, turns = 8 + result, GOLD = [255, 205, 90];
     gameEyes();
     const spin = easeOut(p) * turns * PI, cs = Math.cos(spin), rx = Math.max(Math.abs(cs) * 44, 2.5), ry = 44;
     const air = p < 1 ? Math.sin(Math.min(p / 0.85, 1) * PI) : 0, cx = 120, cy = 128 - 30 * air;
@@ -330,7 +330,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     shape((x, y) => Math.abs(ell(1)(x, y)) - 2.2, GOLD, 1);
     if (rx > 14) shape((x, y) => Math.abs(ell(0.78)(x, y)) - 1.2, GOLD, 0.55);
     // face symbol: heads side shows the glyph, tails side is "О"
-    if (rx > 14) { const g = (cs > 0) === (result % 2 === 0) ? 'О' : 'Р'; sprite(GL[g], -2, Math.round((cy - 120) / P) - 3, [255, 240, 200], 0.95 * clamp((rx - 14) / 14)); }
+    if (rx > 14) { const g = cs >= 0 ? 'О' : 'Р'; sprite(GL[g], -2, Math.round((cy - 120) / P) - 3, [255, 240, 200], 0.95 * clamp((rx - 14) / 14)); }
     if (lt > T) text(result ? 'Решка' : 'Орёл', 120, 214, 20, 600, WHITE, smooth((lt - T) / 0.3));
   }
   function dice(lt) {

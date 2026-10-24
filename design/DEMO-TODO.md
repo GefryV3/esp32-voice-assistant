@@ -5,6 +5,11 @@ in the order we agreed to pick it up (mockups: `screen-rest.html`, face: `screen
 
 ## Redrawn and shown in the demo
 
+Firmware 0.8.1 (2026-10-24) carries all of the items below, ported from `screen-rest.html`; what is left to do is looking at
+each state on the speaker, one at a time (phone cards and player were ported earlier, in c248607, and re-checked against the
+final mockup). Shapes of joy, bell, Wi-Fi, speaker and the games live in the shape layer of `face/render.cpp`
+(`build_shapes`), the rings of the timer and tasks are computed per dot in `build_led`.
+
 - [x] Idle: time in dots, date and temperature line, agenda cross-fade
 - [x] Listening: full-rainbow edge wave, heard text (up to three lines)
 - [x] Thinking: slow comet, quiet background rain

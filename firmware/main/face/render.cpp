@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <strings.h>
 
 #include "display/lcd.h"
@@ -1035,21 +1036,10 @@ void timer_ring(float frac, float alpha) { ring_band(110, 3, frac, {255, 159, 10
   }
 }
 
-// Нет связи с сервером: перечёркнутый значок Wi-Fi слева от погоды
-void draw_offline(const Scene &s) {
-  if (!s.offline || s_y0 > 64 || s_y1 < 36) return;
-  const float x = C - 46, y = 50;
-  const Rgb red = {255, 69, 58};
-  arc(x, y, 4.5f, 1.6f, PI * 1.25f, PI * 1.75f, red, 1);
-  arc(x, y, 8.5f, 1.6f, PI * 1.25f, PI * 1.75f, red, 1);
-  disc(x, y - 0.5f, 1.4f, red, 1);
-  capsule(x - 7, y - 11, x + 7, y + 1, 1.6f, red, 1);
-}
-
 // ── Карточки с телефона и мини-плеер (без подложек — как короткий взгляд на Apple Watch) ──
 
 // Скруглённый прямоугольник: stroke > 0 — контур этой толщины, иначе заливка
-void rrect(float cx, float cy, float hw, float hh, float r, const Rgb &c, float alpha, float stroke) {
+[[maybe_unused]] void rrect(float cx, float cy, float hw, float hh, float r, const Rgb &c, float alpha, float stroke) {
   int x0, y0, x1, y1;
   const float pad = stroke + 1;
   if (!clip(cx - hw - pad, cy - hh - pad, cx + hw + pad, cy + hh + pad, x0, y0, x1, y1)) return;
@@ -1064,7 +1054,7 @@ void rrect(float cx, float cy, float hw, float hh, float r, const Rgb &c, float 
     }
 }
 
-void bell_icon(float x, float y, const Rgb &c, float a) {
+[[maybe_unused]] void bell_icon(float x, float y, const Rgb &c, float a) {
   capsule(x - 6, y + 4, x - 5, y - 1, 1.6f, c, a);
   arc(x, y - 1, 5, 1.6f, PI, TAU, c, a);
   capsule(x + 5, y - 1, x + 6, y + 4, 1.6f, c, a);
@@ -1131,8 +1121,8 @@ void draw_player(const Scene &s, float a) {
   if (s_y1 < 150 || s_y0 > 205) return;  // the dot bar and the beat are in the dot table; this is only text
   const float lift = (1 - a) * 14;
   char line[96];
-  fit(text::kUiBold, s.player_title, 170, line, sizeof line);
-  draw_text(text::kUiBold, line, C, 168 + lift, 1, true, rgb(s.ink), a);
+  fit(text::kUiBold, s.player_title, 142, line, sizeof line);
+  draw_text(text::kUiBold, line, C, 168 + lift, 18.0f / 15, true, rgb(s.ink), a);  // mockup: 18 px
   fit(text::kUi, s.player_artist, 170, line, sizeof line);
   draw_text(text::kUi, line, C, 187 + lift, 1, true, rgb(s.ink), a * 0.55f);
 }
@@ -1155,15 +1145,15 @@ void draw_card(const Scene &s) {
       cap_first(s.card_app, nm, sizeof nm);
       disc(84, 106 + lift, 3.5f, app_color(s.card_app), a);
       draw_text(text::kUi, nm, 126, 110 + lift, 1, true, ink, a * 0.55f);
-      fit(text::kUiBold, s.card_title, 176, line, sizeof line);
-      draw_text(text::kUiBold, line, C, 142 + lift, 1, true, ink, a);
+      fit(text::kTitle, s.card_title, 176 * 24.0f / 21, line, sizeof line);
+      draw_text(text::kTitle, line, C, 142 + lift, 21.0f / 24, true, ink, a);  // mockup: 21 px
       const int n = wrap2_fit(text::kUi, s.card_text, 176, lines);
       for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, 166 + i * 19 + lift, 1, true, ink, a * 0.75f);
       break;
     }
     case Card::Call: {
-      fit(text::kTitle, s.card_title, 180, line, sizeof line);
-      draw_text(text::kTitle, line, C, 168, 1, true, ink, a);
+      fit(text::kTitle, s.card_title, 180 * 24.0f / 26, line, sizeof line);
+      draw_text(text::kTitle, line, C, 168, 26.0f / 24, true, ink, a);  // mockup: 26 px
       draw_text(text::kUi, s.card_text, C, 190, 1, true, {48, 209, 88}, a * (0.6f + 0.4f * fabsf(sinf(s.t * 3))));
       break;
     }
@@ -1187,12 +1177,13 @@ void draw_card(const Scene &s) {
     case Card::Remark:
     case Card::Wake:
     case Card::Info: {
-      const int n = wrap2_fit(text::kUiBold, s.card_title, 176, lines);
-      // mockup rows: info 140 / 166 (amber), remark 172 / 192, wake 160, 179 / 198 (amber)
+      // mockup rows: info 140 / 166 (amber), remark 172 / 192, wake 160, 179 / 198 (amber); title sizes 17 / 15 / 14 px
       const bool rem = s.card == Card::Remark, wk = s.card == Card::Wake;
+      const float tsc = rem ? 1.0f : (wk ? 14.0f / 15 : 17.0f / 15);
+      const int n = wrap2_fit(text::kUiBold, s.card_title, 176 / tsc, lines);
       const float y0 = (rem ? 172 : (wk ? 160 : 140)) + lift, step = wk ? 19 : 20, gap = s.card == Card::Info ? 6 : 0;
       const float ta = rem ? 0.8f : 1, xa = rem ? 0.5f : (wk ? 0.85f : 0.95f);
-      for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * step, 1, true, ink, a * ta);
+      for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * step, tsc, true, ink, a * ta);
       fit(text::kUi, s.card_text, 176, line, sizeof line);
       draw_text(text::kUi, line, C, y0 + n * step + gap, 1, true, wk || s.card == Card::Info ? Rgb{255, 179, 64} : ink, a * xa);
       break;
@@ -1219,14 +1210,92 @@ float s_spec[NB];                        // heights of the edge wave bars
 float s_led_t = -1, s_boot_t0 = -1, s_boot = 0;
 float s_rain_on[LN], s_rain_ph[LN];
 
+// ── Shape layer. The same signed-distance shapes as in the web mockup (design/screen-rest.html): each shape lights the
+//    dots it covers (a soft edge one pitch wide) and a dot keeps the brightest layer, exactly like the mockup's put() ──
+struct Shp {
+  uint8_t v, r, g, b;  // brightness 0..255 and colour; v == 0 - nothing here
+};
+Shp s_sh[LN][LN];
+
+inline void sh_put(int k, int m, float v, const Rgb &c) {
+  if (k < -LK || k > LK || m < -LK || m > LK || v <= 0.001f) return;
+  Shp &d = s_sh[m + LK][k + LK];
+  const uint8_t u = u8f(clamp01(v) * 255);
+  if (u > d.v) {
+    d.v = u;
+    d.r = u8f(c.r);
+    d.g = u8f(c.g);
+    d.b = u8f(c.b);
+  }
+}
+
+// sd(x, y) - distance to the shape edge in px (negative inside); only dots inside the box are evaluated
+template <typename F>
+void sh_shape(F sd, const Rgb &c, float v, float bx0, float by0, float bx1, float by1) {
+  if (v <= 0.002f) return;
+  int k0 = (int)ceilf((bx0 - C) / LP), k1 = (int)floorf((bx1 - C) / LP);
+  int m0 = (int)ceilf((by0 - C) / LP), m1 = (int)floorf((by1 - C) / LP);
+  if (k0 < -LK) k0 = -LK;
+  if (k1 > LK) k1 = LK;
+  if (m0 < -LK) m0 = -LK;
+  if (m1 > LK) m1 = LK;
+  for (int m = m0; m <= m1; m++)
+    for (int k = k0; k <= k1; k++) {
+      const float q = clamp01(0.5f - sd(C + k * LP, C + m * LP) / (LP * 1.05f)) * v;
+      if (q > 0.01f) sh_put(k, m, q, c);
+    }
+}
+
+// Pixel sprite into the shape layer ('#' - lit dot)
+void sh_sprite(const char *const *rows, int n, int k0, int m0, const Rgb &c, float v) {
+  for (int ry = 0; ry < n; ry++)
+    for (int rx = 0; rows[ry][rx]; rx++)
+      if (rows[ry][rx] == '#') sh_put(k0 + rx, m0 + ry, v, c);
+}
+
+inline auto sd_disc(float cx, float cy, float r) {
+  return [=](float x, float y) { return sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy)) - r; };
+}
+inline auto sd_line(float ax, float ay, float bx, float by, float w) {
+  return [=](float x, float y) {
+    const float vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy;
+    const float t = clamp01(l2 > 0 ? ((x - ax) * vx + (y - ay) * vy) / l2 : 0);
+    const float dx = x - ax - vx * t, dy = y - ay - vy * t;
+    return sqrtf(dx * dx + dy * dy) - w * 0.5f;
+  };
+}
+inline auto sd_box(float cx, float cy, float hw, float hh, float r) {
+  return [=](float x, float y) {
+    const float qx = fabsf(x - cx) - hw + r, qy = fabsf(y - cy) - hh + r;
+    const float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+    return sqrtf(ox * ox + oy * oy) + fminf(fmaxf(qx, qy), 0.0f) - r;
+  };
+}
+template <typename F>
+inline auto sd_outline(F sd, float w) {
+  return [=](float x, float y) { return fabsf(sd(x, y)) - w * 0.5f; };
+}
+// Arc of a circle: centre, radius, middle direction (canvas angle, y down), half opening, stroke width
+inline auto sd_arc(float cx, float cy, float R, float mid, float half, float w) {
+  return [=](float x, float y) {
+    const float dx = x - cx, dy = y - cy;
+    float a = fmodf(atan2f(dy, dx) - mid + PI, TAU);
+    if (a < 0) a += TAU;
+    a -= PI;
+    if (fabsf(a) <= half) return fabsf(sqrtf(dx * dx + dy * dy) - R) - w * 0.5f;
+    const float e = mid + (a < 0 ? -half : half), ex = cx + R * cosf(e), ey = cy + R * sinf(e);
+    return sqrtf((x - ex) * (x - ex) + (y - ey) * (y - ey)) - w * 0.5f;
+  };
+}
+
 const uint8_t G3[11][5] = {{7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1}, {7, 4, 7, 1, 7},
                            {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7}, {7, 1, 2, 4, 7}};  // 0..9 and 'z', 3 bits per row
 const Rgb L_THINK = {191, 90, 242}, L_SPEAK = {100, 210, 255}, L_TIMER = {255, 179, 64};
 const Rgb L_MUS_A = {48, 209, 88}, L_MUS_B = {100, 225, 255}, L_WHITE = {255, 255, 255}, L_Z = {150, 175, 255};
 
 // Colours of the stencil by index: 0 - ink (set per frame), the rest are fixed
-const Rgb L_ICON = {140, 205, 255}, L_GREEN = {48, 209, 88}, L_RED = {255, 69, 58}, L_AMBER2 = {255, 159, 10};
-const Rgb *const TXT_COL[] = {nullptr, &L_TIMER, &L_Z, &L_ICON, &L_GREEN, &L_RED, &L_AMBER2};
+const Rgb L_ICON = {140, 205, 255}, L_GREEN = {48, 209, 88}, L_RED = {255, 69, 58}, L_AMBER2 = {255, 159, 10}, L_ZR = {255, 130, 110};
+const Rgb *const TXT_COL[] = {nullptr, &L_TIMER, &L_Z, &L_ICON, &L_GREEN, &L_RED, &L_AMBER2, &L_ZR};
 
 void stamp_sprite(const char *const *rows, int n, int k0, int m0, uint8_t a, uint8_t ci) {
   for (int ry = 0; ry < n; ry++)
@@ -1295,6 +1364,212 @@ void stamp_time(const char *s, int sc, int m0, uint8_t a, uint8_t ci, bool colon
   }
 }
 
+// ── Scenes made of shapes (mockup: design/screen-rest.html). Everything below is drawn into the shape layer once
+//    per frame; text stays in the overlay passes ──
+
+const Rgb L_WARM = {255, 214, 120}, L_BLUE = {10, 132, 255}, L_HOT = {255, 90, 78}, L_GREY = {200, 205, 235};
+const Rgb L_GOLD = {255, 205, 90}, L_VIOLET = {191, 90, 242}, L_CYAN = {100, 210, 255}, L_YELLOW = {255, 214, 10}, L_PINK = {255, 55, 95};
+const Rgb L_GRID_RED = {255, 90, 70};
+
+inline float ease_out3(float p) {
+  p = clamp01(p);
+  return 1 - (1 - p) * (1 - p) * (1 - p);
+}
+
+// Bell: a dome, a waist and a flared lip swinging about its hook; the clapper swings the other way
+void led_bell(float cx, float cy, float swing, float v) {
+  const float hx = cx, hy = cy - 20, cs = cosf(swing), sn = sinf(swing);
+  const auto dome_sd = sd_disc(cx, cy - 6, 12), knob_sd = sd_disc(cx, cy - 19, 3);
+  const auto waist_sd = sd_box(cx, cy + 1, 12, 6, 1), flare_sd = sd_box(cx, cy + 8, 18, 3.5f, 2);
+  auto body = [=](float x, float y) {
+    const float dx = x - hx, dy = y - hy;
+    const float u = hx + dx * cs + dy * sn, w = hy - dx * sn + dy * cs;
+    return fminf(fminf(dome_sd(u, w), waist_sd(u, w)), fminf(flare_sd(u, w), knob_sd(u, w)));
+  };
+  sh_shape(body, L_TIMER, 0.95f * v, cx - 44, cy - 40, cx + 44, cy + 40);
+  sh_shape(sd_disc(cx - swing * 18, cy + 17, 4), L_TIMER, 0.95f * v, cx - 30, cy + 4, cx + 30, cy + 30);
+}
+
+// ── Games ──
+
+const Rgb *const WHEEL_COL[8] = {&L_BLUE, &L_GREEN, &L_TIMER, &L_VIOLET, &L_RED, &L_CYAN, &L_YELLOW, &L_PINK};
+const char *const GL_HEADS[8] = {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###.", ""};  // "О"
+const char *const GL_TAILS[8] = {"####.", "#...#", "#...#", "####.", "#....", "#....", "#....", ""};  // "Р"
+
+void led_coin(const Scene &s, float a) {
+  const float lt = s.game_t, T = 2.4f, p = clamp01(lt / T);
+  const int result = s.game_p0 ? 1 : 0;  // 0 - heads ("Орёл"), 1 - tails ("Решка"); an even number of half-turns lands on heads
+  const float spin = ease_out3(p) * (8 + result) * PI, cs = cosf(spin);
+  const float rx = fmaxf(fabsf(cs) * 44, 2.5f), ry = 44;
+  const float air = p < 1 ? sinf(fminf(p / 0.85f, 1.0f) * PI) : 0, cx = 120, cy = 128 - 30 * air;
+  // the shadow on the floor shrinks while the coin is high
+  const float sw = 30 - 10 * air;
+  sh_shape([=](float x, float y) { return (sqrtf((x - cx) * (x - cx) / (sw * sw) + (y - 190) * (y - 190) / 16) - 1) * 4; }, {255, 255, 255},
+           0.28f * (1 - 0.6f * air) * a, cx - 44, 176, cx + 44, 204);
+  auto ell = [=](float k) {
+    return [=](float x, float y) {
+      return (sqrtf((x - cx) * (x - cx) / (rx * k * rx * k) + (y - cy) * (y - cy) / (ry * k * ry * k)) - 1) * fminf(rx * k, ry * k);
+    };
+  };
+  const float bx0 = cx - rx - 12, bx1 = cx + rx + 12, by0 = cy - ry - 12, by1 = cy + ry + 12;
+  sh_shape(ell(1), L_GOLD, 0.42f * a, bx0, by0, bx1, by1);
+  sh_shape(sd_outline(ell(1), 4.4f), L_GOLD, a, bx0, by0, bx1, by1);
+  if (rx > 14) {
+    sh_shape(sd_outline(ell(0.78f), 2.4f), L_GOLD, 0.55f * a, bx0, by0, bx1, by1);
+    sh_sprite(cs >= 0 ? GL_HEADS : GL_TAILS, 7, -2, (int)lroundf((cy - 120) / LP) - 3, {255, 240, 200}, 0.95f * clamp01((rx - 14) / 14) * a);
+  }
+}
+
+void led_dice(const Scene &s, float a) {
+  static const int8_t PIPS[7][6][2] = {{}, {{0, 0}}, {{-1, -1}, {1, 1}}, {{-1, -1}, {0, 0}, {1, 1}}, {{-1, -1}, {1, -1}, {-1, 1}, {1, 1}},
+                                       {{-1, -1}, {1, -1}, {0, 0}, {-1, 1}, {1, 1}}, {{-1, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {1, 1}}};
+  const float lt = s.game_t, T = 1.5f, p = clamp01(lt / T);
+  const int result = s.game_p0 < 1 ? 1 : (s.game_p0 > 6 ? 6 : s.game_p0);
+  const int face = p < 1 ? (int)(lt * 14) % 6 + 1 : result;  // faces flicker while it tumbles, then the result sits
+  const float shake = p < 1 ? sinf(lt * 40) * 3 * (1 - p) : 0, cx = 120 + shake, cy = 124;
+  const auto box = sd_box(cx, cy, 40, 40, 12);
+  sh_shape(box, {255, 255, 255}, 0.2f * a, cx - 52, cy - 52, cx + 52, cy + 52);
+  sh_shape(sd_outline(box, 2.4f), {255, 255, 255}, 0.95f * a, cx - 52, cy - 52, cx + 52, cy + 52);
+  for (int i = 0; i < face; i++) {  // the number of pips equals the face
+    const float px_ = cx + PIPS[face][i][0] * 22, py_ = cy + PIPS[face][i][1] * 22;
+    sh_shape(sd_disc(px_, py_, 5.5f), {255, 255, 255}, a, px_ - 16, py_ - 16, px_ + 16, py_ + 16);
+  }
+}
+
+void led_wheel(const Scene &s, float a) {
+  const int count = s.game_p0 < 2 ? 2 : (s.game_p0 > 8 ? 8 : s.game_p0);
+  const int result = s.game_p1 < 0 ? 0 : (s.game_p1 >= count ? count - 1 : s.game_p1);
+  const float lt = s.game_t, T = 2.7f, p = clamp01(lt / T), S = TAU / count, cx = 120, cy = 138, R = 50;
+  const float rot = ease_out3(p) * (TAU * 3 + (TAU - (result + 0.5f) * S));
+  for (int m = -LK; m <= LK; m++)
+    for (int k = -LK; k <= LK; k++) {
+      const float x = C + k * LP, y = C + m * LP, r = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+      if (fabsf(r - R) > 4) continue;
+      float ang = fmodf(atan2f(x - cx, cy - y) - rot, TAU);
+      if (ang < 0) ang += TAU;
+      const int seg = (int)(ang / S) % count;
+      const float on = p < 1 ? (fabsf(fmodf(ang, S) - S * 0.5f) < S * 0.42f ? 1.0f : 0.3f) : (seg == result ? 1.0f : 0.18f);
+      sh_put(k, m, 0.85f * on * a, *WHEEL_COL[seg]);
+    }
+  sh_shape(sd_line(cx, cy - R - 9, cx, cy - R - 3, 4), {255, 255, 255}, a, cx - 14, cy - R - 20, cx + 14, cy - R + 4);
+}
+
+void led_rps(const Scene &s, float a) {
+  const float lt = s.game_t, T = 1.5f, cx = 120, cy = 126;
+  const int mine = s.game_p0 < 0 ? 0 : (s.game_p0 > 2 ? 2 : s.game_p0);
+  const Rgb W = {255, 255, 255};
+  if (lt < T) {  // one, two, three: the fist bounces
+    const float y = cy - fabsf(sinf(lt * PI / 0.5f)) * 14;
+    sh_shape(sd_disc(cx, y, 22), W, 0.95f * a, cx - 34, y - 34, cx + 34, y + 34);
+    return;
+  }
+  const float aa = smooth((lt - T) / 0.25f) * a;
+  if (mine == 0) {
+    sh_shape(sd_disc(cx, cy, 24), W, aa, cx - 36, cy - 36, cx + 36, cy + 36);
+  } else if (mine == 1) {
+    const auto box = sd_box(cx, cy, 24, 28, 8);
+    sh_shape(box, W, 0.25f * aa, cx - 36, cy - 40, cx + 36, cy + 40);
+    sh_shape(sd_outline(box, 3), W, aa, cx - 36, cy - 40, cx + 36, cy + 40);
+    for (int i = -1; i <= 1; i++) sh_shape(sd_line(cx + i * 11, cy - 12, cx + i * 11, cy + 12, 3), W, 0.7f * aa, cx + i * 11 - 10, cy - 24, cx + i * 11 + 10, cy + 24);
+  } else {  // scissors: two blades crossed and two ring handles
+    sh_shape(sd_line(cx - 20, cy - 22, cx + 12, cy + 16, 5), W, aa, cx - 34, cy - 36, cx + 26, cy + 30);
+    sh_shape(sd_line(cx + 20, cy - 22, cx - 12, cy + 16, 5), W, aa, cx - 26, cy - 36, cx + 34, cy + 30);
+    sh_shape(sd_outline(sd_disc(cx - 16, cy + 24, 8), 3.5f), W, aa, cx - 30, cy + 10, cx - 2, cy + 38);
+    sh_shape(sd_outline(sd_disc(cx + 16, cy + 24, 8), 3.5f), W, aa, cx + 2, cy + 10, cx + 30, cy + 38);
+  }
+}
+
+void led_magic8(const Scene &s, float a) {
+  const float cx = 120, cy = 124, R = 52;
+  sh_shape(sd_outline(sd_disc(cx, cy, R), 3), {255, 255, 255}, 0.85f * a, cx - 66, cy - 66, cx + 66, cy + 66);
+  sh_shape(sd_disc(cx, cy, R - 3), L_VIOLET, 0.16f * a, cx - 66, cy - 66, cx + 66, cy + 66);
+  (void)s;
+}
+
+void led_ttt(const Scene &s, float a) {
+  static const int8_t LINES[8][3] = {{0, 1, 2}, {3, 4, 5}, {6, 7, 8}, {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, {0, 4, 8}, {2, 4, 6}};
+  const float cx = 120, cy = 126, c = 36, h = c * 1.5f, g = smooth(s.game_t / 0.5f);
+  const Rgb W = {255, 255, 255};
+  for (int i = 0; i < 2; i++) {
+    const float d = i ? c / 2 : -c / 2;
+    sh_shape(sd_line(cx + d, cy - h * g, cx + d, cy + h * g, 5), W, 0.8f * a, cx + d - 12, cy - h - 12, cx + d + 12, cy + h + 12);
+    sh_shape(sd_line(cx - h * g, cy + d, cx + h * g, cy + d, 5), W, 0.8f * a, cx - h - 12, cy + d - 12, cx + h + 12, cy + d + 12);
+  }
+  for (int i = 0; i < 9; i++) {
+    const char m = s.board[i];
+    if (m != 'X' && m != 'O') continue;
+    const float x = cx + (i % 3 - 1) * c, y = cy + (i / 3 - 1) * c, ca = s.cell_a[i], r = 11 * (0.4f + 0.6f * ca);
+    if (m == 'X') {
+      sh_shape(sd_line(x - r, y - r, x + r, y + r, 6), L_CYAN, ca * a, x - 24, y - 24, x + 24, y + 24);
+      sh_shape(sd_line(x - r, y + r, x + r, y - r, 6), L_CYAN, ca * a, x - 24, y - 24, x + 24, y + 24);
+    } else {
+      sh_shape(sd_outline(sd_disc(x, y, r + 1.5f), 6), L_TIMER, ca * a, x - 24, y - 24, x + 24, y + 24);
+    }
+  }
+  for (const auto &l : LINES) {  // the winning line is struck through, a bit beyond the end cells
+    const char m = s.board[l[0]];
+    if ((m != 'X' && m != 'O') || s.board[l[1]] != m || s.board[l[2]] != m) continue;
+    float ax = cx + (l[0] % 3 - 1) * c, ay = cy + (l[0] / 3 - 1) * c, bx = cx + (l[2] % 3 - 1) * c, by = cy + (l[2] / 3 - 1) * c;
+    const float dx = bx - ax, dy = by - ay, len = sqrtf(dx * dx + dy * dy), ux = dx / len, uy = dy / len;
+    ax -= ux * 10;
+    ay -= uy * 10;
+    bx += ux * 10;
+    by += uy * 10;
+    float born = 1;
+    for (int j = 0; j < 3; j++) born = fminf(born, s.cell_a[l[j]]);
+    born = smooth(born);
+    sh_shape(sd_line(ax, ay, ax + (bx - ax) * born, ay + (by - ay) * born, 6), L_GREEN, a, cx - 66, cy - 66, cx + 66, cy + 66);
+    break;
+  }
+}
+
+void led_game(const Scene &s) {
+  const float a = s.game_a;
+  switch (s.game) {
+    case Game::Coin: led_coin(s, a); break;
+    case Game::Dice: led_dice(s, a); break;
+    case Game::Wheel: led_wheel(s, a); break;
+    case Game::Rps: led_rps(s, a); break;
+    case Game::Magic8: led_magic8(s, a); break;
+    case Game::Ttt: led_ttt(s, a); break;
+    case Game::None: break;
+  }
+}
+
+// Everything the shape layer holds for this frame
+void build_shapes(const Scene &s) {
+  memset(s_sh, 0, sizeof s_sh);
+  const float t = s.t;
+  // joy: thick arches instead of the eyes; they grow, wiggle and squash
+  if (s.happy > 0.01f) {
+    const float a = clamp01(s.happy), sq = 1 + 0.12f * sinf(t * 4.8f), j = sinf(t * 9) * 1.6f;
+    const float cy = s.face_y - 3 * fabsf(sinf(t * 4.8f)), R = 20 * sq;
+    for (int side = -1; side <= 1; side += 2) {
+      const float cx = C + side * 31 + j;
+      sh_shape(sd_arc(cx, cy, R, -PI / 2, 1.3f * a, 10), L_WARM, a, cx - R - 12, cy - R - 12, cx + R + 12, cy + 14);
+    }
+  }
+  // reminders: a swaying bell above the eyes; its count is in the digit stencil
+  if (s.reminders > 0 && s.rem_a > 0.01f) led_bell(106, 42, sinf(t * 2.4f) * 0.12f, clamp01(s.rem_a));
+  // no connection: the red Wi-Fi crossed out through its middle, clear of the eyes
+  if (s.offl_a > 0.01f) {
+    const float a = clamp01(s.offl_a), k = (0.9f + 0.1f * sinf(t * 2.2f)) * a, cx = C, cy = 66;
+    for (const float R : {15.0f, 28.0f, 41.0f}) sh_shape(sd_arc(cx, cy, R, -PI / 2, 0.8f, 6), L_HOT, k, cx - 52, cy - 52, cx + 52, cy + 12);
+    sh_shape(sd_disc(cx, cy, 4.6f), L_HOT, k, cx - 12, cy - 12, cx + 12, cy + 12);
+    sh_shape(sd_line(cx - 32, cy - 46, cx + 32, cy - 6, 4.5f), {255, 255, 255}, a, cx - 44, cy - 58, cx + 44, cy + 6);
+  }
+  // quiet mode: a crossed-out speaker below the sleepy eyes
+  if (s.quiet_a > 0.01f) {
+    const float a = clamp01(s.quiet_a), cx = 116, cy = 168;
+    sh_shape(sd_box(cx - 28, cy, 8, 12, 2), L_GREY, 0.95f * a, cx - 44, cy - 28, cx - 12, cy + 28);
+    sh_shape([=](float x, float y) { return fmaxf(fmaxf(fabsf(y - cy) - (12 + 16 * (x - (cx - 20)) / 24), (cx - 20) - x), x - (cx + 4)); }, L_GREY,
+             0.95f * a, cx - 28, cy - 36, cx + 14, cy + 36);
+    for (const float R : {22.0f, 34.0f}) sh_shape(sd_arc(cx + 4, cy, R, 0, 0.7f, 4), L_GREY, 0.6f * a, cx, cy - 44, cx + 52, cy + 44);
+    sh_shape(sd_line(cx - 40, cy - 30, cx + 44, cy + 30, 7), L_RED, a, cx - 52, cy - 42, cx + 56, cy + 42);
+  }
+  if (s.game != Game::None && s.game_a > 0.01f) led_game(s);
+}
+
 void init_led() {
   for (int k = 0; k < LN; k++) {
     s_rain_on[k] = hash3(k - LK, 2, 5) < 0.5f ? 1.0f : 0.0f;
@@ -1333,7 +1608,7 @@ void build_led(const Scene &s) {
     eg[e] = eye_geo(le[e]);
   }
   // eye tint by state: violet (thinking), cyan (speaking), amber (timer); listening and music keep white eyes
-  const float tw = fminf(1, s.timer_a);
+  const float tw = s.alert_mode ? fminf(1, s.timer_a) : 0;  // the eyes turn amber only when the timer has fired
   const float wsum = thk + spk + tw;
   Rgb eye_col = rgb(s.eye_col);
   if (wsum > 0.01f) {
@@ -1349,27 +1624,21 @@ void build_led(const Scene &s) {
     snprintf(tm, sizeof tm, "%02d:%02d", s.hour % 100, s.minute % 100);
     stamp_time(tm, 1, 6, (uint8_t)(255 * clamp01(s.clock_a)), 0, sinf(t * PI) > 0 || s.clock_a < 0.6f);
   }
-  // reminders badge: a bell and a count in dots at the top, above the eyes (the date line owns the bottom)
+  // reminders badge: the count in dots next to the bell (the bell itself is a shape, see build_shapes)
   if (s.reminders > 0 && s.rem_a > 0.01f) {
     const uint8_t ra = (uint8_t)(255 * clamp01(s.rem_a));
-    static const char *const BELL[7] = {"...#...", "..###..", ".#####.", ".#####.", ".#####.", "#######", "...#..."};
-    for (int ry = 0; ry < 7; ry++)
-      for (int rx = 0; rx < 7; rx++)
-        if (BELL[ry][rx] == '#') {
-          s_txt[-16 + ry + LK][-6 + rx + LK] = ra;
-          s_txt_c[-16 + ry + LK][-6 + rx + LK] = 1;
-        }
     char nb[8];
     snprintf(nb, sizeof nb, "%d", s.reminders > 99 ? 99 : s.reminders);
-    int k = 2;
-    for (const char *q = nb; *q; q++, k += 4) stamp_glyph(G3[*q - '0'], k, -15, 1, ra, 0);
+    const int nd = (int)strlen(nb);
+    int k = -((3 * nd + nd - 1) / 2) + 5;
+    for (const char *q = nb; *q; q++, k += 4) stamp_glyph(G3[*q - '0'], k, -16, 1, ra, 0);
   }
   if (s.timer_a > 0.01f) {
     const uint32_t secs = (s.timer_rem + 999) / 1000;
     char tm[12];
     if (secs >= 3600) snprintf(tm, sizeof tm, "%u:%02u", (unsigned)(secs / 3600), (unsigned)(secs / 60 % 60));
     else snprintf(tm, sizeof tm, "%02u:%02u", (unsigned)(secs / 60), (unsigned)(secs % 60));
-    stamp_time(tm, 2, -1, (uint8_t)(255 * clamp01(s.timer_a * s.timer_pulse)), 1, true);
+    stamp_time(tm, 1, 4, (uint8_t)(255 * clamp01(s.timer_a) * (s.timer_blink ? 1.0f : 0.3333f)), 1, true);
   }
   // phone cards: the battery gauge, the list icons and the player progress are dots too
   if (s.card_a > 0.01f && s.card == Card::Battery && !s.player) {
@@ -1377,7 +1646,7 @@ void build_led(const Scene &s) {
     const uint8_t ci = lvl <= 10 ? 5 : (lvl <= 30 ? 6 : 4);
     for (int i = 0; i < 10; i++) {
       static const char *const SEG[2] = {"##", "##"};
-      stamp_sprite(SEG, 2, -14 + i * 3, 2, (uint8_t)(255 * clamp01(s.card_a) * (i < nseg ? 1.0f : 0.27f)), i < nseg ? ci : 0);
+      stamp_sprite(SEG, 2, -14 + i * 3, 2, (uint8_t)(255 * clamp01(s.card_a) * (i < nseg ? 1.0f : 0.24f)), i < nseg ? ci : 0);
     }
   }
   if (s.card_a > 0.01f && s.card == Card::Check && !s.player) {
@@ -1403,15 +1672,21 @@ void build_led(const Scene &s) {
   if (s.card_a > 0.01f && s.player) {
     for (int k = -9; k <= 9; k++) {
       static const char *const DOT[1] = {"#"};
-      stamp_sprite(DOT, 1, k, 3, (uint8_t)(255 * clamp01(s.card_a) * ((k + 9) / 18.0f < s.player_frac ? 1.0f : 0.33f)), 4);
+      stamp_sprite(DOT, 1, k, 3, (uint8_t)(255 * clamp01(s.card_a) * ((k + 9) / 18.0f < s.player_frac ? 1.0f : 0.3f)), 4);
     }
   }
-  for (int i = 0; i < s.nz; i++) {
-    const Scene::Z &z = s.z[i];
-    stamp_glyph(G3[10], (int)lroundf((z.x - C) / LP) - 1, (int)lroundf((z.y - C) / LP) - 4, 1, (uint8_t)(255 * clamp01(z.a / 0.45f * 0.9f)), 2);
+  // sleep: two "Z" drift up and to the right, a small one first and a large one later
+  if (s.led_slp > 0.01f) {
+    static const char *const Z_S[5] = {"###", "..#", ".#.", "#..", "###"};
+    static const char *const Z_L[5] = {"#####", "...#.", "..#..", ".#...", "#####"};
+    for (int i = 0; i < 2; i++) {
+      const float u = fmodf(t * 0.17f + i * 0.5f, 1.0f);
+      stamp_sprite(u < 0.45f ? Z_S : Z_L, 5, 7 + (int)lroundf(u * 6), -3 - (int)lroundf(u * 10), (uint8_t)(255 * (0.7f / 0.9f) * sinf(u * PI) * clamp01(s.led_slp)), 7);
+    }
   }
-  const float grid_dim = 1 - 0.85f * fmaxf(clamp01(s.card_a), clamp01(s.game_a));  // the grid goes quiet under a card or a game
-  const float base = 0.075f * s.bg * grid_dim;
+  build_shapes(s);
+  const float base = 0.075f * s.bg;  // the grid under text stays as it is: the text carries its own thin outline
+  const float tint = s.night_tint, happy_k = 1 - clamp01(s.happy);
   const int wkey = mus > fmaxf(lis, spk) ? 2 : (lis > spk ? 1 : 0);
   const float rate = s.timer_total ? (float)s.timer_rem / s.timer_total : 0;
   for (int m = -LK; m <= LK; m++)
@@ -1429,7 +1704,7 @@ void build_led(const Scene &s) {
         if (fabsf(x - le[e].cx) > le[e].w + 9 || fabsf(y - le[e].cy) > le[e].h + fabsf(le[e].bend) + 9) continue;
         float py;
         const float d = eye_sdf(eg[e], x - le[e].cx, y - le[e].cy, py);
-        const float q = clamp01(0.5f - d / (LP * 1.05f)) * le[e].bright;
+        const float q = clamp01(0.5f - d / (LP * 1.05f)) * le[e].bright * happy_k;
         if (q > v) v = q;
       }
       // time, timer, "Z"
@@ -1442,6 +1717,22 @@ void build_led(const Scene &s) {
           col = ci == 0 ? ink : *TXT_COL[ci];
         }
       }
+      const Shp &shp = s_sh[m + LK][k + LK];  // shapes: joy, bell, Wi-Fi, speaker, games
+      if (shp.v) {
+        const float sv = shp.v * (1 / 255.0f);
+        if (sv > v) {
+          v = sv;
+          col = {(float)shp.r, (float)shp.g, (float)shp.b};
+        }
+      }
+      float ang = -1;  // angle from the top, clockwise, 0..1 (only when needed)
+      auto angle = [&]() {
+        if (ang < 0) {
+          ang = atan2f(dx, -dy) * (1 / TAU);
+          if (ang < 0) ang += 1;
+        }
+        return ang;
+      };
       const bool ring_zone = r > 86;
       float a = 0;
       if (ring_zone && (act > 0.02f || mus > 0.02f)) {
@@ -1486,15 +1777,60 @@ void build_led(const Scene &s) {
             col = cm > 0.7f ? lerp_rgb(L_THINK, L_WHITE, 0.4f) : L_THINK;
           }
         }
-        if (s.timer_a > 0.05f && r < 117) {
-          if (s.alert_mode) {
-            const float av = s.timer_a * (0.45f + 0.55f * s.timer_pulse);
-            if (av > v) v = av, col = L_TIMER;
-          } else if (a < rate) {
-            const float tv = s.timer_a * (a > rate - 0.03f ? 0.6f + 0.4f * sinf(t * 8) : 0.85f);
-            if (tv > v) v = tv, col = L_TIMER;
-          }
+      }
+      if (s.timer_a > 0.05f && r > 112 && r < 117) {  // timer: a ring of dots that drains clockwise (fired: it pulses)
+        if (s.alert_mode) {
+          const float pv = s.timer_pulse * fminf(1, s.timer_a);
+          if (pv > v) v = pv, col = L_TIMER;
+        } else {
+          const float q = clamp01((rate - angle()) * (1 / 0.009f) + 0.5f);
+          float tv = q > 0.02f ? 0.85f * s.timer_a * q : 0;
+          if (q < 1 && tv < 0.1f) tv = 0.1f;  // the empty track
+          if (tv > v) v = tv, col = L_TIMER;
         }
+      }
+      if (s.alert_mode && s.timer_a > 0.05f && r > 80) {  // fired: an amber wave along the edge breathes with the pulse
+        const float len = 0.55f * s.timer_pulse * 16, edge = 118 - r;
+        if (len > 3 && edge < len) {
+          const float w = edge / len, rv = 0.35f + 0.65f * (1 - w);
+          if (rv > v) v = rv, col = lerp_rgb(L_TIMER, {255, 120, 40}, w);
+        }
+      }
+      if (s.task != Task::Idle && s.task_a > 0.01f && r > 109.5f && r < 117) {  // task: a ring of dots by state
+        float tv = 0;
+        Rgb tc = L_BLUE;
+        switch (s.task) {
+          case Task::Working:
+            if (s.task_spin < 0) {  // known progress: the ring fills clockwise, a white spark runs along it
+              const float fr = s.task_frac, q = clamp01((fr - angle()) * (1 / 0.009f) + 0.5f);
+              tv = q > 0.02f ? 0.9f * s.task_a * q : 0;
+              if (q < 1 && tv < 0.1f) tv = 0.1f;
+              const float d = fmodf(angle() - fmodf(t * 0.6f, 1.0f) + 1, 1.0f);
+              if (d < 0.05f && angle() < fr) tv = 1, tc = L_WHITE;
+            } else {  // unknown progress: a comet runs around the ring
+              float d = fmodf(s.task_spin / TAU - angle(), 1.0f);
+              if (d < 0) d += 1;
+              const float f = d < 0.32f ? 1 - d / 0.32f : 0;
+              tv = fmaxf(0.1f, 0.9f * s.task_a * f * f * (3 - 2 * f));
+            }
+            break;
+          case Task::NeedsInput:
+          case Task::NeedsPermission:
+            tc = L_TIMER;
+            tv = s.task_a * (0.4f + 0.6f * (0.5f + 0.5f * sinf(t * TAU * 1.1f)));
+            break;
+          case Task::Done:
+            tc = L_GREEN;
+            tv = 0.85f * s.task_a;
+            break;
+          case Task::Failed:
+            tc = L_RED;
+            tv = 0.85f * s.task_a;
+            break;
+          case Task::Idle:
+            break;
+        }
+        if (tv > v) v = tv, col = tc;
       }
       // thinking: a quiet, muted rain over the background; eyes and time are not touched by it
       if (thk > 0.02f && r < 112 && s_rain_on[k + LK] > 0) {
@@ -1506,7 +1842,7 @@ void build_led(const Scene &s) {
       if (boot < 1) {  // sweep: a bright edge runs top to bottom
         if (y > front - 12) v = fmaxf(v, 0.95f), col = L_WHITE;
       }
-      if (v < 0.001f) col = L_WHITE;
+      if (v < 0.001f) col = tint > 0.01f ? lerp_rgb(L_WHITE, L_GRID_RED, tint) : L_WHITE;  // sleep / night: the grid turns red
       const float alpha = ba + (1 - ba) * v;
       D.r = u8f(col.r);
       D.g = u8f(col.g);
@@ -1602,7 +1938,7 @@ void draw_led_date(const Scene &s) {
   }
   const Rgb ink = rgb(s.ink);
   char fitted[96];
-  const float a = s.clock_a * boot_a * 0.55f;
+  const float a = s.clock_a * boot_a * 0.55f * (1 - clamp01(s.led_slp));  // the sleep screen has no date line
   if (date_a > 0.01f) draw_text(text::kUi, line, C, 207, 1, true, ink, a * date_a);
   if (agenda_a > 0.01f) {
     fit(text::kUi, agenda, 170, fitted, sizeof fitted);
@@ -1612,9 +1948,10 @@ void draw_led_date(const Scene &s) {
 
 // Timer label under the digits
 void draw_led_timer_label(const Scene &s) {
-  if (s.timer_a < 0.01f || s_y1 < 176 || s_y0 > 210) return;
-  const char *label = s.alert_mode ? "Готово" : s.timer_label;
-  draw_text(text::kUi, label, C, 196, 1, true, {255, 179, 64}, s.timer_a);
+  if (s.timer_a < 0.01f || s_y1 < 184 || s_y0 > 212) return;
+  // mockup: 13 px semibold under the digits, "Готово" 16 px when fired
+  if (s.alert_mode) draw_text(text::kUiBold, "Готово", C, 200, 16.0f / 15, true, {255, 179, 64}, s.timer_a);
+  else draw_text(text::kUiBold, s.timer_label, C, 200, 13.0f / 15, true, {255, 179, 64}, s.timer_a * 0.9f);
 }
 
 // Text under the eyes. There is a lot of free room below them (from y 145 to the edge), so the text gets up to
@@ -1734,13 +2071,11 @@ void render_strip(const Scene &s, uint32_t g) {
   }
   {
     Tick t(pf.over);
-    draw_offline(s);
     draw_led_date(s);
     draw_led_timer_label(s);
     draw_led_caption(s);
     draw_card(s);
     draw_task(s);
-    draw_quiet(s);
     draw_game(s);
   }
   pf.strips++;

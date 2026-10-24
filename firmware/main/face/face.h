@@ -133,6 +133,14 @@ struct Scene {
   float rem_a = 0, quiet_a = 0;
   // LED panel: how much it is listening / thinking / speaking / playing music right now (0..1, smoothed) and the loudness
   float led_lis = 0, led_thk = 0, led_spk = 0, led_mus = 0, led_amp = 0;
+  // LED panel extras (web mockup design/screen-rest.html): arch eyes of joy, the sleep screen, night grid tint,
+  // the no-connection icon, where the face sits and the phase of the fired timer
+  float happy = 0;       // 0..1, "joy" arches instead of eyes
+  float led_slp = 0;     // 0..1, the sleep screen
+  float night_tint = 0;  // 0..1, grid dots turn red (sleep, night remark)
+  float offl_a = 0;      // 0..1, the crossed-out Wi-Fi icon
+  float face_y = 98;     // face centre line (px), arches follow it
+  bool timer_blink = true;  // the fired timer: digits lit / dim
 };
 
 bool init();

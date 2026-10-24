@@ -64,7 +64,7 @@ enum Param {
   GXL, GYL, GXR, GYR,  // взгляд у глаз чуть разный по скорости — живее синхронного робота
   FACE_Y, SCALE, CLOCK_Y, CLOCK_SIZE, CLOCK_A, WX_A, CAP_A, TIMER_A,
   RING, RING_W, THINK, ALERT, GLOW, BG, ARC_A, AURA, CARD_A, REVEAL, AURA_SPEED,
-  TASK_A, TASK_FRAC, GAME_A, REM_A, QUIET_A,
+  TASK_A, TASK_FRAC, GAME_A, REM_A, QUIET_A, HAPPY, OFFL_A,
   CR, CG, CB, GR, GG, GB, A0R, A0G, A0B, A1R, A1G, A1B, A2R, A2G, A2B, ACR, ACG, ACB,
   INKR, INKG, INKB, ALR, ALG, ALB,
   PARAM_N
@@ -75,9 +75,11 @@ Spring s_p[PARAM_N];
 
 const float ICE[3] = {226, 236, 255}, ICE_GLOW[3] = {64, 128, 255};
 const float AMBER[3] = {255, 196, 110}, AMBER_GLOW[3] = {255, 128, 20};
-const float RED[3] = {255, 96, 72}, RED_GLOW[3] = {190, 24, 12};  // ночь: красный, как на Apple Watch
+const float RED[3] = {255, 80, 60}, RED_GLOW[3] = {190, 24, 12};  // ночь: красный, как на Apple Watch
 const float CALL_GLOW[3] = {48, 209, 120};
 const float INK[3] = {236, 240, 247}, INK_RED[3] = {255, 80, 60};
+// Eye colours taken from the web mockup (white mixed with the accent)
+const float EYE_WARM[3] = {255, 229, 198}, EYE_WAKE[3] = {255, 228, 188}, EYE_GREEN[3] = {203, 244, 213};
 const float AL_AMBER[3] = {255, 140, 20}, AL_GREEN[3] = {48, 209, 88}, AL_RED[3] = {255, 60, 40};
 
 // Живой фон: три мягких пятна, цвет по времени суток; accent — для подписей и колец
@@ -249,6 +251,8 @@ void init_springs() {
   s_p[GAME_A].init(0, .4f, 1);
   s_p[REM_A].init(0, .4f, 1);
   s_p[QUIET_A].init(0, .4f, 1);
+  s_p[HAPPY].init(0, .22f, 1);
+  s_p[OFFL_A].init(0, .4f, 1);
   for (int c = 0; c < 3; c++) {
     s_p[CR + c].init(ICE[c], .5f, 1);
     s_p[GR + c].init(ICE_GLOW[c], .5f, 1);
@@ -538,6 +542,8 @@ void targets(const Input &in) {
   T[GAME_A] = 0;
   T[REM_A] = 0;
   T[QUIET_A] = 0;
+  T[HAPPY] = 0;
+  T[OFFL_A] = 0;
   float gx = 0, gy = 0;
   const float *alc = AL_AMBER;
   const bool late = in.have_time && (in.hour >= 23 || in.hour < 6) && !in.night;
@@ -613,25 +619,24 @@ void targets(const Input &in) {
       const float b = 0.5f + 0.5f * sinf(t * TAU / 6.5f);  // дыхание
       for (EyeT &e : E) {
         e.w = 23;
-        e.h = 3;
+        e.h = 2.5f;
         e.rad = 3;
-        e.bend = 6;
-        e.bright = .38f + .2f * b;
+        e.bend = 0;  // flat slits, as in the web mockup
+        e.bright = .4f + .22f * b;
       }
       if (fl > 0)  // во сне вздрогнули: глаза приоткрываются и снова закрываются
         for (EyeT &e : E) {
           e.w = 23 + 2 * fl;
           e.h = 3 + 20 * fl;
           e.rad = 3 + 12 * fl;
-          e.bend = 6 * (1 - fl);
         }
-      T[FACE_Y] = top ? 136 : 104;
+      T[FACE_Y] = 104;  // slits at y 100, the dim time dots below them (mockup: sleep)
       T[CLOCK_Y] = top ? 66 : 190;
       T[CLOCK_SIZE] = 30;
-      T[CLOCK_A] = in.have_time ? .42f : 0;
+      T[CLOCK_A] = in.have_time ? .5f : 0;
       T[WX_A] = 0;
       T[GLOW] = .18f;
-      T[BG] = .35f;
+      T[BG] = 1;
       T[ARC_A] = 0;
       T[AURA] = .06f;
       T[AURA_SPEED] = .35f;
@@ -688,25 +693,21 @@ void targets(const Input &in) {
       T[AURA_SPEED] = 2;
       break;
     case Mode::Timer:
-      T[SCALE] = .52f;
-      T[FACE_Y] = 62;
-      gy = 4;  // смотрит на цифры
+      T[SCALE] = .72f;  // mockup: eyes s 0.72, centre y 68, glance at the digits
+      T[FACE_Y] = 72;
+      gy = 4.5f;
       quiet();
       T[TIMER_A] = 1;
       T[AURA] = .1f;
       T[AURA_SPEED] = .6f;
       break;
     case Mode::Alert:
-      T[SCALE] = .52f;
-      T[FACE_Y] = 62;
+      T[SCALE] = .72f;
+      T[FACE_Y] = 72;
       quiet();
       T[TIMER_A] = 1;
       T[ALERT] = 1;
-      for (EyeT &e : E) {
-        e.w = 27;
-        e.h = 35;
-      }
-      col = AMBER;
+      for (EyeT &e : E) e.h = 34.7f;  // eyes taller by 1.12; the amber tint comes from the LED renderer
       gcol = AMBER_GLOW;
       pal = &PAL_ALERT;
       T[AURA] = .14f;
@@ -734,12 +735,12 @@ void targets(const Input &in) {
   if (in.player_on && st.mode == Mode::Idle && !card && !tbig && !game) {
     quiet();
     T[CARD_A] = 1;
-    T[SCALE] = .72f;
-    T[FACE_Y] = 78;
+    T[SCALE] = .9f;  // mockup: eyes s 0.9, centre y 78 (the beat kick lifts them)
+    T[FACE_Y] = 82;
     if (in.player_playing) {
-      gx = 5 * sinf(t * TAU * 0.55f);
-      gy = 2 * sinf(t * TAU * 1.1f);
-      for (EyeT &e : E) e.lidB = .22f;
+      gx = 5.7f * sinf(t * 1.5f);
+      gy = 0;
+      for (EyeT &e : E) e.lidB = .2f;
     }
   }
 
@@ -749,43 +750,43 @@ void targets(const Input &in) {
     T[CARD_A] = 1;
     T[CAP_A] = 0;
     switch (in.card) {
+      // numbers below are the web mockup's eye scale / centre / glance (see design/screen-rest.html)
       case Card::Msg:
-        T[SCALE] = .55f;
-        T[FACE_Y] = 62;
+        T[SCALE] = .5f;
+        T[FACE_Y] = 60;
         gx = 0;
-        gy = 7;
+        gy = 3.5f;
         break;
       case Card::Check:
-        T[SCALE] = .5f;
-        T[FACE_Y] = 56;
+        T[SCALE] = .45f;
+        T[FACE_Y] = 50;
         gx = 0;
-        gy = 6;
+        gy = 3.5f;
         break;
       case Card::Battery:
         T[SCALE] = .55f;
         T[FACE_Y] = 62;
         gx = 0;
-        gy = 7;
+        gy = 4;
         if (in.card_level <= 30)  // sad only when the charge is low
           for (EyeT &e : E) {
             e.lidT = .3f;
             e.lidA = -.3f;
+            e.bright = .9f;
           }
         break;
       case Card::Info:
         T[SCALE] = .6f;
         T[FACE_Y] = 70;
         gx = 0;
-        gy = 4;
+        gy = 2.5f;
         break;
       case Card::Call:
-        T[SCALE] = .8f;
-        T[FACE_Y] = 84;
-        gx = gy = 0;
-        for (EyeT &e : E) {
-          e.w = 27;
-          e.h = 36;
-        }
+        T[SCALE] = .75f;
+        T[FACE_Y] = 68;
+        gx = 0;
+        gy = 1;
+        col = EYE_GREEN;
         pal = &PAL_CALL;
         gcol = CALL_GLOW;
         T[AURA] = .26f;
@@ -793,20 +794,21 @@ void targets(const Input &in) {
         break;
       case Card::Remark:  // ночью в телефоне: красный, косится — глаза открываются даже из сна
         for (EyeT &e : E) e = EyeT{0, 0, 25, 31, 15, .46f, 0, 0, 0, .85f};
-        T[FACE_Y] = 92;
-        T[SCALE] = 1;
-        gx = 17;
+        E[0].y = -3.2f;  // the left eye sits 3 px higher
+        T[FACE_Y] = 96;
+        T[SCALE] = .95f;
+        gx = 22.7f;
         gy = 1;
-        T[BG] = .4f;
+        T[BG] = 1;
         T[AURA] = .07f;
         red();
         break;
       case Card::Wake:
-        for (EyeT &e : E) e = EyeT{0, 0, 28, 37, 15, 0, 0, 0, 0, 1};
-        T[FACE_Y] = 82;
+        for (EyeT &e : E) e = EyeT{0, 0, 27.5f, 34.1f, 15, 0, 0, 0, 0, 1};
+        T[FACE_Y] = 80;
         T[SCALE] = .9f;
         T[ALERT] = 1;
-        col = AMBER;
+        col = EYE_WAKE;
         gcol = AMBER_GLOW;
         ink = INK;
         pal = &PAL_ALERT;
@@ -829,22 +831,22 @@ void targets(const Input &in) {
     if (in.task == Task::Failed) alc = AL_RED;
     if (tbig) {
       quiet();
-      T[SCALE] = .8f;
-      T[FACE_Y] = 84;
+      T[SCALE] = .8f;  // web mockup: eyes s 0.8, centre y 74..78
+      T[FACE_Y] = 78;
       T[CAP_A] = 0;
       switch (in.task) {
-        case Task::Working:  // сосредоточен: прищур и взгляд бегает по строчкам
+        case Task::Working:  // focused: a squint and the glance runs along the lines
           for (EyeT &e : E) e.lidT = .2f;
-          gx = 7 * sinf(t * 1.6f);
-          gy = 2;
+          gx = 9.46f * sinf(t * 1.6f);
+          gy = 1.5f;
           break;
         case Task::NeedsInput:
-        case Task::NeedsPermission:  // смотрит прямо на тебя, янтарный край пульсирует
+        case Task::NeedsPermission:  // looks straight at you, the amber edge pulses
           for (EyeT &e : E) {
-            e.w = 27;
-            e.h = 34;
+            e.w = 27.5f;
+            e.h = 32.55f;
           }
-          col = AMBER;
+          col = EYE_WARM;
           gcol = AMBER_GLOW;
           pal = &PAL_ALERT;
           T[ALERT] = 1;
@@ -854,15 +856,16 @@ void targets(const Input &in) {
           break;
         case Task::Done:
           for (EyeT &e : E) e.lidB = .62f;
+          col = EYE_GREEN;
           T[FACE_Y] -= 4;
           break;
         case Task::Failed:
           for (EyeT &e : E) {
             e.lidT = .34f;
-            e.lidA = -.38f;
+            e.lidA = -.54f;
             e.bright = .85f;
           }
-          gy = 7;
+          gy = 4;
           break;
         case Task::Idle:
           break;
@@ -877,12 +880,12 @@ void targets(const Input &in) {
     T[TIMER_A] = 0;
     T[CARD_A] = 0;
     T[GAME_A] = 1;
-    T[SCALE] = .4f;
-    T[FACE_Y] = 36;
+    T[SCALE] = .4f;  // web mockup: gameEyes s 0.4, centre y 36
+    T[FACE_Y] = 40;
     T[AURA] = .08f;
     for (EyeT &e : E) e = EyeT{};
     gx = 0;
-    gy = 5;
+    gy = 4.5f;
     const float gt = (now - in.game_at) / 1000.0f;
     switch (in.game) {
       case Game::Rps:  // до открытия кулак ждёт, потом радость или обида
@@ -904,10 +907,10 @@ void targets(const Input &in) {
       case Game::Coin:
       case Game::Dice:
       case Game::Wheel:  // следит за броском: взгляд вниз, к концу — на результат
-        gy = gt < 2.0f ? 6 + 2 * sinf(gt * 9) : 4;
+        gy = 4.5f;
         break;
       case Game::Ttt:
-        gx = 4 * sinf(t * 0.8f);
+        gx = 9.46f * sinf(gt * 0.8f);
         break;
       case Game::None:
         break;
@@ -965,12 +968,8 @@ void targets(const Input &in) {
         gx = 17;
         gy = 1;
         break;
-      case Expr::Happy:  // радость: «щёки» поднимают нижнее веко, лицо пружинит на месте
-        for (EyeT &e : E) {
-          e.lidB = .66f;
-          e.h *= .96f;
-        }
-        T[FACE_Y] -= 4 + 2 * fabsf(sinf(et * 0.011f));
+      case Expr::Happy:  // joy: thick arches instead of eyes (drawn by the LED renderer, see Scene::happy)
+        T[HAPPY] = 1;
         break;
       case Expr::Surprise:
         for (EyeT &e : E) {
@@ -997,16 +996,24 @@ void targets(const Input &in) {
   if (in.quiet && !in.night && st.mode <= Mode::Drowsy && !card && !game && !tvis) {
     T[QUIET_A] = 1;
     T[WX_A] = 0;
+    T[CLOCK_A] = 0;  // mockup: just the sleepy eyes and the speaker, no time
+    T[CLOCK_Y] = 196;
     for (EyeT &e : E) {
       e.lidT = fmaxf(e.lidT, .42f);
       e.bright = .9f;
     }
     gx = st.jit_x;
-    gy = 3;
-    T[FACE_Y] += 4;
+    gy = 2.5f;
+    T[FACE_Y] -= 2;  // mockup: sleepy eyes at y 92, the speaker icon below
     T[AURA] *= .6f;
   }
-  T[REM_A] = (in.reminders > 0 && T[CLOCK_A] > .5f && T[CLOCK_Y] < 180 && !tbig && !game) ? 1 : 0;
+  // Top badge: the bell with a count, or (more important) the crossed-out Wi-Fi; both push the eyes down a little
+  const bool top_free = T[CLOCK_A] > .5f && T[CLOCK_Y] < 180 && !tbig && !game;
+  // the Wi-Fi icon does not need the time (at boot or without a server there is none): any calm face shows it
+  const bool calm_face = (st.mode == Mode::Idle || st.mode == Mode::Drowsy) && !tbig && !game && !card && T[CARD_A] < .5f && T[QUIET_A] < .5f;
+  T[OFFL_A] = (calm_face && !in.online) ? 1 : 0;
+  T[REM_A] = (top_free && in.online && in.reminders > 0) ? 1 : 0;
+  T[FACE_Y] += 8 * T[REM_A] + 12 * T[OFFL_A];
   if (T[CARD_A] > 0 && pal != &PAL_CALL) T[AURA] *= 0.7f;  // под текстом карточки фон тише
 
   for (int e = 0; e < 2; e++) {
@@ -1022,7 +1029,7 @@ void targets(const Input &in) {
     s[EBEND].target = E[e].bend;
     s[EBRIGHT].target = E[e].bright;
   }
-  for (int k = FACE_Y; k <= QUIET_A; k++) s_p[k].target = T[k];
+  for (int k = FACE_Y; k <= OFFL_A; k++) s_p[k].target = T[k];
   s_p[GXL].target = s_p[GXR].target = gx;
   s_p[GYL].target = s_p[GYR].target = gy;
   if (!pal) pal = &palette_for(in.have_time ? in.hour : 23);
@@ -1102,6 +1109,9 @@ void build_scene(const Input &in) {
   sc.reminders = in.reminders;
   sc.rem_a = s_p[REM_A].v;
   sc.quiet_a = s_p[QUIET_A].v;
+  sc.offl_a = s_p[OFFL_A].v;
+  sc.happy = s_p[HAPPY].v;
+  sc.face_y = s_p[FACE_Y].v;
   sc.reveal = s_p[REVEAL].v;
   sc.ring_rot = t * 0.35f;
   sc.comet = t * 4.4f - PI / 2;
@@ -1133,7 +1143,10 @@ void build_scene(const Input &in) {
   const uint32_t end = in.timer_start + in.timer_ms;
   sc.timer_rem = (in.timer_on && now < end) ? end - now : 0;
   sc.timer_label = in.timer_label;
-  sc.timer_pulse = sc.alert_mode ? 0.6f + 0.4f * cosf((now - st.mode_at) / 1000.0f * TAU * 1.1f) : 1;
+  // the fired timer (web mockup): the ring and the edge pulse follow pulse, the digits blink
+  const float alert_ph = (now - st.mode_at) / 1000.0f * TAU * 1.1f;
+  sc.timer_pulse = sc.alert_mode ? 0.45f + 0.55f * (0.5f + 0.5f * sinf(alert_ph)) : 1;
+  sc.timer_blink = !sc.alert_mode || sinf(alert_ph) > -0.3f;
 
   // карточка видна, пока не угасла; плеер — когда нет карточки и колонка в покое
   const bool card = card_on(in, now);
@@ -1208,6 +1221,8 @@ const Scene &animate(const Input &in, float dt) {
                     : st.mode == Mode::Speak ? 0.15f + 0.85f * clamp01(st.amp * 1.4f)
                                              : 0.0f;
   toward(sc.led_amp, amp, 16);
+  toward(sc.led_slp, (st.mode == Mode::Sleep && sc.card_a < 0.01f) ? 1.0f : 0.0f, 2.2f);
+  sc.night_tint = fmaxf(sc.led_slp, sc.card == Card::Remark ? clamp01(sc.card_a) : 0.0f);
   return sc;
 }
 
