@@ -37,7 +37,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
 <body>
 <div class="wrap">
   <h1>LED-панель: всё остальное</h1>
-  <p class="lead">Таймер, карточки с телефона, звонок, батарея, плеер, задачи, игры и мелочи в новом стиле. Всё считается теми же точками, что и лицо; текст остаётся гладким и коротким, под ним сетка тише. Нажимай на любое состояние справа.</p>
+  <p class="lead">Таймер, карточки с телефона, звонок, батарея, плеер, задачи, игры и мелочи в новом стиле. Всё считается теми же точками, что и лицо; текст остаётся гладким и коротким, читается за счёт тонкого тёмного контура (без плиты под ним); точки идут до самого края. Нажимай на любое состояние справа.</p>
   <div class="lab">
     <div class="stage">
       <div class="puck"><div class="bezel"><canvas id="cv" width="480" height="480" aria-label="Экран колонки"></canvas></div></div>
@@ -84,6 +84,12 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   const sdRing = (cx, cy, r, w) => (x, y) => Math.abs(Math.hypot(x - cx, y - cy) - r) - w / 2;
   const sdLine = (ax, ay, bx, by, w) => (x, y) => { const vx = bx - ax, vy = by - ay, t = clamp(((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy || 1)); return Math.hypot(x - ax - vx * t, y - ay - vy * t) - w / 2; };
   const sdBox = (cx, cy, hw, hh, r) => (x, y) => { const qx = Math.abs(x - cx) - hw + r, qy = Math.abs(y - cy) - hh + r; return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r; };
+  // Arc of a circle: centre, radius, middle direction (canvas angle), half opening, stroke width
+  const sdArc = (cx, cy, R, mid, half, w) => (x, y) => {
+    const dx = x - cx, dy = y - cy; let a = Math.atan2(dy, dx) - mid; a = ((a + PI) % TAU + TAU) % TAU - PI;
+    if (Math.abs(a) <= half) return Math.abs(Math.hypot(dx, dy) - R) - w / 2;
+    const e = mid + half * Math.sign(a); return Math.hypot(x - cx - R * Math.cos(e), y - cy - R * Math.sin(e)) - w / 2;
+  };
   const outline = (sd, w) => (x, y) => Math.abs(sd(x, y)) - w / 2;
   const sprite = (rows, k0, m0, col, v = 0.95) => rows.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '#') put(k0 + x, m0 + y, v, col); }));
 
@@ -105,21 +111,21 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       shape(((ee) => (x, y) => sdEye(x, y, ee))(e), col, br, box);
     }
   }
-  function digits(str, sc, m0, col, v = 0.9, colon = true) {
+  function digits(str, sc, m0, col, v = 0.9, colon = true, off = 0) {
     const G = { '0': [7, 5, 5, 5, 7], '1': [2, 6, 2, 2, 7], '2': [7, 1, 7, 4, 7], '3': [7, 1, 7, 1, 7], '4': [5, 5, 7, 1, 1], '5': [7, 4, 7, 1, 7], '6': [7, 4, 7, 5, 7], '7': [7, 1, 1, 1, 1], '8': [7, 5, 7, 5, 7], '9': [7, 5, 7, 1, 7] };
     let total = 0, n = 0; for (const ch of str) { total += (ch === ':' ? sc : 3 * sc) + (n++ ? 1 : 0); }
-    let k = -Math.floor(total / 2);
+    let k = -Math.floor(total / 2) + off;
     for (const ch of str) {
       if (ch === ':') { if (colon) for (const r of [1, 3]) for (let dy = 0; dy < sc; dy++) for (let dx = 0; dx < sc; dx++) put(k + dx, m0 + r * sc + dy, v, col); k += sc + 1; }
       else { G[ch].forEach((row, ry) => { for (let rx = 0; rx < 3; rx++) if ((row >> (2 - rx)) & 1) for (let dy = 0; dy < sc; dy++) for (let dx = 0; dx < sc; dx++) put(k + rx * sc + dx, m0 + ry * sc + dy, v, col); }); k += 3 * sc + 1; }
     }
   }
   const ang = (x, y) => { const a = Math.atan2(x - 120, 120 - y) / TAU; return a < 0 ? a + 1 : a; };
-  function ringDots(frac, col, v = 0.85, lo = 103.5, hi = 111, track = 0) {
+  function ringDots(frac, col, v = 0.85, lo = 109.5, hi = 117, track = 0) {
     for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
       const x = 120 + k * P, y = 120 + m * P, r = Math.hypot(x - 120, y - 120);
       if (r <= lo || r >= hi) continue;
-      if (ang(x, y) < frac) put(k, m, v, col); else if (track) put(k, m, track, col);
+      const q = frac >= 1 ? 1 : clamp((frac - ang(x, y)) / 0.009 + 0.5); if (q > 0.02) put(k, m, v * q, col); if (track && q < 1) put(k, m, track, col);
     }
   }
   function ringPulse(col, v) { ringDots(1, col, v); }
@@ -127,8 +133,8 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   function rim(lenOf, colorOf, LEN = 28) {
     for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
       const x = 120 + k * P, y = 120 + m * P, r = Math.hypot(x - 120, y - 120);
-      if (r < 80 || r > 112) continue;
-      const a = ang(x, y), len = lenOf(a) * LEN, edge = 112 - r;
+      if (r < 80 || r > 118) continue;
+      const a = ang(x, y), len = lenOf(a) * LEN, edge = 118 - r;
       if (len > 3 && edge < len) { const w = edge / len; put(k, m, 0.35 + 0.65 * (1 - w), colorOf(w, a)); }
     }
   }
@@ -136,7 +142,8 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   function text(str, x, y, size, weight, col, alpha = 1, align = 'center') {
     texts.push({ str, x, y, size, weight, col, alpha, align });
   }
-  function mask(x0, y0, x1, y1, k = 0.8) { masks.push([x0, y0, x1, y1, k]); }
+  // Backing plates are rejected: the grid under text stays untouched, legibility comes from the text outline
+  function mask() {}
 
   // ── Расчёт кадра → холст ──
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
@@ -145,7 +152,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     c.fillStyle = '#000'; c.fillRect(0, 0, 240, 240);
     for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
       const x = 120 + k * P, y = 120 + m * P;
-      if (Math.hypot(x - 120, y - 120) > 112) continue;
+      if (Math.hypot(x - 120, y - 120) > 118) continue;
       const i = (m + K) * N + k + K, v = V[i];
       let base = 0.075;
       for (const mk of masks) if (x > mk[0] && x < mk[2] && y > mk[1] && y < mk[3]) base *= 1 - mk[4];
@@ -173,21 +180,29 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     text(idleDate, 120, 207, 12.5, 500, WHITE, 0.55);
   }
 
+  // ── Радость: только глаза (улыбку пользователь отверг: эмоции показывают одни глаза) ──
+  const WARM = [255, 214, 120];
+  function archEyes(cy, R, half, w, col, v = 1, dx = 0) {
+    for (const side of [-1, 1]) shape(sdArc(120 + side * 31 + dx, cy, R, -PI / 2, half, w), col, v);
+  }
+  function happy(lt, t) {   // thick arches that wiggle and squash, "can't hold the joy"
+    const a = smooth(lt / 0.3), j = Math.sin(t * 9), sq = 1 + 0.12 * Math.sin(t * 4.8);
+    archEyes(98 - 3 * Math.abs(Math.sin(t * 4.8)), 20 * sq, 1.3 * a, 10, WARM, a, j * 1.6);
+  }
+
+  // Timer: three layouts, each with a running and a fired state
+  const mmss = secs => String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
+  const TOTAL = 90, SPEED = 6;
   function timer(done) {
     return (lt, t) => {
-      const a = appear(lt);
-      if (!done) {
-        const secs = Math.ceil(90 - ((lt * 6) % 90)), frac = secs / 90;
-        eyes({ s: 0.5, cy: 58, gy: 0.9 });
-        digits(String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0'), 2, -1, AMBER, 0.9 * a);
-        ringDots(frac, AMBER, 0.85 * a, 103.5, 111, 0.1);
-        text('паста', 120, 196, 13, 600, AMBER, a * 0.9);
-      } else {
-        const pulse = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(lt * TAU * 1.1));
-        eyes({ s: 0.62, cy: 60, hm: 1.1, col: mix(WHITE, AMBER, 0.3) });
-        digits('00:00', 2, -1, AMBER, Math.sin(lt * PI * 2) > -0.3 ? 0.95 : 0.3);
-        ringPulse(AMBER, pulse);
-        text('Готово', 120, 196, 15, 600, AMBER, 1);
+      const a = appear(lt), left = TOTAL - ((lt * SPEED) % TOTAL), secs = Math.ceil(left), frac = left / TOTAL;
+      const blink = Math.sin(lt * TAU * 1.1) > -0.3, pulse = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(lt * TAU * 1.1));
+      const ec = done ? mix(WHITE, AMBER, 0.3) : WHITE;
+      {   // big eyes watch small digits, ring around everything
+        eyes({ s: 0.72, cy: 68, gy: done ? 0 : 0.9, hm: done ? 1.12 : 1, col: ec });
+        digits(done ? '00:00' : mmss(secs), 1, 4, AMBER, done ? (blink ? 0.95 : 0.3) : 0.9 * a);
+        if (done) { ringPulse(AMBER, pulse); rim(() => 0.55 * pulse, w => mix(AMBER, [255, 120, 40], w), 16); } else ringDots(frac, AMBER, 0.85 * a, 112, 117, 0.1);
+        text(done ? 'Готово' : 'паста', 120, 200, done ? 16 : 13, 600, AMBER, done ? 1 : a * 0.9);
       }
     };
   }
@@ -212,9 +227,8 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   function battery(level) {
     return lt => {
       const a = appear(lt), col = level <= 10 ? RED : level <= 30 ? AMBER : GREEN, n = Math.ceil(level / 10);
-      eyes({ s: 0.55, cy: 58, lid: 0.3, tilt: 0.5, gy: 0.8, bright: 0.9 });
-      for (let i = 0; i < 10; i++) { for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) put(-14 + i * 3 + dx, 2 + dy, i < n ? 0.92 * a : 0.14, i < n ? col : WHITE); }
-      put(15, 2, 0.5 * a, WHITE); put(15, 3, 0.5 * a, WHITE);
+      eyes(level <= 30 ? { s: 0.55, cy: 58, lid: 0.3, tilt: 0.5, gy: 0.8, bright: 0.9 } : { s: 0.55, cy: 58, gy: 0.8 });   // sad only when the charge is low
+      for (let i = 0; i < 10; i++) { for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) put(-14 + i * 3 + dx, 2 + dy, i < n ? 0.92 * a : 0.24, i < n ? col : WHITE); }
       mask(28, 154, 212, 212);
       text('Nothing Ear (a)', 120, 174, 15, 600, WHITE, a);
       text(level + '%' + (level <= 20 ? '  ·  скоро сядет' : ''), 120, 195, 13, 500, col, a * 0.9);
@@ -230,14 +244,14 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   }
   function check(lt) {
     const a = appear(lt);
-    eyes({ s: 0.5, cy: 52, gy: 0.7 });
-    mask(28, 92, 212, 212);
-    text('Перед сном', 120, 98, 13, 600, WHITE, a * 0.6);
-    const rows = [['Будильник 7:30', ['..#..', '.###.', '.###.', '#####', '..#..']], ['Телефон 40%, заряд', ['#####', '#...#', '#...#', '#...#', '#####']], ['Наушники 55%', ['##.##', '##.##', '.#.#.', '.#.#.', '.#.#.']]];
+    eyes({ s: 0.45, cy: 46, gy: 0.7 });
+    mask(28, 80, 212, 212);
+    text('Перед сном', 120, 88, 13, 600, WHITE, a * 0.6);
+    const rows = [['Будильник 7:30', ['..#..', '.###.', '.###.', '#####', '..#..']], ['Телефон 40%', ['#####', '#...#', '#...#', '#...#', '#####']], ['Наушники 55%', ['##.##', '##.##', '.#.#.', '.#.#.', '.#.#.']]];
     rows.forEach(([s, ic], i) => {
-      const ra = smooth((lt - 0.2 - i * 0.18) / 0.4), y = 126 + i * 28, m0 = Math.round((y - 120) / P) - 2;
-      sprite(ic, -17, m0, [140, 205, 255], 0.9 * ra);
-      text(s, 64, y + 5, 13.5, 500, WHITE, a * ra * 0.92, 'left');
+      const ra = smooth((lt - 0.2 - i * 0.18) / 0.4), y = 114 + i * 36, m0 = Math.round((y - 120) / P) - 2;
+      sprite(ic, -12, m0, [140, 205, 255], 0.9 * ra);
+      text(s, 88, y + 5, 14, 500, WHITE, a * ra * 0.92, 'left');
     });
   }
   function remark(lt) {
@@ -264,8 +278,8 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     mask(36, 150, 204, 214);
     text('Take Five', 120, 168, 18, 600, WHITE, a);
     text('Dave Brubeck', 120, 187, 13, 500, WHITE, a * 0.55);
-    const frac = (lt * 0.03) % 1;
-    for (let k = -9; k <= 9; k++) put(k, 14, (k + 9) / 18 < frac ? 0.9 * a : 0.16 * a, GREEN);
+    const frac = 0.3 + (lt * 0.02) % 0.7;
+    for (let k = -9; k <= 9; k++) put(k, 3, (k + 9) / 18 < frac ? 0.9 * a : 0.3 * a, GREEN);
   }
   function task(kind) {
     return (lt, t) => {
@@ -273,9 +287,9 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       if (kind === 'work') {
         const frac = 0.42;
         eyes({ s: 0.8, cy: 74, lid: 0.2, gx: Math.sin(t * 1.6), gy: 0.3 });
-        ringDots(frac, BLUE, 0.9, 103.5, 111, 0.1);
+        ringDots(frac, BLUE, 0.9, 109.5, 117, 0.1);
         const head = (t * 0.6) % 1;
-        for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) { const x = 120 + k * P, y = 120 + m * P, r = Math.hypot(x - 120, y - 120); if (r > 103.5 && r < 111) { const d = ((ang(x, y) - head) % 1 + 1) % 1; if (d < 0.05 && ang(x, y) < frac) put(k, m, 1, WHITE); } }
+        for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) { const x = 120 + k * P, y = 120 + m * P, r = Math.hypot(x - 120, y - 120); if (r > 109.5 && r < 117) { const d = ((ang(x, y) - head) % 1 + 1) % 1; if (d < 0.05 && ang(x, y) < frac) put(k, m, 1, WHITE); } }
         mask(40, 150, 200, 214);
         text('42%', 120, 168, 22, 600, WHITE, a);
         text('Собираю прошивку', 120, 190, 13, 500, WHITE, a * 0.55);
@@ -290,7 +304,6 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
         eyes({ s: 0.8, cy: 70, smile: 0.62, col: mix(WHITE, GREEN, 0.25) });
         ringDots(1, GREEN, 0.85 * a);
         sprite(['........#', '.......##', '#.....##.', '.#...##..', '..#.##...', '...##....'], -4, 3, GREEN, 0.95 * a);
-        mask(40, 170, 200, 214);
         text('Готово', 120, 192, 17, 600, GREEN, a);
       } else {
         eyes({ s: 0.8, cy: 74, lid: 0.34, tilt: 0.9, gy: 0.8, bright: 0.85 });
@@ -304,17 +317,21 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
 
   // ── Игры: глаза мелкие наверху, сцена посередине ──
   function gameEyes(extra = {}) { eyes({ s: 0.4, cy: 36, gy: 0.9, ...extra }); }
+  const GL = { 'Р': ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'], 'О': ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'] };
   function coin(lt) {
-    const T = 2.2, p = clamp(lt / T), result = 1, turns = 8 + result;
+    const T = 2.4, p = clamp(lt / T), result = 1, turns = 7 + result, GOLD = [255, 205, 90];
     gameEyes();
-    const ang = easeOut(p) * turns * PI, sx = Math.abs(Math.cos(ang)), cx = 120, cy = 124, R = 46;
-    const ry = R, rx = Math.max(R * sx, 2);
-    shape((x, y) => (Math.hypot((x - cx) / rx, (y - cy) / ry) - 1) * Math.min(rx, ry), AMBER, 0.55);
-    shape((x, y) => Math.abs(Math.hypot((x - cx) / rx, (y - cy) / ry) - 1) * Math.min(rx, ry) - 1.2, [255, 214, 120], 1);
-    const heads = Math.cos(ang) > 0 === (result % 2 === 0);
-    if (p > 0.97) text(result ? 'Р' : 'О', 120, cy + 14, 44, 600, [138, 92, 0], 1);
-    if (lt > T) text(result ? 'Решка' : 'Орёл', 120, 212, 20, 600, WHITE, smooth((lt - T) / 0.3));
-    void heads;
+    const spin = easeOut(p) * turns * PI, cs = Math.cos(spin), rx = Math.max(Math.abs(cs) * 44, 2.5), ry = 44;
+    const air = p < 1 ? Math.sin(Math.min(p / 0.85, 1) * PI) : 0, cx = 120, cy = 128 - 30 * air;
+    // ground shadow shrinks as the coin goes up
+    shape((x, y) => (Math.hypot((x - cx) / (30 - 10 * air), (y - 190) / 4) - 1) * 4, WHITE, 0.28 * (1 - 0.6 * air));
+    const ell = (k) => (x, y) => (Math.hypot((x - cx) / (rx * k), (y - cy) / (ry * k)) - 1) * Math.min(rx * k, ry * k);
+    shape(ell(1), GOLD, 0.42);
+    shape((x, y) => Math.abs(ell(1)(x, y)) - 2.2, GOLD, 1);
+    if (rx > 14) shape((x, y) => Math.abs(ell(0.78)(x, y)) - 1.2, GOLD, 0.55);
+    // face symbol: heads side shows the glyph, tails side is "О"
+    if (rx > 14) { const g = (cs > 0) === (result % 2 === 0) ? 'О' : 'Р'; sprite(GL[g], -2, Math.round((cy - 120) / P) - 3, [255, 240, 200], 0.95 * clamp((rx - 14) / 14)); }
+    if (lt > T) text(result ? 'Решка' : 'Орёл', 120, 214, 20, 600, WHITE, smooth((lt - T) / 0.3));
   }
   function dice(lt) {
     const T = 1.5, p = clamp(lt / T), result = 4, face = p < 1 ? Math.floor(lt * 14) % 6 + 1 : result;
@@ -327,7 +344,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     if (p >= 1) text('Выпало ' + result, 120, 212, 20, 600, WHITE, smooth((lt - T) / 0.3));
   }
   function wheel(lt, t) {
-    const T = 2.7, p = clamp(lt / T), count = 6, S = TAU / count, result = 2, cx = 120, cy = 126, R = 54;
+    const T = 2.7, p = clamp(lt / T), count = 6, S = TAU / count, result = 2, cx = 120, cy = 138, R = 50;
     gameEyes();
     const palette = [BLUE, GREEN, AMBER, VIOLET, RED, CYAN];
     const target = TAU * 3 + (TAU - (result + 0.5) * S), rot = easeOut(p) * target;
@@ -349,7 +366,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       const a = smooth((lt - T) / 0.25);
       if (mine === 0) shape(sdDisc(cx, cy, 24), WHITE, a);
       else if (mine === 1) { shape(sdBox(cx, cy, 24, 28, 8), WHITE, 0.25 * a); shape(outline(sdBox(cx, cy, 24, 28, 8), 3), WHITE, a); for (let i = -1; i <= 1; i++) shape(sdLine(cx + i * 11, cy - 12, cx + i * 11, cy + 12, 3), WHITE, 0.7 * a); }
-      else { shape(sdLine(cx - 4, cy + 28, cx - 22, cy - 26, 6), WHITE, a); shape(sdLine(cx + 4, cy + 28, cx + 22, cy - 26, 6), WHITE, a); }
+      else { shape(sdLine(cx - 20, cy - 22, cx + 12, cy + 16, 5), WHITE, a); shape(sdLine(cx + 20, cy - 22, cx - 12, cy + 16, 5), WHITE, a); shape(outline(sdDisc(cx - 16, cy + 24, 8), 3.5), WHITE, a); shape(outline(sdDisc(cx + 16, cy + 24, 8), 3.5), WHITE, a); }
       text('Я выиграл', 120, 208, 20, 600, GREEN, a);
     }
   }
@@ -364,45 +381,97 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   }
   function ttt(lt) {
     gameEyes({ gx: Math.sin(lt * 0.8) });
-    const cx = 120, cy = 128, c = 30, moves = [[1, 1, 'X'], [0, 0, 'O'], [2, 0, 'X'], [0, 2, 'O'], [0, 1, 'X'], [2, 1, 'O'], [2, 2, 'X']];
-    for (const o of [-c / 2 - c / 2, c / 2 + c / 2]) { }
-    for (const d of [-c / 2, c / 2]) { shape(sdLine(cx + d, cy - c * 1.4, cx + d, cy + c * 1.4, 3), WHITE, 0.55); shape(sdLine(cx - c * 1.4, cy + d, cx + c * 1.4, cy + d, 3), WHITE, 0.55); }
+    const cx = 120, cy = 126, c = 36, h = c * 1.5, g = smooth(lt / 0.5);
+    const moves = [[1, 1, 'X'], [0, 0, 'O'], [2, 0, 'X'], [1, 0, 'O'], [0, 2, 'X']];
+    for (const d of [-c / 2, c / 2]) {
+      shape(sdLine(cx + d, cy - h * g, cx + d, cy + h * g, 5), WHITE, 0.8);
+      shape(sdLine(cx - h * g, cy + d, cx + h * g, cy + d, 5), WHITE, 0.8);
+    }
     moves.forEach(([col, row, who], i) => {
-      const a = smooth((lt - 0.4 - i * 0.55) / 0.3); if (a <= 0) return;
-      const x = cx + (col - 1) * c, y = cy + (row - 1) * c;
-      if (who === 'X') { shape(sdLine(x - 7, y - 7, x + 7, y + 7, 4), CYAN, a); shape(sdLine(x - 7, y + 7, x + 7, y - 7, 4), CYAN, a); }
-      else shape(outline(sdDisc(x, y, 8), 4), AMBER, a);
+      const a = smooth((lt - 0.6 - i * 0.55) / 0.3); if (a <= 0) return;
+      const x = cx + (col - 1) * c, y = cy + (row - 1) * c, r = 11 * (0.4 + 0.6 * a);
+      if (who === 'X') { shape(sdLine(x - r, y - r, x + r, y + r, 6), CYAN, a); shape(sdLine(x - r, y + r, x + r, y - r, 6), CYAN, a); }
+      else shape(outline(sdDisc(x, y, r + 1.5), 6), AMBER, a);
     });
-    if (lt > 4.7) text('Я победил', 120, 214, 18, 600, WHITE, smooth((lt - 4.7) / 0.3));
+    const wl = smooth((lt - 3.5) / 0.3);
+    if (wl > 0) shape(sdLine(cx + c + 8, cy - c - 8, cx - c - 8, cy + c + 8, 6), GREEN, wl);
+    if (lt > 3.8) text('Я победил', 120, 214, 18, 600, WHITE, smooth((lt - 3.8) / 0.3));
   }
-  // «Z» в сне и мелочи на фоне покоя
-  function reminders(lt, t) {
-    idleFace(t);
-    sprite(['...#...', '..###..', '.#####.', '.#####.', '.#####.', '#######', '...#...'], -6, -16, AMBER, 0.9);
-    sprite(['###', '..#', '###', '#..', '###'], 2, -15, WHITE, 0.9);
+  // ── Reminders badge: a bell drawn with soft shapes above the eyes, count beside it ──
+  function bellShape(cx, cy, swing) {
+    // Bell rotates about its hook; sizes are in px, the whole bell is about 36 x 42
+    const hx = cx, hy = cy - 20;
+    const rot = (x, y) => { const c = Math.cos(swing), s = Math.sin(swing), dx = x - hx, dy = y - hy; return [hx + dx * c + dy * s, hy - dx * s + dy * c]; };
+    const body = (x, y) => {
+      const [u, v] = rot(x, y);
+      const dome = Math.hypot(u - cx, v - (cy - 6)) - 12;
+      const waist = sdBox(cx, cy + 1, 12, 6, 1)(u, v);
+      const flare = sdBox(cx, cy + 8, 18, 3.5, 2)(u, v);
+      return Math.min(dome, waist, flare, Math.hypot(u - cx, v - (cy - 19)) - 3);
+    };
+    shape(body, AMBER, 0.95, [cx - 44, cy - 40, cx + 44, cy + 40]);
+    shape(sdDisc(cx - swing * 18, cy + 17, 4), AMBER, 0.95);   // clapper swings the other way
   }
-  function quiet(lt, t) {
-    eyes({ cy: 98, lid: 0.42, bright: 0.9, gy: 0.5 });
-    shape((x, y) => Math.max(Math.hypot(x - 168, y - 70) - 15, 12 - Math.hypot(x - 174, y - 66)), [200, 205, 235], 0.9);
-    text('Тишина', 120, 200, 14, 500, WHITE, 0.6);
+  const moonShape = (col = [200, 205, 235]) => shape((x, y) => Math.max(Math.hypot(x - 166, y - 64) - 24, 19 - Math.hypot(x - 177, y - 56)), col, 0.95);
+  function bell(lt, t) {
+    idleFace(t, { cy: 102 });
+    bellShape(106, 42, Math.sin(t * 2.4) * 0.12);
+    digits('3', 1, -16, WHITE, 0.95, false, 5);
   }
-  function offline(lt, t) {
-    idleFace(t);
-    sprite(['..#####..', '.#.....#.', '#..###..#', '..#...#..', '....#....'], -4, -16, RED, 0.9);
-    shape(sdLine(98, 24, 142, 56, 3.4), RED, 0.95);
+  // ── Quiet mode: no label, the picture says it ──
+  function quietEyes() { eyes({ cy: 92, lid: 0.42, bright: 0.9, gy: 0.5 }); }
+  function quiet(lt, t) {   // muted speaker
+    quietEyes();
+    const cx = 116, cy = 168, GREY = [200, 205, 235];
+    shape(sdBox(cx - 28, cy, 8, 12, 2), GREY, 0.95);
+    shape((x, y) => Math.max(Math.abs(y - cy) - (12 + 16 * (x - (cx - 20)) / 24), (cx - 20) - x, x - (cx + 4)), GREY, 0.95);
+    for (const R of [22, 34]) shape(sdArc(cx + 4, cy, R, 0, 0.7, 4), GREY, 0.6);
+    shape(sdLine(cx - 40, cy - 30, cx + 44, cy + 30, 7), RED, 1);
   }
-  function sleepCard(lt, t) {
-    // «Z» во сне: такие же, как в лице
+  // Reply with a light icon: a dot bulb with a soft glow between the eyes and the text
+  function lightReply(lt, t) {
+    const a = appear(lt), Y = [255, 204, 0], k = 0.9 + 0.1 * Math.sin(t * 3);
+    eyes({ s: 0.7, cy: 54, gx: Math.sin(t * 0.7) * 0.4 });
+    shape(sdDisc(120, 126, 44), Y, 0.1 * a);
+    shape(sdDisc(120, 126, 32), Y, 0.14 * a);
+    shape(sdDisc(120, 124, 19), Y, 0.95 * a * k);
+    shape(sdLine(112, 138, 128, 138, 2), [255, 240, 170], a);   // filament-side highlight
+    shape(sdBox(120, 148, 9, 4.5, 1.5), Y, 0.9 * a);
+    shape(sdBox(120, 158, 6.5, 3, 1.2), Y, 0.75 * a);
+    text('Свет включён', 120, 200, 18, 600, WHITE, a);
+  }
+  function offline(lt, t) {   // red Wi-Fi crossed out through its middle; the slash stays clear of the eyes
+    idleFace(t, { cy: 106 });
+    const k = 0.9 + 0.1 * Math.sin(t * 2.2), cx = 120, cy = 66, HOT = [255, 90, 78];
+    for (const R of [15, 28, 41]) shape(sdArc(cx, cy, R, -PI / 2, 0.8, 6), HOT, k);
+    shape(sdDisc(cx, cy, 4.6), HOT, k);
+    shape(sdLine(cx - 32, cy - 46, cx + 32, cy - 6, 4.5), WHITE, 1);
+  }
+  // Sleep: closed eyes, dim red time, "Z" drifting up and to the right
+  const Z_S = ['###', '..#', '.#.', '#..', '###'], Z_L = ['#####', '...#.', '..#..', '.#...', '#####'];
+  function sleepZ(t, col) {
+    for (let i = 0; i < 2; i++) {
+      const u = (t * 0.17 + i / 2) % 1, g = u < 0.45 ? Z_S : Z_L;
+      sprite(g, 7 + Math.round(u * 6), -3 - Math.round(u * 10), col, 0.7 * Math.sin(u * PI));
+    }
+  }
+
+  function sleepBase(t, eyeFn) {
     const b = 0.5 + 0.5 * Math.sin(t * TAU / 6.5);
-    eyes({ cy: 100, open: 0.1, bright: 0.38 + 0.2 * b, col: NIGHT_RED });
     theme = { grid: [255, 90, 70], ink: NIGHT_RED };
+    eyeFn(0.4 + 0.22 * b);
     digits('21:46', 1, 6, NIGHT_RED, 0.45, true);
-    for (let i = 0; i < 3; i++) { const u = (t * 0.22 + i / 3) % 1; sprite(['###', '..#', '.#.', '#..', '###'], 8 + Math.round(u * 3 + i), -3 - Math.round(u * 5), [150, 175, 255], 0.9 * Math.sin(u * PI)); }
+  }
+  function sleep(lt, t) {
+    sleepBase(t, v => { for (const side of [-1, 1]) shape(sdBox(120 + side * 31, 100, 17, 2.2, 2.2), NIGHT_RED, v); });
+    sleepZ(t, [255, 130, 110]);
   }
 
   const SCENES = [
-    { g: 'Таймер', n: 'Идёт', f: timer(false), note: 'Остаток цифрами 2×, кольцо из точек гаснет по часовой, подпись янтарём.' },
-    { g: 'Таймер', n: 'Сработал', f: timer(true), note: 'Цифры мигают, кольцо пульсирует янтарём, глаза широкие.' },
+    { g: 'Радость', n: 'Радость', f: happy, note: 'Утверждено: толстые дуги дрожат и пружинят. Одни глаза, без рта.' },
+    { g: 'Сон', n: 'Сон', f: sleep, note: 'Утверждено: глаза-щёлки дышат, тусклое красное время, красные Z плывут вверх вправо.' },
+    { g: 'Таймер', n: 'Идёт', f: timer(false), note: 'Утверждено: глаза крупные, цифры мелкие под ними, кольцо из точек плавно гаснет по часовой.' },
+    { g: 'Таймер', n: 'Сработал', f: timer(true), note: 'Утверждено: цифры мигают, кольцо и край пульсируют янтарём, глаза шире.' },
     { g: 'Карточки с телефона', n: 'Сообщение', f: msgCard, note: 'Глаза уменьшаются вверх, приложение, имя и две строки текста.' },
     { g: 'Карточки с телефона', n: 'Звонок', f: call, note: 'Зелёная волна по краю бегает без остановки, имя крупно.' },
     { g: 'Карточки с телефона', n: 'Батарея 15%', f: battery(15), note: 'Шкала из десяти LED-ячеек, цвет по уровню; глаза грустят.' },
@@ -422,10 +491,10 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     { g: 'Игры', n: 'Камень-ножницы-бумага', f: rps, note: 'Кулак трижды подпрыгивает, потом раскрывается.' },
     { g: 'Игры', n: 'Магический шар', f: magic8, note: 'Шар с восьмёркой, потом проявляется ответ.' },
     { g: 'Игры', n: 'Крестики-нолики', f: ttt, note: 'Поле из точек, ходы ставятся по очереди.' },
-    { g: 'Мелочи', n: 'Есть напоминания', f: reminders, note: 'Колокольчик и число над глазами в покое.' },
-    { g: 'Мелочи', n: 'Тихий режим', f: quiet, note: 'Спокойные глаза, луна из точек, подпись «Тишина».' },
-    { g: 'Мелочи', n: 'Нет связи', f: offline, note: 'Красный значок Wi-Fi с чертой слева сверху.' },
-    { g: 'Мелочи', n: 'Сон (красный)', f: sleepCard, note: 'Закрытые глаза, тусклое красное время, плывущие «Z».' },
+    { g: 'Напоминания', n: 'Колокольчик', f: bell, note: 'Покачивающийся колокольчик над глазами и число рядом.' },
+    { g: 'Тихий режим', n: 'Тишина', f: quiet, note: 'Сонные глаза и перечёркнутый динамик, без надписи.' },
+    { g: 'Мелочи', n: 'Свет включён', f: lightReply, note: 'Ответ с лампочкой: свечение из точек между глазами и текстом.' },
+    { g: 'Мелочи', n: 'Нет связи', f: offline, note: 'Крупный красный Wi-Fi с чертой над глазами, медленно пульсирует.' },
   ];
 
   // ── Управление ──
@@ -453,11 +522,12 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     requestAnimationFrame(frame);
   }
   // Contact sheet for checking every scene at once (debug helper)
-  window.__sheet = (lt = 2.4) => {
-    const sh = document.createElement('canvas'); sh.width = 5 * 240; sh.height = 5 * 240; sh.id = 'sheet';
+  window.__sheet = (lt = 2.4, from = 0, to = SCENES.length) => {
+    const list = SCENES.slice(from, to), cols = Math.min(list.length, 3), rows = Math.ceil(list.length / cols);
+    const sh = document.createElement('canvas'); sh.width = cols * 360; sh.height = rows * 360; sh.id = 'sheet';
     const c = sh.getContext('2d'), tmp = document.createElement('canvas'); tmp.width = tmp.height = 480; const tc = tmp.getContext('2d');
-    SCENES.forEach((s, i) => { clearAll(); s.f(lt, lt + 10); paint(tc); c.drawImage(tmp, (i % 5) * 240, Math.floor(i / 5) * 240, 240, 240); });
-    sh.style.cssText = 'position:fixed;inset:0;width:100vw;height:auto;background:#000;z-index:99'; document.body.appendChild(sh); return sh.height;
+    list.forEach((s, i) => { clearAll(); s.f(lt, lt + 10); paint(tc); c.drawImage(tmp, (i % cols) * 360, Math.floor(i / cols) * 360, 360, 360); });
+    sh.style.cssText = 'position:fixed;inset:0;width:100vw;height:auto;background:#000;z-index:99'; document.body.appendChild(sh); return sh;
   };
   // метки-кружки не должны попадать в обычный проход текста
   select(0);
