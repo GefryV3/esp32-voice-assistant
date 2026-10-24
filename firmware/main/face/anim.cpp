@@ -766,10 +766,11 @@ void targets(const Input &in) {
         T[FACE_Y] = 62;
         gx = 0;
         gy = 7;
-        for (EyeT &e : E) {
-          e.lidT = .3f;
-          e.lidA = -.3f;
-        }
+        if (in.card_level <= 30)  // sad only when the charge is low
+          for (EyeT &e : E) {
+            e.lidT = .3f;
+            e.lidA = -.3f;
+          }
         break;
       case Card::Info:
         T[SCALE] = .6f;

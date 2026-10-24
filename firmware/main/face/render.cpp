@@ -1072,25 +1072,20 @@ void bell_icon(float x, float y, const Rgb &c, float a) {
   capsule(x - 2, y + 7, x + 2, y + 7, 1.6f, c, a);
 }
 
-void phone_icon(float x, float y, const Rgb &c, float a) {
-  rrect(x, y, 4.5f, 7.5f, 2.5f, c, a, 1.6f);
-  capsule(x - 1.5f, y + 5, x + 1.5f, y + 5, 1.6f, c, a);
+// First letter of the app name in upper case ("telegram" -> "Telegram")
+void cap_first(const char *s, char *out, size_t n) {
+  const char *p = s;
+  text::next(p);
+  const size_t fl = (size_t)(p - s) < 4 ? (size_t)(p - s) : 4;
+  char tmp[5] = {};
+  memcpy(tmp, s, fl);
+  char first[8];
+  upper(tmp, first, sizeof first);
+  snprintf(out, n, "%s%s", first, s + fl);
 }
 
-void buds_icon(float x, float y, const Rgb &c, float a) {
-  for (int s = -1; s <= 1; s += 2) {
-    arc(x + s * 4, y - 3, 3, 1.6f, 0, TAU, c, a);
-    capsule(x + s * 4, y, x + s * 4, y + 7, 1.6f, c, a);
-  }
-}
-
-void laptop_icon(float x, float y, const Rgb &c, float a) {
-  rrect(x, y - 2, 7, 5, 1.5f, c, a, 1.6f);
-  capsule(x - 9, y + 5, x + 9, y + 5, 1.6f, c, a);
-}
-
-// Кружок приложения с первой буквой названия
-void app_badge(float x, float y, const char *app, float a) {
+// Colour of the little app dot by name
+Rgb app_color(const char *app) {
   struct Known {
     const char *name;
     Rgb c;
@@ -1098,54 +1093,48 @@ void app_badge(float x, float y, const char *app, float a) {
   static const Known KNOWN[] = {{"telegram", {42, 171, 238}}, {"whatsapp", {37, 211, 102}},
                                 {"instagram", {225, 48, 108}}, {"gmail", {234, 67, 53}},
                                 {"discord", {88, 101, 242}},    {"youtube", {255, 0, 51}}};
-  Rgb c = {142, 142, 147};
   for (const Known &k : KNOWN)
-    if (strcasecmp(app, k.name) == 0) c = k.c;
-  disc(x, y, 11, c, a);
-  char up[8];
-  const char *p = app;
-  const uint32_t first = text::next(p);
-  if (!first) return;
-  char one[5] = {};
-  memcpy(one, app, (size_t)(p - app) < 4 ? (size_t)(p - app) : 4);
-  upper(one, up, sizeof up);
-  draw_text(text::kCaps, up, x, y + 4.5f, 1, true, {255, 255, 255}, a);
+    if (strcasecmp(app, k.name) == 0) return k.c;
+  return {142, 142, 147};
 }
 
-// Строка проверки перед сном: значок по первому слову и текст с заглавной
+// "Before sleep" row: the icon itself is stamped into the dot table (see build_led); here is only the text
+int check_kind(const char *row) {
+  if (strncmp(row, "будильник", 18) == 0) return 0;
+  if (strncmp(row, "телефон", 14) == 0) return 1;
+  if (strncmp(row, "ноутбук", 14) == 0) return 2;
+  return 3;
+}
+
 void check_row(const Scene &s, const char *row, float y, float a) {
-  const Rgb acc = rgb(s.accent);
-  if (strncmp(row, "будильник", 18) == 0) bell_icon(66, y - 4, acc, a);
-  else if (strncmp(row, "телефон", 14) == 0) phone_icon(66, y - 5, acc, a);
-  else if (strncmp(row, "ноутбук", 14) == 0) laptop_icon(66, y - 4, acc, a);
-  else buds_icon(66, y - 4, acc, a);
-  char cap[96], first[8], tmp[5] = {};
-  const char *p = row;
-  text::next(p);
-  const size_t fl = (size_t)(p - row) < 4 ? (size_t)(p - row) : 4;
-  memcpy(tmp, row, fl);
-  upper(tmp, first, sizeof first);
-  snprintf(cap, sizeof cap, "%s%s", first, row + fl);
+  char cap[96];
+  cap_first(row, cap, sizeof cap);
   char line[96];
-  fit(text::kUi, cap, 132, line, sizeof line);
-  draw_text(text::kUi, line, 82, y + 1, 1, false, rgb(s.ink), a * 0.9f);
+  fit(text::kUi, cap, 120, line, sizeof line);
+  draw_text(text::kUi, line, 88, y + 5, 1, false, rgb(s.ink), a * 0.92f);
+}
+
+// Rows of the "before sleep" list; the text separator is " · "
+int check_split(const char *text_in, char rows[4][96]) {
+  int n = 0;
+  const char *p = text_in;
+  while (n < 4 && *p) {
+    const char *sep = strstr(p, " \xC2\xB7 ");
+    const size_t len = sep ? (size_t)(sep - p) : strlen(p);
+    snprintf(rows[n++], 96, "%.*s", (int)(len < 95 ? len : 95), p);
+    p = sep ? sep + 4 : p + len;
+  }
+  return n;
 }
 
 void draw_player(const Scene &s, float a) {
-  const Rgb acc = rgb(s.accent), ink = rgb(s.ink);
-  ring_band(113, 1.5f, s.player_frac, acc, a, 0.18f);
-  if (s_y1 < 135 || s_y0 > 205) return;
+  if (s_y1 < 150 || s_y0 > 205) return;  // the dot bar and the beat are in the dot table; this is only text
   const float lift = (1 - a) * 14;
   char line[96];
   fit(text::kUiBold, s.player_title, 170, line, sizeof line);
-  draw_text(text::kUiBold, line, C, 154 + lift, 1, true, ink, a);
+  draw_text(text::kUiBold, line, C, 168 + lift, 1, true, rgb(s.ink), a);
   fit(text::kUi, s.player_artist, 170, line, sizeof line);
-  draw_text(text::kUi, line, C, 174 + lift, 1, true, ink, a * 0.55f);
-  for (int i = 0; i < 3; i++) {  // эквалайзер
-    const float h = s.player_playing ? 4 + 9 * fabsf(sinf(s.t * (3.1f + i * 1.7f) + i * 1.3f)) : 3;
-    const float x = C - 7 + i * 7;
-    capsule(x, 200 + lift - h + 2, x, 200 + lift - 2, 4, acc, a);
-  }
+  draw_text(text::kUi, line, C, 187 + lift, 1, true, rgb(s.ink), a * 0.55f);
 }
 
 void draw_card(const Scene &s) {
@@ -1155,78 +1144,57 @@ void draw_card(const Scene &s) {
     draw_player(s, a);
     return;
   }
-  const Rgb ink = rgb(s.ink), acc = rgb(s.accent);
-  const float lift = (1 - a) * 14;
+  const Rgb ink = rgb(s.ink);
+  const float lift = (1 - a) * 8;
   char lines[2][128];
   char line[128];
-  if (s.card == Card::Call) {  // волны от центра — их видно по всему экрану
-    const Rgb green = {48, 209, 88};
-    for (int i = 0; i < 3; i++) {
-      float ph = s.t * 0.55f + i / 3.0f;
-      ph -= floorf(ph);
-      ring_band(46 + 70 * ph, 1, 1, green, a * (1 - ph) * (1 - ph) * 0.5f, 0);
-    }
-  }
   if (s_y1 < 88 || s_y0 > 212) return;
   switch (s.card) {
     case Card::Msg: {
-      app_badge(C, 104 + lift, s.card_app, a);
-      char up[64];
-      upper(s.card_app, up, sizeof up);
-      draw_text(text::kCaps, up, C, 130 + lift, 1, true, acc, a * 0.9f, 1.2f);
+      char nm[64];
+      cap_first(s.card_app, nm, sizeof nm);
+      disc(84, 106 + lift, 3.5f, app_color(s.card_app), a);
+      draw_text(text::kUi, nm, 126, 110 + lift, 1, true, ink, a * 0.55f);
       fit(text::kUiBold, s.card_title, 176, line, sizeof line);
-      draw_text(text::kUiBold, line, C, 152 + lift, 1, true, ink, a);
+      draw_text(text::kUiBold, line, C, 142 + lift, 1, true, ink, a);
       const int n = wrap2_fit(text::kUi, s.card_text, 176, lines);
-      for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, 172 + i * 19 + lift, 1, true, ink, a * 0.75f);
+      for (int i = 0; i < n; i++) draw_text(text::kUi, lines[i], C, 166 + i * 19 + lift, 1, true, ink, a * 0.75f);
       break;
     }
     case Card::Call: {
       fit(text::kTitle, s.card_title, 180, line, sizeof line);
-      draw_text(text::kTitle, line, C, 164 + lift, 1, true, ink, a);
-      char up[64];
-      upper(s.card_text, up, sizeof up);
-      draw_text(text::kCaps, up, C, 184 + lift, 1, true, {48, 209, 88}, a * (0.6f + 0.4f * fabsf(sinf(s.t * 3))), 1.2f);
+      draw_text(text::kTitle, line, C, 168, 1, true, ink, a);
+      draw_text(text::kUi, s.card_text, C, 190, 1, true, {48, 209, 88}, a * (0.6f + 0.4f * fabsf(sinf(s.t * 3))));
       break;
     }
     case Card::Battery: {
       const int lvl = s.card_level < 0 ? 0 : (s.card_level > 100 ? 100 : s.card_level);
-      const Rgb fillc = lvl <= 10 ? Rgb{255, 69, 58} : Rgb{255, 159, 10};
-      const float y = 126 + lift, frame_a = a * 0.7f;
-      rrect(C, y, 23, 11, 6, ink, frame_a, 1.8f);
-      rrect(C + 26.5f, y, 1.5f, 4, 1.5f, ink, frame_a, 0);
-      const float wf = fmaxf(3, 40 * lvl / 100.0f);
-      rrect(C - 20 + wf / 2, y, wf / 2, 8, 3, fillc, a, 0);
+      const Rgb fillc = lvl <= 10 ? Rgb{255, 69, 58} : (lvl <= 30 ? Rgb{255, 159, 10} : Rgb{48, 209, 88});
       fit(text::kUiBold, s.card_title, 176, line, sizeof line);
-      draw_text(text::kUiBold, line, C, 166 + lift, 1, true, ink, a);
+      draw_text(text::kUiBold, line, C, 174, 1, true, ink, a);
       fit(text::kUi, s.card_text, 176, line, sizeof line);
-      draw_text(text::kUi, line, C, 186 + lift, 1, true, ink, a * 0.7f);
+      draw_text(text::kUi, line, C, 195, 1, true, fillc, a * 0.9f);
       break;
     }
     case Card::Check: {
-      char up[64];
-      upper(s.card_title, up, sizeof up);
-      draw_text(text::kCaps, up, C, 98 + lift, 1, true, acc, a * 0.9f, 1.2f);
-      // строки в тексте разделены « · »
-      const char *p = s.card_text;
-      for (int i = 0; i < 4 && *p; i++) {
-        const char *sep = strstr(p, " \xC2\xB7 ");
-        const size_t len = sep ? (size_t)(sep - p) : strlen(p);
-        char row[96];
-        snprintf(row, sizeof row, "%.*s", (int)(len < sizeof row ? len : sizeof row - 1), p);
-        check_row(s, row, 126 + i * 27 + lift, a);
-        p = sep ? sep + 4 : p + len;
-      }
+      draw_text(text::kUiBold, s.card_title, C, 88, 1, true, ink, a * 0.6f);
+      char rows[4][96];
+      const int n = check_split(s.card_text, rows);
+      const float step = n > 3 ? 28 : 36, y0 = n > 3 ? 108 : 114;
+      for (int i = 0; i < n; i++) check_row(s, rows[i], y0 + i * step, a * clamp01((s.card_t - 0.2f - i * 0.18f) / 0.4f));
       break;
     }
     case Card::Remark:
     case Card::Wake:
     case Card::Info: {
       const int n = wrap2_fit(text::kUiBold, s.card_title, 176, lines);
-      const float y0 = (s.card == Card::Remark ? 168 : 160) + lift;
-      const float ta = s.card == Card::Remark ? 0.8f : 1, xa = s.card == Card::Remark ? 0.5f : 0.7f;
-      for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * 20, 1, true, ink, a * ta);
+      // mockup rows: info 140 / 166 (amber), remark 172 / 192, wake 160, 179 / 198 (amber)
+      const bool rem = s.card == Card::Remark, wk = s.card == Card::Wake;
+      const float y0 = (rem ? 172 : (wk ? 160 : 140)) + lift, step = wk ? 19 : 20, gap = s.card == Card::Info ? 6 : 0;
+      const float ta = rem ? 0.8f : 1, xa = rem ? 0.5f : (wk ? 0.85f : 0.95f);
+      for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * step, 1, true, ink, a * ta);
       fit(text::kUi, s.card_text, 176, line, sizeof line);
-      draw_text(text::kUi, line, C, y0 + n * 20 + 2, 1, true, ink, a * xa);
+      draw_text(text::kUi, line, C, y0 + n * step + gap, 1, true, wk || s.card == Card::Info ? Rgb{255, 179, 64} : ink, a * xa);
       break;
     }
     case Card::None:
@@ -1255,6 +1223,20 @@ const uint8_t G3[11][5] = {{7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7
                            {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7}, {7, 1, 2, 4, 7}};  // 0..9 and 'z', 3 bits per row
 const Rgb L_THINK = {191, 90, 242}, L_SPEAK = {100, 210, 255}, L_TIMER = {255, 179, 64};
 const Rgb L_MUS_A = {48, 209, 88}, L_MUS_B = {100, 225, 255}, L_WHITE = {255, 255, 255}, L_Z = {150, 175, 255};
+
+// Colours of the stencil by index: 0 - ink (set per frame), the rest are fixed
+const Rgb L_ICON = {140, 205, 255}, L_GREEN = {48, 209, 88}, L_RED = {255, 69, 58}, L_AMBER2 = {255, 159, 10};
+const Rgb *const TXT_COL[] = {nullptr, &L_TIMER, &L_Z, &L_ICON, &L_GREEN, &L_RED, &L_AMBER2};
+
+void stamp_sprite(const char *const *rows, int n, int k0, int m0, uint8_t a, uint8_t ci) {
+  for (int ry = 0; ry < n; ry++)
+    for (int rx = 0; rows[ry][rx]; rx++) {
+      const int k = k0 + rx, m = m0 + ry;
+      if (rows[ry][rx] != '#' || k < -LK || k > LK || m < -LK || m > LK) continue;
+      s_txt[m + LK][k + LK] = a;
+      s_txt_c[m + LK][k + LK] = ci;
+    }
+}
 
 inline float hash3(float a, float b, float c) {
   const float x = sinf(a * 12.9898f + b * 78.233f + c * 37.719f) * 43758.5453f;
@@ -1389,6 +1371,41 @@ void build_led(const Scene &s) {
     else snprintf(tm, sizeof tm, "%02u:%02u", (unsigned)(secs / 60), (unsigned)(secs % 60));
     stamp_time(tm, 2, -1, (uint8_t)(255 * clamp01(s.timer_a * s.timer_pulse)), 1, true);
   }
+  // phone cards: the battery gauge, the list icons and the player progress are dots too
+  if (s.card_a > 0.01f && s.card == Card::Battery && !s.player) {
+    const int lvl = s.card_level < 0 ? 0 : (s.card_level > 100 ? 100 : s.card_level), nseg = (lvl + 9) / 10;
+    const uint8_t ci = lvl <= 10 ? 5 : (lvl <= 30 ? 6 : 4);
+    for (int i = 0; i < 10; i++) {
+      static const char *const SEG[2] = {"##", "##"};
+      stamp_sprite(SEG, 2, -14 + i * 3, 2, (uint8_t)(255 * clamp01(s.card_a) * (i < nseg ? 1.0f : 0.27f)), i < nseg ? ci : 0);
+    }
+  }
+  if (s.card_a > 0.01f && s.card == Card::Check && !s.player) {
+    static const char *const BELL5[5] = {"..#..", ".###.", ".###.", "#####", "..#.."};
+    static const char *const PHONE5[5] = {"#####", "#...#", "#...#", "#...#", "#####"};
+    static const char *const LAPTOP5[5] = {".###.", "#...#", "#...#", "#####", "#####"};
+    static const char *const BUDS5[5] = {"##.##", "##.##", ".#.#.", ".#.#.", ".#.#."};
+    char tmp[4][96];
+    const int n = check_split(s.card_text, tmp);
+    const float step = n > 3 ? 28 : 36, y0 = n > 3 ? 108 : 114;
+    for (int i = 0; i < n; i++) {
+      const char *const *ic = BUDS5;
+      switch (check_kind(tmp[i])) {
+        case 0: ic = BELL5; break;
+        case 1: ic = PHONE5; break;
+        case 2: ic = LAPTOP5; break;
+        default: break;
+      }
+      const float ra = clamp01((s.card_t - 0.2f - i * 0.18f) / 0.4f);
+      stamp_sprite(ic, 5, -12, (int)lroundf((y0 + i * step - 120) / LP) - 2, (uint8_t)(255 * clamp01(s.card_a) * ra), 3);
+    }
+  }
+  if (s.card_a > 0.01f && s.player) {
+    for (int k = -9; k <= 9; k++) {
+      static const char *const DOT[1] = {"#"};
+      stamp_sprite(DOT, 1, k, 3, (uint8_t)(255 * clamp01(s.card_a) * ((k + 9) / 18.0f < s.player_frac ? 1.0f : 0.33f)), 4);
+    }
+  }
   for (int i = 0; i < s.nz; i++) {
     const Scene::Z &z = s.z[i];
     stamp_glyph(G3[10], (int)lroundf((z.x - C) / LP) - 1, (int)lroundf((z.y - C) / LP) - 4, 1, (uint8_t)(255 * clamp01(z.a / 0.45f * 0.9f)), 2);
@@ -1422,7 +1439,7 @@ void build_led(const Scene &s) {
         if (tv > v) {
           v = tv;
           const uint8_t ci = s_txt_c[m + LK][k + LK];
-          col = ci == 0 ? ink : (ci == 1 ? L_TIMER : L_Z);
+          col = ci == 0 ? ink : *TXT_COL[ci];
         }
       }
       const bool ring_zone = r > 86;
@@ -1441,6 +1458,19 @@ void build_led(const Scene &s) {
             else col = lerp_rgb(L_WHITE, L_SPEAK, clamp01(w * 1.5f));          // speaking: white to cyan
           }
         }
+      }
+      if (s.card == Card::Call && s.card_a > 0.01f && r > 80) {  // incoming call: a green-cyan wave around the edge
+        float ca = atan2f(dx, -dy) * (1 / TAU);
+        if (ca < 0) ca += 1;
+        const float len = (0.35f + 0.65f * fabsf(sinf(ca * TAU * 3 - t * 4))) * (0.55f + 0.45f * sinf(t * 2.2f)) * s.card_a * 28, edge = 118 - r;
+        if (len > 3 && edge < len) {
+          const float w = edge / len, cv = 0.35f + 0.65f * (1 - w);
+          if (cv > v) v = cv, col = lerp_rgb(L_GREEN, L_SPEAK, w * 0.7f);
+        }
+      }
+      if (s.card == Card::Wake && s.card_a > 0.01f && r > 109.5f && r < 117) {  // alarm off, you are asleep: an amber ring pulse
+        const float pv = s.card_a * (0.4f + 0.6f * (0.5f + 0.5f * sinf(t * TAU * 1.1f)));
+        if (pv > v) v = pv, col = L_TIMER;
       }
       if (r > 109.5f) {
         if (!(act > 0.02f || mus > 0.02f) && (thk > 0.02f || s.timer_a > 0.05f)) {
