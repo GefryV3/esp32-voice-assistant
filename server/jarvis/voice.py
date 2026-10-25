@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import deque
 from contextlib import AsyncExitStack
@@ -48,6 +49,7 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
           "сентября", "октября", "ноября", "декабря")
 
 
+REFUSAL = re.compile(r"не умею|пока не умею|не могу научиться|отправил запрос на добавление|подтверди, и я", re.I)
 HISTORY_LINES = 16      # реплик в блоке «Недавний разговор»
 HISTORY_CHARS = 300     # длиннее реплику обрезаем: подсказка не должна пухнуть
 
@@ -57,6 +59,8 @@ def history_block(msgs: list[tuple[datetime, str, str, str]], now: datetime,
     """Короткий блок подсказки: последние реплики обоих каналов с пометкой «когда» и «где»."""
     out = []
     for ts, source, role, text in msgs[-lines:]:
+        if role != "user" and REFUSAL.search(text):
+            continue          # his own old "can't do that" lines teach him to refuse again
         day = "" if ts.date() == now.date() else ("вчера " if (now.date() - ts.date()).days == 1 else f"{ts:%d.%m} ")
         text = " ".join(text.split())
         if len(text) > HISTORY_CHARS:
@@ -202,6 +206,8 @@ class Conversation:
         self.retry_plain = False   # Gemini отверг эмоциональный режим на первом ответе — повторить обычным
         self.t_start = voice.clock()
         self._ctx = ""            # what the speaker heard before a tool call (for the lights audit)
+        self._heard = ""          # transcript of the user's words this turn (the noise gate reads it)
+        self._text = False        # typed/service conversation: no transcript to judge
 
     def on_barge_in(self) -> None:
         if self.speaking:
@@ -272,6 +278,15 @@ class Conversation:
     async def _tools(self, live: LiveSession, ev: Event) -> None:
         """Выполнить функции, которые позвал Gemini, и вернуть ему результаты."""
         brain = self.voice.brain
+        if not self._text and is_noise(self._heard) and not (brain and brain.long_talk):
+            # Gemini "heard" a command in foreign noise ("sná režim sna" -> goodnight -> lights off): run nothing
+            log.warning("%s: инструмент %s на шум «%s» — не выполняю", self.dev.id,
+                        ", ".join(c[1] for c in ev.calls), self._heard)
+            await live.send_tool_results([
+                (cid, name, {"ok": False, "error": "команда не расслышана, ничего не сделано; "
+                             "скажи пользователю, что не расслышал, и попроси повторить по-русски"})
+                for cid, name, _ in ev.calls])
+            return
         results = []
         for call_id, name, args in ev.calls:
             if name == "end_conversation":
@@ -346,6 +361,7 @@ class Conversation:
         """service=True: text — служебная подсказка (напоминание, фоновая задача), в историю не пишем."""
         dev, v = self.dev, self.voice
         heard = ""
+        self._text = text is not None
         ducked = False
         await dev.send(protocol.voice("thinking" if text else "listening"))
         try:
@@ -419,17 +435,7 @@ class Conversation:
                         if ev.kind in ("audio", "tool_call"):
                             answered, self._fast = True, None
                         if ev.kind == "tool_call":
-                            self._ctx = heard.strip()
-                            if not text and is_noise(heard) and not (v.brain and v.brain.long_talk):
-                                # Gemini "heard" a command in foreign noise ("sná režim sna" -> goodnight -> lights off):
-                                # run nothing, ask the user to repeat
-                                log.warning("%s: инструмент %s на шум «%s» — не выполняю", dev.id,
-                                            ", ".join(c[1] for c in ev.calls), heard.strip())
-                                await live.send_tool_results([
-                                    (cid, name, {"ok": False, "error": "команда не расслышана, ничего не сделано; "
-                                                 "скажи пользователю, что не расслышал, и попроси повторить по-русски"})
-                                    for cid, name, _ in ev.calls])
-                                continue
+                            self._ctx = self._heard = heard.strip()
                             await self._tools(live, ev)
                             deadline = v.clock() + NO_SPEECH_S
                         elif ev.kind == "heard":
@@ -453,6 +459,7 @@ class Conversation:
                                 v.log("user", heard)
                             await dev.send(protocol.voice("speaking"))
                             v.reply_text = ""
+                            self._heard = heard.strip()
                             end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))

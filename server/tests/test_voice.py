@@ -733,3 +733,32 @@ def test_prompt_lets_him_tell_long_stories_and_play_any_game():
     assert "рассказывай целиком" in p and "без start_task" in p        # stories are told, not sent to a background task
     assert "никогда не говори, что не умеешь" in p                       # any game is played from his own head
     assert "игры, истории и разговоры сюда не относятся" in p            # propose_skill is not for games
+
+
+async def test_noise_gate_also_covers_tool_calls_in_the_middle_of_a_reply(hub, voice, live):
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        await log.wait(lambda m: m["type"] == "listen_start")
+        await ws.send(b"WAKE" + b"\x00" * 3196)
+        await log.wait(is_voice("listening"))
+        await live.queue.put(Event("heard", text="TPI"))
+        await live.queue.put(Event("tool_call", calls=(("c1", "mute_listening", {"minutes": 60}),)))
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 2400, rate=24000))      # he starts talking anyway
+        await log.wait(lambda m: m["type"] == "audio_start")
+        await live.queue.put(Event("tool_call", calls=(("c2", "goodnight", {}),)))     # ... and calls goodnight mid-reply
+        async with asyncio.timeout(2):
+            while len(live.tool_results) < 2:
+                await asyncio.sleep(0.01)
+        assert all(r[0][2]["ok"] is False for r in live.tool_results)
+    finally:
+        await ws.close()
+
+
+def test_history_drops_his_own_old_refusals():
+    now = datetime(2026, 10, 25, 12, 0)
+    msgs = [(datetime(2026, 10, 25, 11, 0), "голос", "user", "сыграем в камень ножницы бумага"),
+            (datetime(2026, 10, 25, 11, 0), "голос", "assistant", "Я пока не умею играть в это, отправил запрос на добавление."),
+            (datetime(2026, 10, 25, 11, 5), "голос", "assistant", "Привет.")]
+    p = system_prompt(now, history=msgs)
+    assert "сыграем в камень" in p and "Привет." in p and "не умею" not in p
