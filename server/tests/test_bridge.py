@@ -122,7 +122,7 @@ def test_bedtime_summary(env):
     bridge.bt = [{"name": "Nothing Ear (a)", "level": 55}]
     title, text = bridge.bedtime_summary()
     assert title == "Перед сном"
-    assert text == "будильник 07:30 · телефон 40 %, заряжается · Nothing Ear (a) 55 %"
+    assert text == "будильник 07:30 · телефон 40 %, заряд · наушники 55 %"
 
 
 async def test_night_remark_only_late_and_once_per_night(env):

@@ -771,6 +771,37 @@ int wrap2_fit(const text::Font &f, const char *s, float maxw, char out[2][128]) 
   return n;
 }
 
+// A title that fits stays on one line; otherwise it is split at the space that makes the wider of the two lines
+// as narrow as possible ("Будильник выключен," / "а ты спишь", as in the mockup, not a greedy "… выключен, а" / "ты спишь").
+// Falls back to wrap2_fit when no split fits.
+int wrap2_balanced(const text::Font &f, const char *s, float maxw, char out[2][128]) {
+  out[0][0] = out[1][0] = 0;
+  if (strlen(s) < 128 && text::width(f, s) <= maxw) {
+    snprintf(out[0], 128, "%s", s);
+    return 1;
+  }
+  const size_t len = strlen(s);
+  float best = 1e9f;
+  size_t cut = 0;
+  if (len < 128)
+    for (size_t i = 1; i + 1 < len; i++) {
+      if (s[i] != ' ') continue;
+      char left[128];
+      memcpy(left, s, i);
+      left[i] = 0;
+      const float w1 = text::width(f, left), w2 = text::width(f, s + i + 1), w = fmaxf(w1, w2);
+      if (w1 <= maxw && w2 <= maxw && w < best) {
+        best = w;
+        cut = i;
+      }
+    }
+  if (!cut) return wrap2_fit(f, s, maxw, out);
+  memcpy(out[0], s, cut);
+  out[0][cut] = 0;
+  snprintf(out[1], 128, "%s", s + cut + 1);
+  return 2;
+}
+
 // Word wrap into at most n (<= 4) lines; widths[i] is the width limit of line i (lines near the bottom of the
 // circle are narrower). When text is left over, the last line gets an ellipsis and *cut is set.
 int wrap_n(const text::Font &f, const char *s, const float *widths, int n, char out[4][128], bool *cut = nullptr) {
@@ -1096,12 +1127,17 @@ int check_kind(const char *row) {
   return 3;
 }
 
-void check_row(const Scene &s, const char *row, float y, float a) {
+void check_row(const Scene &s, const char *row, float y, float a, bool compact) {
   char cap[96];
   cap_first(row, cap, sizeof cap);
   char line[96];
-  fit(text::kUi, cap, 120, line, sizeof line);
-  draw_text(text::kUi, line, 88, y + 5, 1, false, rgb(s.ink), a * 0.92f);
+  // four rows: the text starts closer to the icons and is set a bit smaller (13 px); the room to the circle's edge shrinks toward the bottom
+  // (three rows use the same layout: the icons stand at -14 in both cases, see the sprite stamping)
+  const float x0 = 72, sc = 13.0f / 15, dy = y + 5 - 120;
+  (void)compact;
+  const float room = 120 + sqrtf(fmaxf(0.0f, 112 * 112 - dy * dy)) - x0;
+  fit(text::kUi, cap, room / sc, line, sizeof line);
+  draw_text(text::kUi, line, x0, y + 5, sc, false, rgb(s.ink), a * 0.92f);
 }
 
 // Rows of the "before sleep" list; the text separator is " · "
@@ -1138,7 +1174,8 @@ void draw_card(const Scene &s) {
   const float lift = (1 - a) * 8;
   char lines[2][128];
   char line[128];
-  if (s_y1 < 88 || s_y0 > 212) return;
+  // the "before sleep" title sits at y=78 with four rows: its top part lies in the strips above 88
+  if (s_y1 < (s.card == Card::Check ? 64 : 88) || s_y0 > 212) return;
   switch (s.card) {
     case Card::Msg: {
       char nm[64];
@@ -1167,11 +1204,11 @@ void draw_card(const Scene &s) {
       break;
     }
     case Card::Check: {
-      draw_text(text::kUiBold, s.card_title, C, 88, 1, true, ink, a * 0.6f);
       char rows[4][96];
       const int n = check_split(s.card_text, rows);
-      const float step = n > 3 ? 28 : 36, y0 = n > 3 ? 108 : 114;
-      for (int i = 0; i < n; i++) check_row(s, rows[i], y0 + i * step, a * clamp01((s.card_t - 0.2f - i * 0.18f) / 0.4f));
+      draw_text(text::kUiBold, s.card_title, C, n > 3 ? 78 : 88, 1, true, ink, a * 0.6f);
+      const float step = 36, y0 = n > 3 ? 92 : 114;
+      for (int i = 0; i < n; i++) check_row(s, rows[i], y0 + i * step, a * clamp01((s.card_t - 0.2f - i * 0.18f) / 0.4f), n > 3);
       break;
     }
     case Card::Remark:
@@ -1180,12 +1217,15 @@ void draw_card(const Scene &s) {
       // mockup rows: info 140 / 166 (amber), remark 172 / 192, wake 160, 179 / 198 (amber); title sizes 17 / 15 / 14 px
       const bool rem = s.card == Card::Remark, wk = s.card == Card::Wake;
       const float tsc = rem ? 1.0f : (wk ? 14.0f / 15 : 17.0f / 15);
-      const int n = wrap2_fit(text::kUiBold, s.card_title, 176 / tsc, lines);
+      // mockup line breaks: the night remark is one line, "get up" breaks after "Будильник выключен,"
+      const float wmax = rem ? 200 : 176;
+      const int n = wrap2_balanced(text::kUiBold, s.card_title, wmax / tsc, lines);
       const float y0 = (rem ? 172 : (wk ? 160 : 140)) + lift, step = wk ? 19 : 20, gap = s.card == Card::Info ? 6 : 0;
       const float ta = rem ? 0.8f : 1, xa = rem ? 0.5f : (wk ? 0.85f : 0.95f);
       for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * step, tsc, true, ink, a * ta);
-      fit(text::kUi, s.card_text, 176, line, sizeof line);
-      draw_text(text::kUi, line, C, y0 + n * step + gap, 1, true, wk || s.card == Card::Info ? Rgb{255, 179, 64} : ink, a * xa);
+      const float xsc = rem ? 13.0f / 15 : (wk ? 12.0f / 15 : 14.0f / 15);  // mockup sizes of the last line: 13 / 12 / 14 px
+      fit(text::kUi, s.card_text, 176 / xsc, line, sizeof line);
+      draw_text(text::kUi, line, C, y0 + n * step + gap, xsc, true, wk || s.card == Card::Info ? Rgb{255, 179, 64} : ink, a * xa);
       break;
     }
     case Card::None:
@@ -1656,17 +1696,24 @@ void build_led(const Scene &s) {
     static const char *const BUDS5[5] = {"##.##", "##.##", ".#.#.", ".#.#.", ".#.#."};
     char tmp[4][96];
     const int n = check_split(s.card_text, tmp);
-    const float step = n > 3 ? 28 : 36, y0 = n > 3 ? 108 : 114;
+    const float step = 36, y0 = n > 3 ? 92 : 114;
     for (int i = 0; i < n; i++) {
-      const char *const *ic = BUDS5;
+      // four rows do not fit with 5-dot icons and a gap: they get compact 4-dot icons
+      static const char *const BELL4[4] = {"..#..", ".###.", "#####", "..#.."};
+      static const char *const PHONE4[4] = {"#####", "#...#", "#...#", "#####"};
+      static const char *const LAPTOP4[4] = {".###.", "#...#", "#####", "#####"};
+      static const char *const BUDS4[4] = {"##.##", "##.##", ".#.#.", ".#.#."};
+      const bool compact = n > 3;
+      const char *const *ic = compact ? BUDS4 : BUDS5;
       switch (check_kind(tmp[i])) {
-        case 0: ic = BELL5; break;
-        case 1: ic = PHONE5; break;
-        case 2: ic = LAPTOP5; break;
+        case 0: ic = compact ? BELL4 : BELL5; break;
+        case 1: ic = compact ? PHONE4 : PHONE5; break;
+        case 2: ic = compact ? LAPTOP4 : LAPTOP5; break;
         default: break;
       }
       const float ra = clamp01((s.card_t - 0.2f - i * 0.18f) / 0.4f);
-      stamp_sprite(ic, 5, -12, (int)lroundf((y0 + i * step - 120) / LP) - 2, (uint8_t)(255 * clamp01(s.card_a) * ra), 3);
+      const int rows = compact ? 4 : 5;
+      stamp_sprite(ic, rows, -14, (int)lroundf((y0 + i * step - 120) / LP) - 2, (uint8_t)(255 * clamp01(s.card_a) * ra), 3);
     }
   }
   if (s.card_a > 0.01f && s.player) {
@@ -2081,6 +2128,19 @@ void render_strip(const Scene &s, uint32_t g) {
   pf.strips++;
 }
 
+// Debug screenshot: the sender copies the strips of the next whole frame (exactly what goes to the panel)
+// into a PSRAM buffer. 0 idle, 1 armed, 2 capturing, 3 ready.
+std::atomic<int> s_shot_state{0};
+uint8_t *s_shot = nullptr;
+
+void shot_capture(int k, const uint8_t *strip) {
+  int st = s_shot_state.load();
+  if (st == 1 && k == 0) s_shot_state.store(st = 2);
+  if (st != 2 || !s_shot) return;
+  memcpy(s_shot + (size_t)k * W * SH * 2, strip, (size_t)W * SH * 2);
+  if (k == NSTRIP - 1) s_shot_state.store(3);
+}
+
 // Отправка в экран — своя задача: библиотека экрана перед каждой полосой ждёт, пока уйдёт
 // предыдущая, и пусть ждёт она, а ядра тем временем рисуют дальше.
 void sender_task(void *) {
@@ -2090,6 +2150,7 @@ void sender_task(void *) {
       const uint32_t j = s_next_send;
       if (j >= s_end.load() || s_ready[j % NOUT].load() != j) break;
       lcd::wait(1);
+      shot_capture((int)(j % NSTRIP), s_out[j % NOUT]);
       lcd::blit_async((int)(j % NSTRIP) * SH, SH, s_out[j % NOUT]);
       s_next_send = j + 1;
       s_sent.store(j + 1);
@@ -2178,6 +2239,17 @@ bool init() {
            (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
   return true;
 }
+
+bool shot_arm() {
+  if (!s_shot) s_shot = (uint8_t *)heap_caps_malloc((size_t)W * H * 2, MALLOC_CAP_SPIRAM);
+  if (!s_shot) return false;
+  s_shot_state.store(1);
+  return true;
+}
+
+const uint8_t *shot_ready() { return s_shot_state.load() == 3 ? s_shot : nullptr; }
+
+void shot_release() { s_shot_state.store(0); }
 
 void splash() {
   if (!s_works[0]) return;

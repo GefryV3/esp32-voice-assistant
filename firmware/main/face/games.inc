@@ -87,7 +87,11 @@ void draw_game(const Scene &s) {
         char lines[2][128];
         const int n = wrap2(text::kUiBold, BALL[ans], 74, lines);
         const float y0 = n == 1 ? cy + 6 : cy - 2;
-        for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * 20, 17.0f / 15, true, C_VIOLET, show);
+        // a single long word ("Бесспорно") must not leave the ball: shrink the whole answer to fit its inner width
+        float wmax = 0;
+        for (int i = 0; i < n; i++) wmax = fmaxf(wmax, text::width(text::kUiBold, lines[i]));
+        const float sc = wmax > 0 ? fminf(17.0f / 15, 86.0f / wmax) : 17.0f / 15;
+        for (int i = 0; i < n; i++) draw_text(text::kUiBold, lines[i], C, y0 + i * 20 * sc / (17.0f / 15), sc, true, C_VIOLET, show);
       }
       break;
     }

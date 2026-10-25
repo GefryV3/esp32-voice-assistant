@@ -38,7 +38,7 @@ async def run(url: str, token: str, commands: list[str], gap: float) -> None:
                 wav, reply = reply, await ws.recv()
             print(reply)
             if wav is not None:
-                m = re.search(r"запись (\S+\.wav)", reply)
+                m = re.search(r"запись (\S+\.(?:wav|png))", reply)
                 path = RECORDINGS / (m.group(1) if m else "запись.wav")
                 path.parent.mkdir(exist_ok=True)
                 path.write_bytes(wav)

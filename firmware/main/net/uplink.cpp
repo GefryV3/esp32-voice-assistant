@@ -12,6 +12,8 @@
 #include "board.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
+#include "face/face.h"
+#include "mbedtls/base64.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -161,6 +163,30 @@ void send_status() {
   cJSON_AddNumberToObject(m, "rssi", wifi::rssi());
   cJSON_AddNumberToObject(m, "fps", ui::fps());
   send_json(m);
+}
+
+// Debug screenshot: grab the next frame and send it as {"type":"shot","y":row,"n":rows,"d":base64 RGB565}
+// pieces (the server reassembles a PNG). Runs in its own short task; the buffers live in PSRAM.
+void shot_task(void *) {
+  constexpr int ROWS = 4, W = 240;
+  bool ok = face::shot_arm();
+  const uint8_t *fb = nullptr;
+  for (int i = 0; ok && i < 150 && !(fb = face::shot_ready()); i++) vTaskDelay(pdMS_TO_TICKS(20));
+  char *msg = (char *)heap_caps_malloc(ROWS * W * 2 * 4 / 3 + 96, MALLOC_CAP_SPIRAM);
+  if (fb && msg) {
+    for (int y = 0; y < 240; y += ROWS) {
+      size_t n = 0;
+      const int head = snprintf(msg, 96, "{\"type\":\"shot\",\"y\":%d,\"n\":%d,\"d\":\"", y, ROWS);
+      mbedtls_base64_encode((unsigned char *)msg + head, ROWS * W * 2 * 4 / 3 + 8, &n, fb + (size_t)y * W * 2, ROWS * W * 2);
+      memcpy(msg + head + n, "\"}", 3);
+      if (!s_client || esp_websocket_client_send_text(s_client, msg, head + n + 2, pdMS_TO_TICKS(3000)) < 0) break;
+    }
+  } else {
+    ESP_LOGW(TAG, "снимок экрана не вышел");
+  }
+  face::shot_release();
+  free(msg);
+  vTaskDelete(nullptr);
 }
 
 void on_welcome(const cJSON *m) {
@@ -341,6 +367,8 @@ void on_message(const cJSON *m) {
     p.silence_s = num(m, "silence_s", -1);
     p.cal_s = num(m, "cal_s", -1);
     room::set_ble(num(m, "on", 0) != 0, str(m, "uuid"), p);
+  } else if (eq(type, "shot")) {
+    xTaskCreatePinnedToCore(shot_task, "shot", 4096, nullptr, 2, nullptr, 0);
   } else if (eq(type, "ota")) {
     if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {

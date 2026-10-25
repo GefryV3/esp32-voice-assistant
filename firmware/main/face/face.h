@@ -158,6 +158,13 @@ struct Timing {
 
 Timing render(const Scene &s);
 
+// Debug screenshot: shot_arm() makes the next whole frame be copied to PSRAM exactly as it goes to the panel
+// (240x240 RGB565, high byte first). shot_ready() is the buffer once the frame is complete, else nullptr;
+// call shot_release() after reading it.
+bool shot_arm();
+const uint8_t *shot_ready();
+void shot_release();
+
 // Записать в лог, сколько в среднем занял каждый проход кадра, и начать счёт заново.
 void log_profile();
 

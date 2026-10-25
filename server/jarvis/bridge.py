@@ -464,7 +464,7 @@ class Bridge:
         if now - self._last_warn.get(name, 0) < BATTERY_REPEAT_S or self.night():
             return
         self._last_warn[name] = now
-        await self.speaker(protocol.notify("battery", name, f"{level} % · поставь на зарядку", ms=12_000, level=level))
+        await self.speaker(protocol.notify("battery", name, f"{level} % · скоро сядет", ms=12_000, level=level))
 
     def bedtime_summary(self) -> tuple[str, str]:
         parts = []
@@ -472,9 +472,9 @@ class Bridge:
         parts.append(f"будильник {datetime.fromtimestamp(alarm / 1000):%H:%M}" if alarm else "будильник не заведён")
         battery = self.phone_state.get("battery", -1)
         if isinstance(battery, int) and battery >= 0:
-            parts.append(f"телефон {battery} %" + (", заряжается" if self.phone_state.get("charging") else ""))
+            parts.append(f"телефон {battery} %" + (", заряд" if self.phone_state.get("charging") else ""))
         for d in self.bt:
-            parts.append(f"{d.get('name', 'наушники')} {d.get('level')} %")
+            parts.append(f"наушники {d.get('level')} %")
         if self.pc is not None and self.pc.state.get("battery", -1) >= 0:
             parts.append(f"ноутбук {self.pc.state['battery']} %")
         return "Перед сном", " · ".join(parts)
@@ -545,11 +545,11 @@ class Bridge:
                 samples = {
                     "msg": ("Мама", "Ужин готов, спускайся. И телефон захвати", "Telegram", None),
                     "call": ("Мама", "звонит", "", None),
-                    "battery": ("Nothing Ear (a)", "15 % · поставь на зарядку", "", 15),
-                    "remark": ("Подъём через 6 ч 10 мин", "Просто к сведению.", "", None),
+                    "battery": ("Nothing Ear (a)", "15 % · скоро сядет", "", 15),
+                    "remark": ("Подъём через 6 ч 10 мин", "Просто к сведению.", "", None),
                     "wake": ("Будильник выключен, а ты спишь", "Вставай. Я всё вижу.", "", None),
                     "info": ("Спал 6 ч 40 мин", "Лёг в 00:52", "", None),
-                    "check": ("Перед сном", "будильник 07:30 · телефон 40 %, заряжается · Nothing Ear (a) 55 % · ноутбук 85 %", "", None),
+                    "check": ("Перед сном", "будильник 07:30 · телефон 40 %, заряд · наушники 55 % · ноутбук 85 %", "", None),
                 }
                 if kind not in samples:
                     return "card msg|call|battery|remark|wake|info|check"

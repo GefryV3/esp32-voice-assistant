@@ -18,6 +18,7 @@ from .agents import Agents, make_search
 from .google import Google
 from .habits import Habits, parse_keywords, parse_windows
 from .health import GEMINI_ERRORS, Health
+from .screenshot import Screenshot
 from .weatherfeed import WeatherFeed
 from .digest import Digest
 from .ha import HomeAssistant
@@ -190,6 +191,7 @@ async def main() -> None:
         tg.presence = presence
     brain.extensions = []
     extras = hub.extras = []
+    extras.append(Screenshot(hub))
     GEMINI_ERRORS.bind(brain)
     health = Health(hub=hub, bridge=bridge, ha=ha, google=google)
     brain.extensions.append(health)
