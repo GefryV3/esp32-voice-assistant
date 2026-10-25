@@ -193,6 +193,8 @@ class Conversation:
         self.mic: asyncio.Queue[bytes] = asyncio.Queue()
         self.listening = True     # микрофон идёт в Gemini
         self.end_requested = False   # Gemini по смыслу решил, что разговор окончен
+        self.story_left = 0          # сколько раз ещё просить продолжение истории
+        self._story_asked = False    # просьба продолжить уже отправлена, ждём следующий кусок
         self._barge = asyncio.Event()  # колонка сообщила: пользователь перебил ответ
         self.speaking = False
         # быстрый путь (#38) и шёпот (#42): только в разговоре по слову, не в текстовых и служебных
@@ -348,6 +350,16 @@ class Conversation:
                 ev = getter.result()
                 if ev is None or ev.kind in ("turn_complete", "interrupted", "go_away"):
                     end = ev
+                    tail = self.voice.reply_text.strip().lower()
+                    if (ev is not None and ev.kind == "turn_complete" and self.story_left > 0 and tail
+                            and not tail.endswith("?") and "конец" not in tail[-40:]):
+                        # Gemini Live рассказывает историю по куску за ход и замолкает. Просим дальше сразу, пока
+                        # колонка доигрывает этот кусок: следующий готов к концу паузы, а не после неё.
+                        self.story_left -= 1
+                        self._story_asked = True
+                        log.info("%s: история продолжается (осталось кусков: %d)", self.dev.id, self.story_left)
+                        await live.send_text("Продолжай историю с того места, где остановилась. "
+                                             "Без вопросов ко мне, просто рассказывай дальше.")
                     if ev is not None and ev.kind == "interrupted":
                         await stream.stop()
                     break
@@ -392,7 +404,6 @@ class Conversation:
                     answered = False     # Gemini уже начал отвечать: быстрый путь молчит
                     got_event = False    # от Gemini пришло хоть что-то
                     empty_retries = 0    # сколько раз Gemini закончил ход без звука, а мы переспросили
-                    story_left = 0       # сколько раз ещё просить продолжение истории (Gemini рассказывает по куску за ход)
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
@@ -464,7 +475,7 @@ class Conversation:
                             v.reply_text = ""
                             self._heard = heard.strip()
                             if STORY_RE.search(heard.lower()):
-                                story_left = STORY_PARTS
+                                self.story_left = STORY_PARTS
                             end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))
@@ -484,16 +495,13 @@ class Conversation:
                             if self.end_requested:
                                 why = "по смыслу разговор окончен"
                                 break
-                            tail = v.reply_text.strip().lower()
-                            if story_left > 0 and tail and not tail.endswith("?") and "конец" not in tail[-40:]:
-                                # Gemini Live рассказывает историю по одному куску за ход и замолкает: просим дальше сами
-                                story_left -= 1
-                                log.info("%s: история продолжается (осталось кусков: %d)", dev.id, story_left)
-                                await live.send_text("Продолжай историю с того места, где остановилась. "
-                                                     "Без вопросов ко мне, просто рассказывай дальше.")
+                            if self._story_asked:
+                                # просьба продолжить уже ушла в Gemini ещё во время проигрывания (см. _speak_stream)
+                                self._story_asked = False
+                                heard = ""
                                 deadline = v.clock() + NO_SPEECH_S
                                 continue
-                            story_left = 0
+                            self.story_left = 0
                             # продолжение разговора без слова пробуждения
                             heard = ""
                             while not self.mic.empty():

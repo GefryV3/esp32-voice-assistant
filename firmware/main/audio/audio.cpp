@@ -41,12 +41,12 @@ constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 constexpr int BARGE_FRAMES = 8;               // 8 громких кадров (с прощением пауз) — перебили
 constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед
 constexpr int BARGE_GRACE_FRAMES = 12;        // первые 240 мс ответа не слушаем: ещё нет эха
-constexpr float BARGE_MIN_RMS = 2500.0f;      // тише не считается голосом (~−22 дБFS)
-constexpr float BARGE_QUIET_RMS = 4500.0f;    // пауза в ответе: голос должен быть ярко слышен
+constexpr float BARGE_MIN_RMS = 800.0f;       // тише не считается голосом (~−32 дБFS)
+constexpr float BARGE_QUIET_RMS = 2000.0f;    // пауза в ответе: голос должен быть ярко слышен
 constexpr int BARGE_TAIL_FRAMES = 15;         // после звука 300 мс не слушаем: хвост эха и комната
 constexpr float BARGE_K_FLOOR = 2.0f;         // эхо в микрофоне не слабее 2× играющего: нижняя граница k
 constexpr int BARGE_LEARN_FRAMES = 50;        // первая секунда ответа: k подстраивается быстро
-constexpr float BARGE_REF_MIN = 150.0f;       // эталон тише — пауза в речи, сравнивать не с чем
+constexpr float BARGE_REF_MIN = 40.0f;        // эталон тише — пауза в речи, сравнивать не с чем
 
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;

@@ -31,6 +31,13 @@ h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em
 button.chip { font: 500 14px/1 Inter, sans-serif; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 10px 15px; min-height: 40px; cursor: pointer; }
 button.chip:hover { border-color: #55555E; }
 button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border-color: var(--fg); }
+[hidden] { display: none !important; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 22px 16px; margin-top: 28px; }
+.wall figure { margin: 0; display: grid; gap: 8px; justify-items: center; }
+.wall .mini { width: 100%; aspect-ratio: 1; border-radius: 50%; padding: 3%; background: #1c1d21; box-shadow: 0 0 0 1px rgba(255,255,255,.08), inset 0 2px 6px #000; }
+.wall canvas { display: block; width: 100%; height: 100%; border-radius: 50%; background: #000; }
+.wall figcaption { color: var(--muted); font-size: 13px; text-align: center; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 :focus-visible { outline: 2px solid #7AA7FF; outline-offset: 2px; }
 </style>
 </head>
@@ -43,10 +50,15 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       <div class="puck"><div class="bezel"><canvas id="cv" width="480" height="480" aria-label="Экран колонки"></canvas></div></div>
       <p class="name" id="sceneName"></p>
       <p class="note" id="sceneNote"></p>
-      <button class="chip" type="button" id="auto" aria-pressed="false">Показать всё по очереди</button>
+      <div class="tools">
+        <button class="chip" type="button" id="auto" aria-pressed="false">Показать всё по очереди</button>
+        <button class="chip" type="button" id="wallCards" aria-pressed="false">Все карточки сразу</button>
+        <button class="chip" type="button" id="wallAll" aria-pressed="false">Все состояния сразу</button>
+      </div>
     </div>
     <div id="controls"></div>
   </div>
+  <div class="wall" id="wall" hidden></div>
 </div>
 
 <script>
@@ -128,6 +140,19 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       const q = frac >= 1 ? 1 : clamp((frac - ang(x, y)) / 0.009 + 0.5); if (q > 0.02) put(k, m, v * q, col); if (track && q < 1) put(k, m, track, col);
     }
   }
+  // Timer ring: a rich arc that drains clockwise. Lightest and brightest at the head, warmer and dimmer toward
+  // the tail, with a bright spot riding the head and an empty track behind it
+  function timerRing(frac, a) {
+    for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
+      const x = 120 + k * P, y = 120 + m * P, r = Math.hypot(x - 120, y - 120);
+      if (r <= 105.5 || r >= 117) continue;
+      const behind = frac - ang(x, y), q = clamp(behind / 0.009 + 0.5), g = clamp(1 - behind / 0.45);
+      let v = q > 0.02 ? a * (0.45 + 0.55 * g) * q : 0, c = mix([255, 120, 40], AMBER, g);
+      if (behind > -0.004 && behind < 0.03) { v = a; c = [255, 226, 150]; }
+      if (q < 1 && v < 0.12) { v = 0.12; c = AMBER; }
+      put(k, m, v, c);
+    }
+  }
   function ringPulse(col, v) { ringDots(1, col, v); }
   // Волна по краю: len(a) возвращает долю высоты 0…1, colorOf(w, a) — цвет по глубине
   function rim(lenOf, colorOf, LEN = 28) {
@@ -148,7 +173,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   // ── Расчёт кадра → холст ──
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   function paint(c = ctx) {
-    c.save(); c.setTransform(2, 0, 0, 2, 0, 0); c.beginPath(); c.arc(120, 120, 120, 0, TAU); c.clip();
+    c.save(); const kk = c.canvas.width / 240; c.setTransform(kk, 0, 0, kk, 0, 0); c.beginPath(); c.arc(120, 120, 120, 0, TAU); c.clip();
     c.fillStyle = '#000'; c.fillRect(0, 0, 240, 240);
     for (let m = -K; m <= K; m++) for (let k = -K; k <= K; k++) {
       const x = 120 + k * P, y = 120 + m * P;
@@ -201,7 +226,7 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
       {   // big eyes watch small digits, ring around everything
         eyes({ s: 0.72, cy: 68, gy: done ? 0 : 0.9, hm: done ? 1.12 : 1, col: ec });
         digits(done ? '00:00' : mmss(secs), 1, 4, AMBER, done ? (blink ? 0.95 : 0.3) : 0.9 * a);
-        if (done) { ringPulse(AMBER, pulse); rim(() => 0.55 * pulse, w => mix(AMBER, [255, 120, 40], w), 16); } else ringDots(frac, AMBER, 0.85 * a, 112, 117, 0.1);
+        if (done) { ringPulse(AMBER, pulse); rim(() => 0.55 * pulse, w => mix(AMBER, [255, 120, 40], w), 16); } else timerRing(frac, a);
         text(done ? 'Готово' : 'паста', 120, 200, done ? 16 : 13, 600, AMBER, done ? 1 : a * 0.9);
       }
     };
@@ -244,14 +269,15 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
   }
   function check(lt) {
     const a = appear(lt);
-    eyes({ s: 0.45, cy: 46, gy: 0.7 });
+    eyes({ s: 0.45, cy: 36, gy: 0.7 });
     mask(28, 80, 212, 212);
-    text('Перед сном', 120, 88, 13, 600, WHITE, a * 0.6);
-    const rows = [['Будильник 7:30', ['..#..', '.###.', '.###.', '#####', '..#..']], ['Телефон 40%', ['#####', '#...#', '#...#', '#...#', '#####']], ['Наушники 55%', ['##.##', '##.##', '.#.#.', '.#.#.', '.#.#.']]];
+    text('Перед сном', 120, 78, 13, 600, WHITE, a * 0.6);
+    // four rows (what the server sends); the 4-dot icons keep a gap between the rows
+    const rows = [['Будильник 7:30', ['..#..', '.###.', '#####', '..#..']], ['Телефон 40%, заряд', ['#####', '#...#', '#...#', '#####']], ['Наушники 55%', ['##.##', '##.##', '.#.#.', '.#.#.']], ['Ноутбук 85%', ['.###.', '#...#', '#####', '#####']]];
     rows.forEach(([s, ic], i) => {
-      const ra = smooth((lt - 0.2 - i * 0.18) / 0.4), y = 114 + i * 36, m0 = Math.round((y - 120) / P) - 2;
-      sprite(ic, -12, m0, [140, 205, 255], 0.9 * ra);
-      text(s, 88, y + 5, 14, 500, WHITE, a * ra * 0.92, 'left');
+      const ra = smooth((lt - 0.2 - i * 0.18) / 0.4), y = 92 + i * 36, m0 = Math.round((y - 120) / P) - 2;
+      sprite(ic, -14, m0, [140, 205, 255], 0.9 * ra);
+      text(s, 72, y + 5, 13, 500, WHITE, a * ra * 0.92, 'left');
     });
   }
   function remark(lt) {
@@ -516,9 +542,33 @@ button.chip[aria-pressed="true"] { background: var(--fg); color: #0A0A0C; border
     auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); clearTimeout(autoTimer);
     if (auto) { const step = () => { select((cur + 1) % SCENES.length); autoTimer = setTimeout(step, 6000); }; step(); }
   });
+  // Wall: many scenes at once, each on its own small screen, running live
+  const wall = document.getElementById('wall'), wallBtns = [document.getElementById('wallCards'), document.getElementById('wallAll')];
+  let wallList = [], wallCtx = [], wallT0 = 0, wallTick = 0;
+  function showWall(which, filter) {
+    const same = !wall.hidden && wall.dataset.which === which;
+    wallBtns.forEach(b => b.setAttribute('aria-pressed', 'false'));
+    if (same) { wall.hidden = true; wallList = []; return; }
+    wall.innerHTML = ''; wallCtx = []; wall.dataset.which = which;
+    wallList = SCENES.filter(filter);
+    wallList.forEach(sc => {
+      const f = document.createElement('figure');
+      f.innerHTML = `<div class="mini"><canvas width="360" height="360"></canvas></div><figcaption>${sc.g}: ${sc.n}</figcaption>`;
+      wall.appendChild(f); wallCtx.push(f.querySelector('canvas').getContext('2d'));
+    });
+    wall.hidden = false; wallT0 = performance.now();
+    document.getElementById(which).setAttribute('aria-pressed', 'true');
+    wall.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  document.getElementById('wallCards').addEventListener('click', () => showWall('wallCards', sc => sc.g === 'Карточки с телефона'));
+  document.getElementById('wallAll').addEventListener('click', () => showWall('wallAll', () => true));
   function frame(now) {
     const t = now / 1000, lt = (now - t0) / 1000;
     clearAll(); SCENES[cur].f(lt, t); paint();
+    if (wallList.length && (wallTick++ % 2 === 0)) {
+      const wl = ((now - wallT0) / 1000) % 9;      // every scene restarts every 9 s
+      wallList.forEach((sc, i) => { clearAll(); sc.f(wl, t); paint(wallCtx[i]); });
+    }
     requestAnimationFrame(frame);
   }
   // Contact sheet for checking every scene at once (debug helper)
