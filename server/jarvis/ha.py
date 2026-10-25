@@ -356,7 +356,8 @@ class HomeAssistant:
                                           "или назови привычным словом, лампы не менял"}
         found = await self.resolve(query, ("light",) if parse_color(color) else CONTROLLABLE)
         if not found:
-            return {"ok": False, "error": f"не нашёл устройство «{query}»"}
+            names = [e.name for e in await self.entities() if e.domain == "light" and e.state != "unavailable"]
+            return {"ok": False, "error": f"не нашёл устройство «{query}»", "lights_you_can_name": names[:12]}
         rooms = {e.area for e in found}
         if len(found) > 1 and not (len(rooms) == 1 and "" not in rooms):
             return {"ok": False, "error": "подходит несколько, уточни",

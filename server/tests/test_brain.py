@@ -124,3 +124,44 @@ async def test_voice_prefs_survive_reopen(brain, sent, tmp_path):
     again = Brain(tmp_path / "b.db")
     assert again.pref("voice") == "Puck" and again.pref("affective") == "1"
     assert again.pref("нет", "запас") == "запас"
+
+
+async def test_generic_light_request_goes_to_the_room_not_to_name_matching(tmp_path):
+    from jarvis.brain import Brain, is_room_query
+
+    assert is_room_query("свет") and is_room_query("весь свет в комнате") and is_room_query("all")
+    assert not is_room_query("торшер") and not is_room_query("подсветка стола") and not is_room_query("")
+
+    class Lights:
+        def __init__(self):
+            self.calls = []
+
+        async def room(self, action, source=""):
+            self.calls.append((action, source))
+            return {"ok": True, "note": "Свет выключен"}
+
+        async def toggle_room(self):
+            self.calls.append(("toggle", ""))
+            return "погасил"
+
+    class Ha:
+        def __init__(self):
+            self.seen = []
+
+        async def call(self, name, args, send):
+            self.seen.append((name, args))
+            return {"ok": True}
+
+    brain = Brain(tmp_path / "b.db")
+    brain.ha, brain.lights = Ha(), Lights()
+
+    async def send(_):
+        return None
+
+    assert (await brain.call("home_set", {"name": "all", "action": "off"}, send))["ok"]
+    assert (await brain.call("home_set", {"name": "свет", "action": "toggle"}, send))["note"] == "погасил"
+    assert brain.lights.calls == [("off", "инструмент home_set"), ("toggle", "")]
+    assert brain.ha.seen == []                                       # HA name matching was not needed
+    await brain.call("home_set", {"name": "торшер", "action": "off"}, send)
+    await brain.call("home_set", {"name": "свет", "action": "on", "color": "красный"}, send)
+    assert [n for n, _ in brain.ha.seen] == ["home_set", "home_set"]   # specific devices and colors go to HA

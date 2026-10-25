@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sqlite3
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
@@ -96,6 +97,16 @@ def when_words(due: datetime, now: datetime) -> str:
     if due.date() == (now + timedelta(days=1)).date():
         return f"завтра в {due:%H:%M}"
     return f"{due:%d.%m} в {due:%H:%M}"
+
+
+ROOM_WORDS = frozenset({"all", "everything", "light", "lights", "room", "bedroom", "свет", "весь", "все", "всё", "комната",
+                        "комнате", "комнаты", "спальня", "спальне", "спальни", "освещение", "лампы", "в", "и"})
+
+
+def is_room_query(name: str) -> bool:
+    """A device "name" that just means the whole room's lights ("свет", "весь свет", "all", "в комнате")."""
+    words = re.findall(r"\w+", name.casefold())
+    return bool(words) and all(w in ROOM_WORDS for w in words)
 
 
 class Brain:
@@ -269,6 +280,14 @@ class Brain:
             return await self.skills.manage(args)
         if name in ("propose_skill", "skill_decision"):
             return await self.skill_requests.call(name, args)
+        if name == "home_set" and self.lights and is_room_query(str(args.get("name", ""))) \
+                and str(args.get("action", "")).casefold() in ("on", "off", "toggle") \
+                and not any(args.get(k) for k in ("brightness_percent", "color_temp_kelvin", "color", "effect")):
+            # "turn off the light" has no device name to match in HA: it means the whole room, like the voice fast path
+            action = str(args.get("action")).casefold()
+            if action == "toggle":
+                return {"ok": True, "note": await self.lights.toggle_room()}
+            return await self.lights.room(action, "инструмент home_set")
         if name.startswith("home_") and self.ha:
             return await self.ha.call(name, args, send)
         if name in MORNING_TOOL_NAMES and self.morning:
