@@ -38,11 +38,11 @@ constexpr float SPK_HIGHPASS_HZ = 300.0f;
 constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкалы, с которой работает ограничитель
 constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 
-constexpr int BARGE_FRAMES = 8;               // 8 громких кадров (с прощением пауз) — перебили
+constexpr int BARGE_FRAMES = 10;              // 10 loud frames (gaps forgiven) — перебили
 constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед
 constexpr int BARGE_GRACE_FRAMES = 12;        // первые 240 мс ответа не слушаем: ещё нет эха
-constexpr float BARGE_MIN_RMS = 800.0f;       // тише не считается голосом (~−32 дБFS)
-constexpr float BARGE_QUIET_RMS = 2000.0f;    // пауза в ответе: голос должен быть ярко слышен
+constexpr float BARGE_MIN_RMS = 1800.0f;      // тише не считается голосом (~−25 дБFS, echo here reaches ~1700)
+constexpr float BARGE_QUIET_RMS = 3000.0f;    // пауза в ответе: голос должен быть ярко слышен
 constexpr int BARGE_TAIL_FRAMES = 15;         // после звука 300 мс не слушаем: хвост эха и комната
 constexpr float BARGE_K_FLOOR = 2.0f;         // эхо в микрофоне не слабее 2× играющего: нижняя граница k
 constexpr int BARGE_LEARN_FRAMES = 50;        // первая секунда ответа: k подстраивается быстро

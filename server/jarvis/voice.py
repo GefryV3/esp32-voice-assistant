@@ -400,7 +400,7 @@ class Conversation:
                     log.info("%s: разговор начат (%s)", dev.id, "текстом" if text else "по слову")
                     deadline = v.clock() + NO_SPEECH_S
                     why = ""
-                    skip_old = False     # после перебивания хвост старого ответа Gemini не играем
+                    skip_old = 0         # после перебивания столько старых ответов Gemini не играем
                     answered = False     # Gemini уже начал отвечать: быстрый путь молчит
                     got_event = False    # от Gemini пришло хоть что-то
                     empty_retries = 0    # сколько раз Gemini закончил ход без звука, а мы переспросили
@@ -426,14 +426,14 @@ class Conversation:
                             break
                         if skip_old:
                             if ev.kind in ("interrupted", "turn_complete"):
-                                skip_old = False       # старый ответ кончился, дальше — новый
+                                skip_old -= 1          # старый ответ кончился, дальше — новый
                             if ev.kind in ("audio", "said", "interrupted", "turn_complete"):
                                 continue
                         if ev.kind == "audio" and not answered and is_noise(heard) and not (v.brain and v.brain.long_talk):
                             # Микрофон поймал шум, Gemini «расслышал» иностранное слово и отвечает на него:
                             # молчим, ответ выбрасываем, слушаем дальше (в немецком и переводчике речь не русская)
                             log.info("%s: не русская речь, похоже на шум («%s») — не отвечаю", dev.id, heard.strip())
-                            skip_old = True
+                            skip_old = 1
                             heard = ""
                             continue
                         if ev.kind == "turn_complete" and not answered:
@@ -482,7 +482,9 @@ class Conversation:
                             v.log("assistant", v.reply_text)
                             if end is not None and end.kind == "barge_in":
                                 log.info("%s: перебили — слушаю", dev.id)
-                                skip_old = True
+                                # уже попросили следующий кусок истории — его тоже не играем
+                                skip_old = 2 if self._story_asked else 1
+                                self.story_left, self._story_asked = 0, False
                                 self.end_requested = False
                                 heard = ""
                                 self.listening = True
