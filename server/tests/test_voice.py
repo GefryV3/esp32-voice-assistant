@@ -726,3 +726,10 @@ async def test_tool_call_on_foreign_noise_is_refused(hub, voice, live):
         assert res[1] == "goodnight" and res[2]["ok"] is False and "не расслышана" in res[2]["error"]
     finally:
         await ws.close()
+
+
+def test_prompt_lets_him_tell_long_stories_and_play_any_game():
+    p = system_prompt(datetime(2026, 10, 25, 12, 0), tools=True, home=True)
+    assert "рассказывай целиком" in p and "без start_task" in p        # stories are told, not sent to a background task
+    assert "никогда не говори, что не умеешь" in p                       # any game is played from his own head
+    assert "игры, истории и разговоры сюда не относятся" in p            # propose_skill is not for games
