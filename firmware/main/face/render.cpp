@@ -1825,16 +1825,18 @@ void build_led(const Scene &s) {
           }
         }
       }
-      if (s.timer_a > 0.05f && r > 112 && r < 117) {  // timer: a ring of dots that drains clockwise (fired: it pulses)
-        if (s.alert_mode) {
-          const float pv = s.timer_pulse * fminf(1, s.timer_a);
-          if (pv > v) v = pv, col = L_TIMER;
-        } else {
-          const float q = clamp01((rate - angle()) * (1 / 0.009f) + 0.5f);
-          float tv = q > 0.02f ? 0.85f * s.timer_a * q : 0;
-          if (q < 1 && tv < 0.1f) tv = 0.1f;  // the empty track
-          if (tv > v) v = tv, col = L_TIMER;
-        }
+      if (s.timer_a > 0.05f && !s.alert_mode && r > 105.5f && r < 117) {  // timer: a rich ring that drains clockwise
+        // brightest and lightest at the head (the leading edge), warmer and dimmer toward the tail; a bright spot rides the head
+        const float behind = rate - angle(), q = clamp01(behind * (1 / 0.009f) + 0.5f), g = clamp01(1 - behind / 0.45f);
+        float tv = q > 0.02f ? s.timer_a * (0.45f + 0.55f * g) * q : 0;
+        Rgb tc = lerp_rgb({255, 120, 40}, L_TIMER, g);
+        if (behind > -0.004f && behind < 0.03f) tv = s.timer_a, tc = {255, 226, 150};
+        if (q < 1 && tv < 0.12f) tv = 0.12f, tc = L_TIMER;  // the empty track
+        if (tv > v) v = tv, col = tc;
+      }
+      if (s.timer_a > 0.05f && s.alert_mode && r > 109.5f && r < 117) {  // fired: the whole ring pulses
+        const float pv = s.timer_pulse * fminf(1, s.timer_a);
+        if (pv > v) v = pv, col = L_TIMER;
       }
       if (s.alert_mode && s.timer_a > 0.05f && r > 80) {  // fired: an amber wave along the edge breathes with the pulse
         const float len = 0.55f * s.timer_pulse * 16, edge = 118 - r;

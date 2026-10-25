@@ -20,6 +20,9 @@ GAP_MIN_MS = 200
 GAP_MAX_MS = 1000
 LOCKOUT_MS = 1500
 MUTE_TAIL_MS = 600
+ISO_BLOCKS = 30
+ISO_RATIO = 10.0
+AMP_RATIO = 4.0
 BG_ALPHA = 1.0 / 200.0
 BG_MIN = 8.0
 
@@ -46,6 +49,9 @@ class Detector:
         self.lockout = 0
         self.mute_left = 1000 // BLOCK_MS   # первая секунда после включения — мусор микрофона
         self.since_first = -1
+        self.recent = [0.0] * ISO_BLOCKS
+        self.ri = 0
+        self.first_peak = 0
 
     def process(self, pcm, muted: bool = False) -> int:
         fired = 0
@@ -72,6 +78,7 @@ class Detector:
 
         if muted:
             self.mute_left = MUTE_TAIL_MS // BLOCK_MS
+            self.recent = [0.0] * ISO_BLOCKS
             self.settling = False
             self.since_first = -1
             self.refractory = 0
@@ -93,8 +100,10 @@ class Detector:
         if not self.settling:
             if self.refractory > 0:
                 self.refractory -= 1
+            pre = max(max(self.recent), BG_MIN)
+            crowded = self.since_first < 0 and peak < ISO_RATIO * pre
             if (self.refractory == 0 and self.lockout == 0 and peak >= peak_min(self.sens)
-                    and peak >= peak_ratio(self.sens) * bg and hf >= HF_MIN):
+                    and peak >= peak_ratio(self.sens) * bg and hf >= HF_MIN and not crowded):
                 self.settling = True
                 self.onset_peak = peak
                 self.settle = SETTLE_BLOCKS
@@ -110,6 +119,8 @@ class Detector:
                 self.settling = False
                 if self.settle_peak <= DECAY_MAX * self.onset_peak:
                     fired = self._on_clap()
+        self.recent[self.ri] = mean
+        self.ri = (self.ri + 1) % ISO_BLOCKS
         if not self.settling and peak < 3.0 * bg:
             self.bg += (mean - self.bg) * BG_ALPHA
         return fired
@@ -118,10 +129,16 @@ class Detector:
         if self.since_first >= 0:
             if self.since_first < GAP_MIN_MS:
                 return False
+            r = self.onset_peak / (self.first_peak or 1)
+            if r > AMP_RATIO or r < 1.0 / AMP_RATIO:
+                self.first_peak = self.onset_peak
+                self.since_first = 0
+                return False
             self.since_first = -1
             self.lockout = LOCKOUT_MS // BLOCK_MS
             return True
         self.since_first = 0
+        self.first_peak = self.onset_peak
         return False
 
 
@@ -255,6 +272,19 @@ def main() -> int:
     check("тихие хлопки (пик ~2200), чувствительность 10", run(claps([1.0, 1.4], amp=1000.0), sens=10), 1)
     check("средние хлопки (пик ~3900), чувствительность 1", run(claps([1.0, 1.4], amp=1800.0), sens=1), 0)
     check("средние хлопки (пик ~4300), чувствительность 5", run(claps([1.0, 1.4], amp=2000.0), sens=5), 1)
+    # one loud bang and one much quieter tick are not a double clap (and the reverse order)
+    s = room(4.0)
+    add(s, 1.6, clap(16000.0, seed=31))
+    add(s, 2.0, clap(2500.0, seed=32))
+    check("громкий хлопок и тихий щелчок (разница ×6)", run(s), 0)
+    s = room(4.0)
+    add(s, 1.6, clap(2500.0, seed=33))
+    add(s, 2.0, clap(16000.0, seed=34))
+    check("тихий щелчок и громкий хлопок", run(s), 0)
+    s = room(4.0)
+    add(s, 1.6, clap(9000.0, seed=35))
+    add(s, 2.0, clap(5000.0, seed=36))
+    check("два хлопка разной силы (разница ×1.8) — серия", run(s), 1)
     check("тишина", run(room(5.0)), 0)
     check("речь 8 с", run(speech(8.0)), 0)
     check("громкая речь 8 с (амплитуда 14000)", run(speech(8.0, amp=14000.0)), 0)

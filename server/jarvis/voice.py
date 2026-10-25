@@ -37,6 +37,8 @@ log = logging.getLogger(__name__)
 NO_SPEECH_S = 8.0       # после слова (или после ответа) никто не заговорил — закончить
 FOLLOW_UP_S = 6.0       # после ответа слушаем без слова пробуждения
 LONG_FOLLOW_UP_S = 14.0  # то же в немецком и играх: человек думает над ответом
+STORY_RE = re.compile(r"расскаж|сказк|истори|рассказ")
+STORY_PARTS = 6          # столько раз сами просим продолжение истории
 MAX_TURN_S = 60.0       # один ответ дольше этого — что-то не так
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
@@ -390,6 +392,7 @@ class Conversation:
                     answered = False     # Gemini уже начал отвечать: быстрый путь молчит
                     got_event = False    # от Gemini пришло хоть что-то
                     empty_retries = 0    # сколько раз Gemini закончил ход без звука, а мы переспросили
+                    story_left = 0       # сколько раз ещё просить продолжение истории (Gemini рассказывает по куску за ход)
                     while True:
                         try:
                             ev = await asyncio.wait_for(events.get(), max(0.05, deadline - v.clock()))
@@ -460,6 +463,8 @@ class Conversation:
                             await dev.send(protocol.voice("speaking"))
                             v.reply_text = ""
                             self._heard = heard.strip()
+                            if STORY_RE.search(heard.lower()):
+                                story_left = STORY_PARTS
                             end = await self._speak(ev, events, live)
                             log.info("%s ← «%s»", dev.id, v.reply_text.strip())
                             v.transcript.append(("колонка", v.reply_text.strip()))
@@ -479,6 +484,16 @@ class Conversation:
                             if self.end_requested:
                                 why = "по смыслу разговор окончен"
                                 break
+                            tail = v.reply_text.strip().lower()
+                            if story_left > 0 and tail and not tail.endswith("?") and "конец" not in tail[-40:]:
+                                # Gemini Live рассказывает историю по одному куску за ход и замолкает: просим дальше сами
+                                story_left -= 1
+                                log.info("%s: история продолжается (осталось кусков: %d)", dev.id, story_left)
+                                await live.send_text("Продолжай историю с того места, где остановилась. "
+                                                     "Без вопросов ко мне, просто рассказывай дальше.")
+                                deadline = v.clock() + NO_SPEECH_S
+                                continue
+                            story_left = 0
                             # продолжение разговора без слова пробуждения
                             heard = ""
                             while not self.mic.empty():

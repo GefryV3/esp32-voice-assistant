@@ -62,25 +62,33 @@ void ota_task(void *) {
   esp_https_ota_config_t cfg = {};
   cfg.http_config = &http;
 
-  esp_https_ota_handle_t h = nullptr;
-  esp_err_t err = esp_https_ota_begin(&cfg, &h);
-  if (err == ESP_OK) {
+  // One download attempt. The air is flaky and the free RAM tiny, so a failed attempt (ESP_FAIL) is simply repeated.
+  auto attempt = [&]() -> esp_err_t {
+    esp_https_ota_handle_t h = nullptr;
+    esp_err_t e = esp_https_ota_begin(&cfg, &h);
+    if (e != ESP_OK) return e;
     const int total = esp_https_ota_get_image_size(h);
     ESP_LOGI(TAG, "качаю %d байт", total);
     int last = -1;
-    while ((err = esp_https_ota_perform(h)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+    while ((e = esp_https_ota_perform(h)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
       const int pct = total > 0 ? (int)(100LL * esp_https_ota_get_image_len_read(h) / total) : 0;
       if (pct / 10 != last / 10) {
         last = pct;
         report("progress", pct);
       }
     }
-    if (err == ESP_OK && !esp_https_ota_is_complete_data_received(h)) err = ESP_ERR_INVALID_SIZE;
-    if (err == ESP_OK) {
-      err = esp_https_ota_finish(h);   // проверяет образ и делает его загрузочным
-    } else {
-      esp_https_ota_abort(h);
+    if (e == ESP_OK && !esp_https_ota_is_complete_data_received(h)) e = ESP_ERR_INVALID_SIZE;
+    if (e == ESP_OK) return esp_https_ota_finish(h);   // checks the image and makes it bootable
+    esp_https_ota_abort(h);
+    return e;
+  };
+  esp_err_t err = ESP_FAIL;
+  for (int n = 0; n < 5 && err != ESP_OK; n++) {
+    if (n) {
+      ESP_LOGW(TAG, "попытка %d не вышла (%s), повторяю", n, esp_err_to_name(err));
+      vTaskDelay(pdMS_TO_TICKS(1500));
     }
+    err = attempt();
   }
   if (err == ESP_OK) {
     ESP_LOGI(TAG, "готово, перезагружаюсь в новую прошивку");

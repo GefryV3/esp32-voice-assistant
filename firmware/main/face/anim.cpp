@@ -749,6 +749,7 @@ void targets(const Input &in) {
     quiet();
     T[CARD_A] = 1;
     T[CAP_A] = 0;
+    T[TIMER_A] = 0;  // a card wins over a running timer (its digits used to show through the card)
     switch (in.card) {
       // numbers below are the web mockup's eye scale / centre / glance (see design/screen-rest.html)
       case Card::Msg:
@@ -757,12 +758,15 @@ void targets(const Input &in) {
         gx = 0;
         gy = 3.5f;
         break;
-      case Card::Check:
+      case Card::Check: {
+        int seps = 0;  // four rows (three separators) need more room: the eyes go higher
+        for (const char *p = in.card_text; (p = strstr(p, " · ")) != nullptr; p += 4) seps++;
         T[SCALE] = .45f;
-        T[FACE_Y] = 50;
+        T[FACE_Y] = seps >= 3 ? 40 : 50;
         gx = 0;
         gy = 3.5f;
         break;
+      }
       case Card::Battery:
         T[SCALE] = .55f;
         T[FACE_Y] = 62;

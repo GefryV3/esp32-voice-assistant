@@ -28,6 +28,9 @@ constexpr int REFRACTORY_BLOCKS = 16;      // 80 мс после фронта н
 constexpr int GAP_MIN_MS = 200;            // быстрее — эхо комнаты, не второй хлопок
 constexpr int GAP_MAX_MS = 1000;           // медленнее — это два отдельных звука
 constexpr int LOCKOUT_MS = 1500;           // после срабатывания отдыхаем
+constexpr int ISO_BLOCKS = 30;             // 150 ms before the first clap must be quieter than the clap itself
+constexpr float ISO_RATIO = 10.0f;         // first clap peak >= this x the loudest recent block mean (whisper plosives are not)
+constexpr float AMP_RATIO = 4.0f;          // two claps of one series differ in loudness by less than this
 constexpr int MUTE_TAIL_MS = 600;          // после звука из динамика хвост эха
 constexpr float BG_ALPHA = 1.0f / 200.0f;  // фон усредняется ~1 с (200 блоков по 5 мс)
 constexpr float BG_MIN = 8.0f;             // тишина «ниже пола»: не делим на ноль
@@ -38,7 +41,7 @@ inline float peak_min(int sens) { return 6000.0f - 450.0f * sens; }
 
 // Что решил детектор (для журнала: по нему видно, почему хлопок не засчитался).
 struct Diag {
-  enum Kind : uint8_t { None, Onset, NearMiss, Settled, TooSlow, First, Echo, Timeout, Fired } kind = None;
+  enum Kind : uint8_t { None, Onset, NearMiss, Settled, TooSlow, First, Echo, Timeout, Fired, Crowded, Uneven } kind = None;
   int peak = 0;            // пик блока (Onset, NearMiss) или пик спада (Settled, TooSlow)
   int onset_peak = 0;      // пик фронта (Settled, TooSlow)
   float ratio = 0;         // пик / фон
@@ -97,6 +100,7 @@ class Detector {
 
     if (muted) {
       mute_left_ = MUTE_TAIL_MS / BLOCK_MS;
+      for (float &m : recent_) m = 0;
       reset_events();
       bg_ = bg_ + (mean - bg_) * BG_ALPHA;   // фон всё равно ведём
       return false;
@@ -119,7 +123,17 @@ class Detector {
     const float bg = bg_ > BG_MIN ? bg_ : BG_MIN;
     if (state_ == Idle) {
       if (refractory_ > 0) --refractory_;
+      float pre = 0;   // loudest block mean of the last 150 ms (before this block)
+      for (float m : recent_) pre = m > pre ? m : pre;
+      pre = pre > BG_MIN ? pre : BG_MIN;
+      const bool crowded = since_first_ms_ < 0 && static_cast<float>(peak) < ISO_RATIO * pre;   // speech/whisper around it
       if (refractory_ == 0 && lockout_ == 0 && peak >= peak_min(sens_) &&
+          static_cast<float>(peak) >= peak_ratio(sens_) * bg && hf >= HF_MIN && crowded) {
+        if (diag_cool_ == 0) {
+          diag_cool_ = 40;
+          note(Diag::Crowded, peak, 0, static_cast<float>(peak) / pre, hf, 0);
+        }
+      } else if (refractory_ == 0 && lockout_ == 0 && peak >= peak_min(sens_) &&
           static_cast<float>(peak) >= peak_ratio(sens_) * bg && hf >= HF_MIN) {
         state_ = Settling;
         onset_peak_ = peak;
@@ -145,6 +159,8 @@ class Detector {
         }
       }
     }
+    recent_[ri_] = mean;
+    ri_ = (ri_ + 1) % ISO_BLOCKS;
     // фон ведём по тихим блокам: хлопок и речь его не поднимают
     if (state_ == Idle && static_cast<float>(peak) < 3.0f * bg) bg_ = bg_ + (mean - bg_) * BG_ALPHA;
     return fired;
@@ -156,12 +172,20 @@ class Detector {
         note(Diag::Echo, 0, 0, 0, 0, since_first_ms_);
         return false;
       }
+      const float r = static_cast<float>(onset_peak_) / static_cast<float>(first_peak_ > 0 ? first_peak_ : 1);
+      if (r > AMP_RATIO || r < 1.0f / AMP_RATIO) {   // a loud bang and a quiet tick are not one person clapping twice
+        note(Diag::Uneven, onset_peak_, first_peak_, r, 0, since_first_ms_);
+        first_peak_ = onset_peak_;     // this one becomes the new "first"
+        since_first_ms_ = 0;
+        return false;
+      }
       note(Diag::Fired, 0, 0, 0, 0, since_first_ms_);
       since_first_ms_ = -1;
       lockout_ = LOCKOUT_MS / BLOCK_MS;
       return true;
     }
     since_first_ms_ = 0;
+    first_peak_ = onset_peak_;
     note(Diag::First, 0, 0, 0, 0, 0);
     return false;
   }
@@ -179,6 +203,9 @@ class Detector {
   }
 
   int sens_ = 5;
+  int first_peak_ = 0;
+  float recent_[ISO_BLOCKS] = {};
+  int ri_ = 0;
   State state_ = Idle;
   int16_t buf_[BLOCK] = {};
   int fill_ = 0;
