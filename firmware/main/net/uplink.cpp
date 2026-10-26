@@ -350,7 +350,7 @@ void on_message(const cJSON *m) {
   } else if (eq(type, "listen_stop")) {
     audio::listen(false);
   } else if (eq(type, "audio_start")) {
-    audio::play_start(num(m, "rate", 16000));
+    audio::play_start(num(m, "rate", 16000), cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(m, "music")));
   } else if (eq(type, "audio_end")) {
     audio::play_end();
   } else if (eq(type, "audio_stop")) {

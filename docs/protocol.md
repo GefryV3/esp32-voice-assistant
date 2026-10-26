@@ -181,7 +181,7 @@ removes the DC offset itself.
 
 | `type` | Fields | What it does |
 |---|---|---|
-| `audio_start` | `rate`: 8000…48000 (default 16000) | subsequent binary frames contain audio of any length |
+| `audio_start` | `rate`: 8000…48000 (default 16000); `music`: bool (firmware 0.9.2+, optional) | subsequent binary frames contain audio of any length. `music` — the audio is music, not the assistant's voice: the speaker skips the 300 Hz bass cut (keeps a 45 Hz one), raises the limiter ceiling and gain by 7 dB. Older firmware ignores it |
 | `audio_end` | — | audio finished; speaker plays out the buffer and replies `played` |
 | `audio_stop` | — | silence immediately, discard buffer (interruption); response is also `played` |
 | `barge` | `on` (0/1), `ratio_x10` (12…200, threshold ×10) | enable voice interruption: while the speaker is speaking, it listens to the microphone locally and, if the voice is noticeably louder than the echo of its own response (by `ratio_x10`/10 times) for longer than ~160 ms, it silences itself and sends `barge_in` |
@@ -195,3 +195,10 @@ the network to stutter for a second without audio glitches.
 
 Later (stage 5): `{"type": "wake", "word": "hey_jarvis", "score": 0.97}` — speaker heard the
 wake word.
+
+### Live audio from the computer (`/admin`, `tools/stream.py`)
+
+On the service endpoint `/admin` the text command `stream <rate> [music]` turns the connection into a live
+audio input: binary frames (16-bit mono PCM) are played on the speaker as they arrive, `stream_end` or closing
+the connection stops it. `tools/stream.py` uses it to play the computer's sound (WASAPI loopback) through the
+speaker, with a live equalizer page on port 8800.

@@ -190,6 +190,43 @@ async def test_admin_rec_returns_wav_then_text(hub, audio, tmp_path):
         await ws.close()
 
 
+async def test_admin_stream_forwards_pcm_to_speaker(hub, audio):
+    add_admin_route(hub, TOKEN)
+    ws = await speaker(hub)
+    try:
+        async with connect(url(hub, "/admin")) as admin:
+            await admin.send(TOKEN)
+            await admin.send("stream 24000 music")
+            assert await admin.recv() == "ok"
+            start = await recv_json(ws, "audio_start")
+            assert start["rate"] == 24000 and start["music"] is True
+            pcm = tone(500, 200, 24000)
+            await admin.send(pcm)
+            got = b""
+            async with asyncio.timeout(2):
+                while len(got) < len(pcm):
+                    raw = await ws.recv()
+                    if isinstance(raw, bytes):
+                        got += raw
+            assert got == pcm
+            await admin.send("stream_end")
+            assert await admin.recv() == "ok"
+            await recv_json(ws, "audio_end")
+            await ws.send(json.dumps({"type": "played"}))
+    finally:
+        await ws.close()
+
+
+async def test_admin_stream_rejects_bad_rate_and_missing_speaker(hub, audio):
+    add_admin_route(hub, TOKEN)
+    async with connect(url(hub, "/admin")) as admin:
+        await admin.send(TOKEN)
+        await admin.send("stream 100")
+        assert (await admin.recv()).startswith("stream 8000")
+        await admin.send("stream 24000")
+        assert await admin.recv() == "no speaker to play on"
+
+
 async def test_commands_check_caps(hub, audio):
     ws = await speaker(hub, caps=("display",))
     try:

@@ -47,7 +47,8 @@ uint32_t bang_count();
 uint32_t beat_count();
 
 // Динамик. play_data зовётся из задачи WebSocket и никогда не ждёт: что не влезло — теряется.
-void play_start(int rate);
+// music: the stream is music, not Gemini's voice: no 300 Hz bass cut, a higher ceiling and more gain.
+void play_start(int rate, bool music = false);
 void play_data(const uint8_t *data, size_t len);
 void play_end();
 void play_stop();

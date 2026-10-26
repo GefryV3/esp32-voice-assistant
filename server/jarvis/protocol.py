@@ -273,8 +273,11 @@ def listen_stop() -> Message:
     return {"type": "listen_stop"}
 
 
-def audio_start(rate: int = AUDIO_RATE) -> Message:
-    return {"type": "audio_start", "rate": _int_in("rate", rate, 8000, 48_000)}
+def audio_start(rate: int = AUDIO_RATE, music: bool = False) -> Message:
+    msg: Message = {"type": "audio_start", "rate": _int_in("rate", rate, 8000, 48_000)}
+    if music:
+        msg["music"] = True    # old firmware ignores the extra field
+    return msg
 
 
 def audio_end() -> Message:

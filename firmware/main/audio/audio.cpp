@@ -38,6 +38,10 @@ constexpr int PREBUF_MS = 400;
 constexpr float SPK_HIGHPASS_HZ = 300.0f;
 constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкалы, с которой работает ограничитель
 constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
+// Music stream (server sets `music` in audio_start): the bass cut is only for the old tiny speaker and Gemini's voice.
+constexpr float MUSIC_HIGHPASS_HZ = 45.0f;    // just below the lowest EQ band: keeps rumble and DC off the amp
+constexpr float MUSIC_LIMIT_KNEE = 0.8f;
+constexpr float MUSIC_GAIN = 2.2f;            // x2.2 (+7 dB) over the voice curve; the limiter catches the peaks
 
 constexpr int BARGE_FRAMES = 10;              // 10 loud frames (gaps forgiven) — перебили
 constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед
@@ -98,6 +102,7 @@ TaskHandle_t s_alarm_task = nullptr;
 std::atomic<bool> s_ended{false};
 std::atomic<bool> s_stop{false};
 std::atomic<int> s_rate_req{16000};
+std::atomic<bool> s_music_req{false};
 std::atomic<uint32_t> s_overflow{0};
 int s_rate = 16000;
 
@@ -499,11 +504,11 @@ void init_speaker() {
 
 // Мягкий ограничитель: до LIMIT_KNEE звук как есть, выше — плавно прижимается к потолку,
 // а не срезается ступенькой (ступенька и есть треск).
-float limit(float y) {
+float limit(float y, float knee) {
   const float a = std::fabs(y);
-  if (a <= LIMIT_KNEE) return y;
-  const float r = 1.0f - LIMIT_KNEE;
-  return std::copysign(LIMIT_KNEE + r * std::tanh((a - LIMIT_KNEE) / r), y);
+  if (a <= knee) return y;
+  const float r = 1.0f - knee;
+  return std::copysign(knee + r * std::tanh((a - knee) / r), y);
 }
 
 void set_rate(int rate) {
@@ -529,7 +534,9 @@ void play_once() {
 
   static uint8_t in[SPK_CHUNK * 2 + 1];
   static int16_t out[SPK_CHUNK];
-  Highpass hpf(SPK_HIGHPASS_HZ, static_cast<float>(s_rate));
+  const bool music = s_music_req;
+  Highpass hpf(music ? MUSIC_HIGHPASS_HZ : SPK_HIGHPASS_HZ, static_cast<float>(s_rate));
+  const float knee = music ? MUSIC_LIMIT_KNEE : LIMIT_KNEE;
   static int16_t ref[SPK_CHUNK];
   int ref_acc = 0;                       // nearest-sample resampler s_rate -> 16 kHz for the echo reference
   if (s_ref_sb) {
@@ -546,12 +553,12 @@ void play_once() {
     size_t n = carry + xStreamBufferReceive(s_spk_sb, in + carry, SPK_CHUNK * 2, pdMS_TO_TICKS(40));
     const size_t samples = n / 2;
     if (samples) {
-      const float vol = s_vol_q15 / 32768.0f / 32768.0f;  // и в шкалу −1…1
+      const float vol = s_vol_q15 / 32768.0f / 32768.0f * (music ? MUSIC_GAIN : 1.0f);  // и в шкалу −1…1
       double acc = 0;
       for (size_t i = 0; i < samples; ++i) {
         int16_t x;
         memcpy(&x, in + 2 * i, 2);
-        out[i] = static_cast<int16_t>(limit(hpf(static_cast<float>(x)) * vol) * 32767.0f);
+        out[i] = static_cast<int16_t>(limit(hpf(static_cast<float>(x)) * vol, knee) * 32767.0f);
         acc += static_cast<double>(out[i]) * out[i];
       }
       const float rms = static_cast<float>(std::sqrt(acc / samples));
@@ -738,9 +745,10 @@ void alarm_stop() {
   play_stop();
 }
 
-void play_start(int rate) {
+void play_start(int rate, bool music) {
   if (!s_player) return;
   s_rate_req = std::clamp(rate, 8000, 48000);
+  s_music_req = music;
   s_stop = false;
   s_ended = false;
   s_accept = true;

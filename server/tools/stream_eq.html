@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Эквалайзер колонки</title>
+<style>
+  :root {
+    --bg: #0e0f12; --card: #17191e; --line: #272a31; --text: #f2f3f5; --dim: #8b909a; --accent: #4cc9a6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 32px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  canvas { width: 100%; height: 150px; display: block; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  button { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+           padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .bands { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; text-align: center; }
+  .band { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .band input { writing-mode: vertical-lr; direction: rtl; height: 190px; width: 28px; accent-color: var(--accent); margin: 0; }
+  .db { font-variant-numeric: tabular-nums; font-size: 13px; min-height: 18px; }
+  .hz { color: var(--dim); font-size: 12px; }
+  .vol { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Эквалайзер колонки</h1>
+  <div class="sub">Меняется сразу, пока идёт трансляция. Настройки запоминаются.</div>
+
+  <div class="card"><canvas id="curve"></canvas></div>
+
+  <div class="presets" id="presets"></div>
+
+  <div class="card">
+    <div class="bands" id="bands"></div>
+  </div>
+</main>
+
+<script>
+const PRESETS = {
+  "Плоско":   [0, 0, 0, 0, 0, 0, 0, 0],
+  "Басы":     [12, 10, 6, 2, 0, 0, 0, 0],
+  "Басы макс":[15, 15, 10, 3, 0, -2, -2, -2],
+  "Теплее":   [6, 5, 3, 1, 0, -1, -2, -3],
+  "Голос":    [-8, -4, 0, 2, 4, 4, 2, 0],
+};
+let state = null, timer = null;
+
+const fmtHz = f => f >= 1000 ? (f / 1000) + " кГц" : f + " Гц";
+const fmtDb = g => (g > 0 ? "+" : "") + g.toFixed(0) + " дБ";
+
+function build() {
+  const box = document.getElementById("bands");
+  box.innerHTML = "";
+  state.bands.forEach((f, i) => {
+    const el = document.createElement("div");
+    el.className = "band";
+    el.innerHTML = `<div class="db" id="db${i}"></div>
+      <input type="range" id="g${i}" min="${-state.max}" max="${state.max}" step="0.5">
+      <div class="hz">${fmtHz(f)}</div>`;
+    box.appendChild(el);
+    el.querySelector("input").addEventListener("input", changed);
+  });
+  const vol = document.createElement("div");
+  vol.className = "band";
+  vol.innerHTML = `<div class="db" id="dbv"></div>
+    <input type="range" id="vol" min="-24" max="12" step="0.5">
+    <div class="hz vol">громк.</div>`;
+  box.appendChild(vol);
+  vol.querySelector("input").addEventListener("input", changed);
+
+  const pr = document.getElementById("presets");
+  for (const [name, gains] of Object.entries(PRESETS)) {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.onclick = () => { setSliders(gains, state.volume); send(); };
+    pr.appendChild(b);
+  }
+}
+
+function setSliders(gains, volume) {
+  gains.forEach((g, i) => { document.getElementById("g" + i).value = g; });
+  document.getElementById("vol").value = volume;
+  labels();
+}
+
+function labels() {
+  state.bands.forEach((_, i) => {
+    document.getElementById("db" + i).textContent = fmtDb(+document.getElementById("g" + i).value);
+  });
+  document.getElementById("dbv").textContent = fmtDb(+document.getElementById("vol").value);
+}
+
+function read() {
+  return {
+    gains: state.bands.map((_, i) => +document.getElementById("g" + i).value),
+    volume: +document.getElementById("vol").value,
+  };
+}
+
+function changed() { labels(); clearTimeout(timer); timer = setTimeout(send, 40); }
+
+async function send() {
+  const r = await fetch("/set", { method: "POST", body: JSON.stringify(read()) });
+  state = await r.json();
+  draw();
+}
+
+function draw() {
+  const c = document.getElementById("curve");
+  const dpr = window.devicePixelRatio || 1;
+  c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+  const w = c.clientWidth, h = c.clientHeight, top = 18, range = 20;
+  const x = f => (Math.log(f) - Math.log(30)) / (Math.log(11000) - Math.log(30)) * w;
+  const y = d => h / 2 - d / range * (h / 2 - 8);
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = "#272a31"; g.fillStyle = "#8b909a"; g.font = "11px system-ui"; g.lineWidth = 1;
+  for (const d of [-15, -10, -5, 0, 5, 10, 15]) {
+    g.beginPath(); g.moveTo(0, y(d)); g.lineTo(w, y(d)); g.stroke();
+    if (d % 10 === 0) g.fillText(d, 2, y(d) - 3);
+  }
+  for (const f of [100, 1000, 10000]) {
+    g.beginPath(); g.moveTo(x(f), 0); g.lineTo(x(f), h); g.stroke();
+    g.fillText(fmtHz(f), x(f) + 3, h - 4);
+  }
+  g.strokeStyle = "#4cc9a6"; g.lineWidth = 2.5; g.lineJoin = "round";
+  g.beginPath();
+  state.freqs.forEach((f, i) => { const px = x(f), py = y(state.curve[i]); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+  g.stroke();
+}
+
+(async () => {
+  state = await (await fetch("/state")).json();
+  build();
+  setSliders(state.gains, state.volume);
+  draw();
+  addEventListener("resize", draw);
+})();
+</script>
+</body>
+</html>

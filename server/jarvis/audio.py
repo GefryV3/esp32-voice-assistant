@@ -97,10 +97,11 @@ class Stream:
     впереди. Где колонка сейчас, считаем сами: если данные запаздывали, она доиграла буфер и
     ждёт — тогда новое начнёт играть сразу, «сейчас»."""
 
-    def __init__(self, audio: Audio, dev: Device, rate: int):
+    def __init__(self, audio: Audio, dev: Device, rate: int, music: bool = False):
         self._audio = audio
         self.dev = dev
         self.rate = rate
+        self.music = music
         self._lock = audio._locks.setdefault(dev.id, asyncio.Lock())
         self._fut: asyncio.Future | None = None
         self._ends_at = 0.0          # когда колонка доиграет всё отправленное (по нашим часам)
@@ -111,7 +112,7 @@ class Stream:
         await self._lock.acquire()
         try:
             self._fut = self._audio._played[self.dev.id] = asyncio.get_running_loop().create_future()
-            await self.dev.send(protocol.audio_start(self.rate))
+            await self.dev.send(protocol.audio_start(self.rate, self.music))
         except BaseException:
             self._audio._played.pop(self.dev.id, None)
             self._lock.release()
@@ -207,10 +208,10 @@ class Audio:
         async with self.stream(dev, rate) as s:
             await s.write(pcm)
 
-    def stream(self, dev: Device, rate: int = AUDIO_RATE) -> Stream:
+    def stream(self, dev: Device, rate: int = AUDIO_RATE, music: bool = False) -> Stream:
         """Звук по мере поступления (ответ Gemini): async with audio.stream(dev, 24000) as s:
         await s.write(...) сколько угодно раз; на выходе — дождаться, пока колонка доиграет."""
-        return Stream(self, dev, rate)
+        return Stream(self, dev, rate, music)
 
     async def stop(self, dev: Device) -> None:
         await dev.send(protocol.audio_stop())

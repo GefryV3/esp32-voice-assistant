@@ -210,6 +210,28 @@ async def run_console(hub: DeviceHub) -> None:
         print(reply[0] if isinstance(reply, tuple) else reply)
 
 
+async def _open_live(hub: DeviceHub, line: str, current):
+    """`stream <rate>`: open a live audio stream to the speaker; returns the stream or an error text."""
+    if current is not None:
+        return "stream already open"
+    parts = line.split()
+    arg = parts[1]
+    if not arg.isdigit() or not 8000 <= int(arg) <= 48_000 or parts[2:] not in ([], ["music"]):
+        return "stream 8000…48000 (Hz) [music]"
+    dev = hub.get()
+    if dev is None or hub.audio is None or "speaker" not in dev.hello.caps:
+        return "no speaker to play on"
+    s = hub.audio.stream(dev, int(arg), music=parts[2:] == ["music"])
+    await s.__aenter__()
+    return s
+
+
+async def _close_live(live) -> None:
+    if live is not None:
+        await live.__aexit__(None, None, None)
+    return None
+
+
 def add_admin_route(hub: DeviceHub, token: str) -> None:
     """Служебный вход ws://…/admin для tools/send.py: первый кадр — токен, дальше каждый
     текстовый кадр — строка консоли, в ответ — её вывод. Если команда сделала запись,
@@ -223,16 +245,31 @@ def add_admin_route(hub: DeviceHub, token: str) -> None:
         if not isinstance(first, str) or not hmac.compare_digest(first, token):
             await ws.close(protocol.CLOSE_BAD_TOKEN, "bad token")
             return
+        # `stream <rate>` switches the connection into live audio: binary frames are 16-bit mono PCM
+        # played on the speaker as they arrive (tools/stream.py); `stream_end` or a close stops it.
+        live = None
         try:
             async for line in ws:
-                if isinstance(line, str):
+                if isinstance(line, bytes):
+                    if live is not None:
+                        await live.write(line)
+                    continue
+                if line.startswith("stream "):
+                    reply = await _open_live(hub, line, live)
+                    if not isinstance(reply, str):
+                        live, reply = reply, "ok"
+                elif line == "stream_end":
+                    live, reply = await _close_live(live), "ok"
+                else:
                     reply = await execute(hub, line)
-                    if isinstance(reply, tuple):
-                        text, wav = reply
-                        await ws.send(wav)
-                        reply = text
-                    await ws.send(reply)
+                if isinstance(reply, tuple):
+                    text, wav = reply
+                    await ws.send(wav)
+                    reply = text
+                await ws.send(reply)
         except ConnectionClosed:
             pass
+        finally:
+            await _close_live(live)
 
     hub.add_route(ADMIN_PATH, handle)
