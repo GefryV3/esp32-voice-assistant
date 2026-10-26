@@ -80,6 +80,21 @@ def remove_mic_response(freqs: np.ndarray, measured_db: np.ndarray, cal_freqs: n
     return measured_db - np.interp(np.log(freqs), np.log(cal_freqs), cal_db)
 
 
+def combine_mics(freqs: np.ndarray, curves: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Several microphones listened to the same sweep. Each curve is first matched to the others in the middle
+    (500 Hz…2 kHz), then they are averaged in dB: a fault that only one microphone has is halved. `spread` (max minus
+    min, dB) shows where they disagree, i.e. where the measurement cannot be trusted. This is not a calibration:
+    two uncalibrated microphones only cross-check each other."""
+    mid = (freqs >= 500) & (freqs <= 2000)
+    flat = np.array([c - np.median(c[mid]) for c in curves])
+    return flat.mean(axis=0), flat.max(axis=0) - flat.min(axis=0)
+
+
+def confidence(spread: np.ndarray, ok: float = 3.0, bad: float = 8.0) -> np.ndarray:
+    """1 where the microphones agree (spread <= ok), falling to 0.4 where they disagree (>= bad)."""
+    return 1.0 - 0.6 * np.clip((spread - ok) / (bad - ok), 0.0, 1.0)
+
+
 def log_grid(points: int = 160, lo: float = 30.0, hi: float = 18_000.0) -> np.ndarray:
     return np.logspace(np.log10(lo), np.log10(hi), points)
 
@@ -105,13 +120,15 @@ def smoothed_response_db(ir: np.ndarray, gate_ms: float = 30.0, fraction: float 
 
 def design_correction(freqs: np.ndarray, measured_db: np.ndarray, *, max_boost: float = 9.0, max_cut: float = 15.0,
                       low: float = 90.0, high: float = 14_000.0, previous: np.ndarray | None = None,
-                      damping: float = 1.0) -> np.ndarray:
+                      damping: float = 1.0, confidence: np.ndarray | None = None) -> np.ndarray:
     """Correction in dB (to add to the signal) that moves `measured_db` onto the target.
 
     The level is matched in the middle (500 Hz…2 kHz). Below `low` and above `high` the speaker has nothing to give,
     so boosting is faded out there: it would only burn amplifier power. `previous` accumulates a second pass."""
     diff = target_db(freqs) - measured_db
     diff = diff - np.median(diff[(freqs >= 500) & (freqs <= 2000)])
+    if confidence is not None:
+        diff = diff * confidence                      # where the microphones disagree, correct less
     if previous is not None:
         diff = previous + damping * diff
     below = np.clip(np.log2(freqs / (low * 0.65)) / np.log2(1 / 0.65), 0, 1)        # 0 at 0.65*low, 1 at low

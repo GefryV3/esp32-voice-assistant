@@ -90,3 +90,17 @@ def test_mic_calibration_file_is_read_and_removed(tmp_path):
     (tmp_path / "bad.txt").write_text("1 2\n", encoding="utf-8")
     with pytest.raises(ValueError):
         cal.load_mic_calibration(tmp_path / "bad.txt")
+
+
+def test_two_microphones_average_out_a_fault_and_flag_the_disagreement():
+    freqs = cal.log_grid()
+    truth = np.zeros_like(freqs)
+    bumpy = truth + 6 * np.exp(-np.log2(freqs / 4000) ** 2)             # one microphone has a +6 dB bump at 4 kHz
+    mean, spread = cal.combine_mics(freqs, [truth, bumpy])
+    at = int(np.argmin(abs(freqs - 4000)))
+    assert mean[at] == pytest.approx(3.0, abs=0.7) and spread[at] == pytest.approx(6.0, abs=0.7)   # the middle match eats a bit
+    conf = cal.confidence(spread)
+    assert conf[at] < 0.8 and conf[int(np.argmin(abs(freqs - 1000)))] == 1.0
+    weak = cal.design_correction(freqs, mean, confidence=conf)
+    strong = cal.design_correction(freqs, mean)
+    assert abs(weak[at]) < abs(strong[at])
