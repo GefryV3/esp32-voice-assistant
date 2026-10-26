@@ -54,8 +54,9 @@ constexpr float BARGE_REF_MIN = 40.0f;        // эталон тише — па�
 constexpr size_t AEC_REF_BUF = 16 * 1024;     // played samples at 16 kHz waiting for the matching mic samples
 constexpr int AEC_REF_PREFILL = 640;          // 40 ms of silence ahead: the echo must never lead the reference
 constexpr float AEC_VOICE_RMS = 400.0f;       // what is left after AEC above this (x ratio/4) is a voice (no mic gain);
-constexpr float AEC_ECHO_LEAK = 8.0f;         // loud parts distort in the small speaker and leak up to ~7x the reference
-constexpr int AEC_VOICE_CHUNKS = 5;           // ~160 ms of voice (gaps forgiven) — barge-in
+// Residual echo vs the reference: ~4x at 55 % volume, up to ~7x at 85 % (the small speaker distorts loud parts).
+constexpr float AEC_ECHO_LEAK_QUIET = 4.5f, AEC_ECHO_LEAK_LOUD = 8.0f;
+constexpr int AEC_VOICE_CHUNKS = 4;           // ~130 ms of voice (gaps forgiven) — a short «стоп» from across the room
 constexpr int AEC_GRACE_CHUNKS = 12;          // first ~400 ms of an answer the filter is still converging
 
 SendFn s_send = nullptr;
@@ -336,8 +337,10 @@ struct AecBarge {
     mic_max = std::max(mic_max, m), out_max = std::max(out_max, o), ref_max = std::max(ref_max, r);
     ++chunks;
     if (chunks > AEC_GRACE_CHUNKS) e_mic += static_cast<double>(m) * m, e_out += static_cast<double>(o) * o;
-    ref_hold = std::max(r, ref_hold * 0.6f);
-    const float thr = std::max(AEC_VOICE_RMS, AEC_ECHO_LEAK * ref_hold) * s_barge_ratio_x100 / 400.0f;
+    ref_hold = std::max(r, ref_hold * 0.85f);   // ~200 ms: the residual outlives the reference
+    const float vol = std::sqrt(s_vol_q15 / (MAX_GAIN * 32768.0f));    // volume 0…1 as set by the user
+    const float leak = AEC_ECHO_LEAK_QUIET + (AEC_ECHO_LEAK_LOUD - AEC_ECHO_LEAK_QUIET) * std::clamp((vol - 0.6f) / 0.3f, 0.0f, 1.0f);
+    const float thr = std::max(AEC_VOICE_RMS, leak * ref_hold) * s_barge_ratio_x100 / 400.0f;
     const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr;
     hits = loud ? hits + 1 : std::max(0, hits - 1);
     if (chunks % 16 == 0 || loud) {
