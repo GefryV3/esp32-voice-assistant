@@ -9,6 +9,7 @@
 #include "board.h"
 #include "driver/i2s_std.h"
 #include "esp_heap_caps.h"
+#include "esp_aec.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -48,6 +49,15 @@ constexpr float BARGE_K_FLOOR = 2.0f;         // эхо в микрофоне н
 constexpr int BARGE_LEARN_FRAMES = 50;        // первая секунда ответа: k подстраивается быстро
 constexpr float BARGE_REF_MIN = 40.0f;        // эталон тише — пауза в речи, сравнивать не с чем
 
+// Echo cancellation (ESP-SR AEC): the speaker's own voice is subtracted from the microphone, and barge-in
+// listens to what is left. Without it (no memory at start) the energy-ratio Barge above is used instead.
+constexpr size_t AEC_REF_BUF = 16 * 1024;     // played samples at 16 kHz waiting for the matching mic samples
+constexpr int AEC_REF_PREFILL = 640;          // 40 ms of silence ahead: the echo must never lead the reference
+constexpr float AEC_VOICE_RMS = 400.0f;       // what is left after AEC above this (x ratio/4) is a voice (no mic gain);
+constexpr float AEC_ECHO_LEAK = 8.0f;         // loud parts distort in the small speaker and leak up to ~7x the reference
+constexpr int AEC_VOICE_CHUNKS = 5;           // ~160 ms of voice (gaps forgiven) — barge-in
+constexpr int AEC_GRACE_CHUNKS = 12;          // first ~400 ms of an answer the filter is still converging
+
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;
 BargeFn s_barge = nullptr;
@@ -59,6 +69,11 @@ StreamBufferHandle_t s_mic_sb = nullptr;      // микрофон → задач
 StreamBufferHandle_t s_spk_sb = nullptr;      // WebSocket → проигрыватель
 StaticStreamBuffer_t s_mic_sb_ctl;
 StaticStreamBuffer_t s_spk_sb_ctl;
+StreamBufferHandle_t s_ref_sb = nullptr;      // player -> mic task: what was played, resampled to 16 kHz
+StaticStreamBuffer_t s_ref_sb_ctl;
+aec_handle_t *s_aec = nullptr;
+int s_aec_chunk = 0;                          // AEC frame, samples (512 = 32 ms)
+int16_t *s_aec_mic = nullptr, *s_aec_ref = nullptr, *s_aec_out = nullptr;
 TaskHandle_t s_player = nullptr;
 TaskHandle_t s_mic = nullptr;
 
@@ -198,10 +213,14 @@ struct Barge {
 
   void idle() { frames = 0; hits = 0; quiet = BARGE_TAIL_FRAMES; }
 
-  bool step(const int16_t *pcm, int n) {
+  void remember(const int16_t *pcm, int n) {
     memcpy(ring[head], pcm, n * sizeof(int16_t));
     if (n < MIC_FRAME) memset(ring[head] + n, 0, (MIC_FRAME - n) * sizeof(int16_t));
     head = (head + 1) % RING;
+  }
+
+  bool step(const int16_t *pcm, int n) {
+    remember(pcm, n);
     ++frames;
     double acc = 0;
     for (int i = 0; i < n; ++i) acc += static_cast<double>(pcm[i]) * pcm[i];
@@ -234,6 +253,103 @@ struct Barge {
 
 void audio_barge_in(Barge &b);
 
+// Barge-in through the echo canceller: mic frames are paired with the played reference in AEC chunks, and
+// whatever survives the cancellation for ~160 ms is the user talking over the answer.
+struct AecBarge {
+  int fill = 0;
+  int chunks = 0;
+  int hits = 0;
+  int64_t busy_us = 0;
+  float mic_max = 0, out_max = 0, ref_max = 0;
+  float ref_hold = 0;            // the residual lags the reference by a chunk or two
+  // Echo delay probe: 4 ms envelopes of mic and reference over the first ~2 s, cross-correlated once.
+  static constexpr int ENV_BLOCK = 64, ENV_N = 500, LAG_MIN = -25, LAG_MAX = 100;
+  float env_m[ENV_N], env_r[ENV_N];
+  int env_n = 0, env_fill = 0;
+  float acc_m = 0, acc_r = 0;
+  bool probed = false;
+
+  double e_mic = 0, e_out = 0;   // energy over the whole answer: how much echo the canceller removed
+
+  void idle() {
+    if (chunks > AEC_GRACE_CHUNKS && e_mic > 0 && e_out > 0) {
+      ESP_LOGI(TAG, "эхо: за ответ подавлено %.1f дБ (%d кадров)", 10.0 * std::log10(e_mic / e_out), chunks);
+    }
+    fill = 0; chunks = 0; hits = 0; ref_hold = 0; env_n = 0; env_fill = 0; acc_m = acc_r = 0; e_mic = e_out = 0;
+  }
+
+  void probe(const int16_t *m, const int16_t *r, int n) {
+    for (int i = 0; i < n && env_n < ENV_N; ++i) {
+      acc_m += std::fabs(static_cast<float>(m[i]));
+      acc_r += std::fabs(static_cast<float>(r[i]));
+      if (++env_fill == ENV_BLOCK) {
+        env_m[env_n] = acc_m, env_r[env_n] = acc_r;
+        ++env_n, env_fill = 0, acc_m = acc_r = 0;
+      }
+    }
+    if (env_n < ENV_N || probed) return;
+    probed = true;
+    float best = -1;
+    int best_lag = 0;
+    for (int lag = LAG_MIN; lag <= LAG_MAX; ++lag) {   // lag > 0: the echo comes after the reference
+      double xy = 0, xx = 0, yy = 0;
+      for (int i = std::max(0, -lag); i < ENV_N && i + lag < ENV_N; ++i) {
+        const double a = env_m[i + lag], b = env_r[i];
+        xy += a * b, xx += a * a, yy += b * b;
+      }
+      const float c = (xx > 0 && yy > 0) ? static_cast<float>(xy / std::sqrt(xx * yy)) : 0;
+      if (c > best) best = c, best_lag = lag;
+    }
+    ESP_LOGI(TAG, "эхо: задержка эха относительно эталона %d мс (сходство %.2f)", best_lag * ENV_BLOCK * 1000 / MIC_RATE,
+             best);
+  }
+
+  bool step(const int16_t *pcm, int n) {
+    bool fired = false;
+    for (int i = 0; i < n;) {
+      const int take = std::min(n - i, s_aec_chunk - fill);
+      memcpy(s_aec_mic + fill, pcm + i, take * sizeof(int16_t));
+      const size_t got = xStreamBufferReceive(s_ref_sb, s_aec_ref + fill, take * sizeof(int16_t), 0) / sizeof(int16_t);
+      if (got < static_cast<size_t>(take)) memset(s_aec_ref + fill + got, 0, (take - got) * sizeof(int16_t));
+      probe(s_aec_mic + fill, s_aec_ref + fill, take);
+      fill += take;
+      i += take;
+      if (fill == s_aec_chunk) {
+        fill = 0;
+        fired |= chunk();
+      }
+    }
+    return fired;
+  }
+
+  static float rms(const int16_t *x, int n) {
+    double acc = 0;
+    for (int i = 0; i < n; ++i) acc += static_cast<double>(x[i]) * x[i];
+    return static_cast<float>(std::sqrt(acc / n));
+  }
+
+  bool chunk() {
+    const int64_t t0 = esp_timer_get_time();
+    aec_process(s_aec, s_aec_mic, s_aec_ref, s_aec_out);
+    busy_us += esp_timer_get_time() - t0;
+    const float m = rms(s_aec_mic, s_aec_chunk), o = rms(s_aec_out, s_aec_chunk), r = rms(s_aec_ref, s_aec_chunk);
+    mic_max = std::max(mic_max, m), out_max = std::max(out_max, o), ref_max = std::max(ref_max, r);
+    ++chunks;
+    if (chunks > AEC_GRACE_CHUNKS) e_mic += static_cast<double>(m) * m, e_out += static_cast<double>(o) * o;
+    ref_hold = std::max(r, ref_hold * 0.6f);
+    const float thr = std::max(AEC_VOICE_RMS, AEC_ECHO_LEAK * ref_hold) * s_barge_ratio_x100 / 400.0f;
+    const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr;
+    hits = loud ? hits + 1 : std::max(0, hits - 1);
+    if (chunks % 16 == 0 || loud) {
+      ESP_LOGI(TAG, "эхо: микрофон %.0f, после AEC %.0f, играет %.0f, AEC %.1f мс, стек %u %s", mic_max, out_max, ref_max,
+               busy_us / 1000.0f, (unsigned)uxTaskGetStackHighWaterMark(nullptr), loud ? "ГОЛОС" : "");
+      mic_max = out_max = ref_max = 0;
+      busy_us = 0;
+    }
+    return hits >= AEC_VOICE_CHUNKS;
+  }
+};
+
 // Что решил детектор хлопков: по этим строкам видно, где хлопок не прошёл (пик, фон, спад, интервал).
 // Звук в журнал не попадает, только числа. Не чаще 8 строк в секунду, чтобы не мешать микрофону.
 void log_clap(const clap::Diag &d) {
@@ -261,7 +377,8 @@ void mic_task(void *) {
   static int32_t raw[MIC_FRAME];
   static int16_t pcm[MIC_FRAME];
   static int16_t flat[MIC_FRAME];               // тот же звук без усиления — для детектора хлопков
-  static Barge barge;
+  static EXT_RAM_BSS_ATTR Barge barge;
+  static EXT_RAM_BSS_ATTR AecBarge aec;
   static Ear ear;
   static clap::Detector claps;
   Highpass hpf(MIC_HIGHPASS_HZ, MIC_RATE);
@@ -292,13 +409,23 @@ void mic_task(void *) {
     // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
     // трещит в такт отправкам. Слушаем только локально: не перебивает ли пользователь.
     if (s_speaking) {
-      if (!s_barge_armed) barge.idle();    // накопление в буфере: слушать пока нечего
-      else if (s_barge_on && s_listening && barge.step(pcm, n)) {
+      if (!s_barge_armed) {
+        barge.idle();                      // накопление в буфере: слушать пока нечего
+        aec.idle();
+      } else if (s_aec) {
+        barge.remember(pcm, n);            // the start of the phrase goes to the server after a barge-in
+        // the canceller gets the mic without gain: amplified, the echo clips and can no longer be subtracted
+        if (aec.step(flat, n) && s_barge_on && s_listening) {
+          audio_barge_in(barge);
+          aec.idle();
+        }
+      } else if (s_barge_on && s_listening && barge.step(pcm, n)) {
         audio_barge_in(barge);
       }
       continue;
     }
     barge.idle();
+    aec.idle();
     if (!s_listening) continue;
     if (xStreamBufferSend(s_mic_sb, pcm, n * sizeof(int16_t), 0) != n * sizeof(int16_t)) {
       if (dropped++ % 50 == 0) ESP_LOGW(TAG, "микрофон: сеть не успевает, теряю кадры (%lu)", (unsigned long)dropped);
@@ -388,6 +515,13 @@ void play_once() {
   static uint8_t in[SPK_CHUNK * 2 + 1];
   static int16_t out[SPK_CHUNK];
   Highpass hpf(SPK_HIGHPASS_HZ, static_cast<float>(s_rate));
+  static int16_t ref[SPK_CHUNK];
+  int ref_acc = 0;                       // nearest-sample resampler s_rate -> 16 kHz for the echo reference
+  if (s_ref_sb) {
+    xStreamBufferReset(s_ref_sb);        // the mic task only polls it, nobody is blocked on it
+    static const int16_t zeros[AEC_REF_PREFILL] = {};
+    xStreamBufferSend(s_ref_sb, zeros, sizeof zeros, 0);
+  }
   ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
   s_barge_armed = true;
   size_t carry = 0;
@@ -410,6 +544,17 @@ void play_once() {
       size_t written = 0;
       i2s_channel_write(s_tx, out, samples * 2, &written, portMAX_DELAY);
       samples_total += samples;
+      if (s_ref_sb) {
+        int k = 0;
+        for (size_t i = 0; i < samples; ++i) {
+          ref_acc += MIC_RATE;
+          if (ref_acc >= s_rate) {
+            ref_acc -= s_rate;
+            ref[k++] = out[i];
+          }
+        }
+        xStreamBufferSend(s_ref_sb, ref, k * sizeof(int16_t), 0);
+      }
     }
     carry = n & 1;
     if (carry) in[0] = in[n - 1];
@@ -480,6 +625,39 @@ void player_task(void *) {
   }
 }
 
+// Echo canceller: its big state lives in PSRAM, only ~8 KB of internal RAM. No memory — barge-in falls back to Barge.
+void init_aec() {
+  const size_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  s_ref_sb = make_buffer(AEC_REF_BUF, 1, &s_ref_sb_ctl);
+  aec_config_t cfg = {};
+  cfg.mic_num = 1;
+  cfg.ref_num = 1;
+  cfg.out_num = 1;
+  cfg.filter_length = 4;
+  cfg.sample_rate = MIC_RATE;
+  cfg.caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+  cfg.mode = AEC_MODE_FD_HIGH_PERF;     // full duplex: built for talking over the speaker
+  cfg.nlp_level = AEC_NLP_LEVEL_VERYAGGR;
+  if (s_ref_sb) s_aec = aec_create_from_config(&cfg);
+  if (s_aec) {
+    s_aec_chunk = aec_get_chunksize(s_aec);
+    const size_t bytes = s_aec_chunk * sizeof(int16_t);
+    s_aec_mic = static_cast<int16_t *>(heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM));
+    s_aec_ref = static_cast<int16_t *>(heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM));
+    s_aec_out = static_cast<int16_t *>(heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM));
+    if (!s_aec_mic || !s_aec_ref || !s_aec_out) {
+      aec_destroy(s_aec);
+      s_aec = nullptr;
+    }
+  }
+  if (s_aec) {
+    ESP_LOGI(TAG, "подавление эха: кадр %d, внутренняя RAM %u → %u байт", s_aec_chunk, (unsigned)before,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  } else {
+    ESP_LOGW(TAG, "подавление эха не поднялось — перебивание по громкости");
+  }
+}
+
 }  // namespace
 
 void start(SendFn send_mic, DoneFn on_played, BargeFn on_barge_in) {
@@ -494,8 +672,9 @@ void start(SendFn send_mic, DoneFn on_played, BargeFn on_barge_in) {
   }
   init_mic();
   init_speaker();
+  init_aec();
   // ядро 0, выше отрисовки: звук всегда вытеснит помощника лица
-  xTaskCreatePinnedToCore(mic_task, "mic", 4096, nullptr, 8, &s_mic, 0);
+  xTaskCreatePinnedToCore(mic_task, "mic", 6144, nullptr, 8, &s_mic, 0);   // the echo canceller needs ~2 KB more stack
   xTaskCreatePinnedToCore(alarm_task, "alarm", 3072, nullptr, 4, &s_alarm_task, 0);
   xTaskCreatePinnedToCore(mic_send_task, "mic_send", 4096, nullptr, 6, nullptr, 0);
   xTaskCreatePinnedToCore(player_task, "player", 3072, nullptr, 8, &s_player, 0);

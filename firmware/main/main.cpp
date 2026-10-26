@@ -3,6 +3,7 @@
 #include "display/lcd.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "face/face.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,7 +26,7 @@ static void init_nvs() {
 }
 
 extern "C" void app_main() {
-  ESP_LOGI(TAG, "Jarvis %s", esp_app_get_description()->version);
+  ESP_LOGI(TAG, "Jarvis %s, причина перезапуска %d", esp_app_get_description()->version, (int)esp_reset_reason());
   init_nvs();
   ota::boot_check();  // после обновления по воздуху — откат, если не свяжемся с сервером
 

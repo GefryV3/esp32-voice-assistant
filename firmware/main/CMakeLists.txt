@@ -34,6 +34,7 @@ idf_component_register(
         esp_wifi
         json
         nvs_flash
+        espressif__esp-sr
 )
 
 # Отрисовка лица считает много плавающей арифметики на каждый пиксель: без errno и с

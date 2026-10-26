@@ -19,6 +19,7 @@
 #include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "net/ota.h"
 #include "net/plan.h"
@@ -368,7 +369,7 @@ void on_message(const cJSON *m) {
     p.cal_s = num(m, "cal_s", -1);
     room::set_ble(num(m, "on", 0) != 0, str(m, "uuid"), p);
   } else if (eq(type, "shot")) {
-    xTaskCreatePinnedToCore(shot_task, "shot", 4096, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCoreWithCaps(shot_task, "shot", 4096, nullptr, 2, nullptr, 0, MALLOC_CAP_SPIRAM);
   } else if (eq(type, "ota")) {
     if (!ota::start(str(m, "url"), report_ota)) ESP_LOGW(TAG, "обновление уже идёт");
   } else if (eq(type, "ping")) {
@@ -459,7 +460,7 @@ void start() {
   audio::start(send_mic, send_played, send_barge_in);
   audio::set_clap_handler(on_clap);
   plan::start();
-  xTaskCreatePinnedToCore(status_task, "link_status", 3072, nullptr, 3, &s_status_task, 0);
+  xTaskCreatePinnedToCoreWithCaps(status_task, "link_status", 3072, nullptr, 3, &s_status_task, 0, MALLOC_CAP_SPIRAM);
 
   esp_websocket_client_config_t cfg = {};
   cfg.uri = SERVER_URI;

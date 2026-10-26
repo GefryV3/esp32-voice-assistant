@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "net/ota.h"
 #include "net/uplink.h"
@@ -422,9 +423,10 @@ void set_ble(bool on, const char *uuid_hex, const ScanParams &p) {
 }
 
 void start() {
-  xTaskCreatePinnedToCore(room_task, "room", 4096, nullptr, 2, nullptr, 0);
+  // stacks in PSRAM: internal RAM goes to the echo canceller (these tasks never touch flash)
+  xTaskCreatePinnedToCoreWithCaps(room_task, "room", 4096, nullptr, 2, nullptr, 0, MALLOC_CAP_SPIRAM);
 #if ROOM_RADAR
-  xTaskCreatePinnedToCore(radar_task, "radar", 3072, nullptr, 2, nullptr, 0);
+  xTaskCreatePinnedToCoreWithCaps(radar_task, "radar", 3072, nullptr, 2, nullptr, 0, MALLOC_CAP_SPIRAM);
 #endif
 }
 

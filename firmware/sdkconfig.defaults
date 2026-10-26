@@ -14,6 +14,8 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# Big rarely-touched static buffers (EXT_RAM_BSS_ATTR) live in PSRAM: internal RAM is for the echo canceller.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 
 # Звук идёт по TCP 32 КБ/с в каждую сторону, а через ретранслятор задержка скачет до 300 мс.
 # Окно по умолчанию (5.7 КБ) при таких скачках даёт меньше 20 КБ/с — динамик хрипит от
