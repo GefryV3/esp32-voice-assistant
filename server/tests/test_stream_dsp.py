@@ -13,6 +13,7 @@ from stream_dsp import LOOK, RATE, Chain, Compressor, Equalizer, Limiter  # noqa
 @pytest.fixture
 def eq(tmp_path, monkeypatch):
     monkeypatch.setattr(stream_dsp, "SAVED", tmp_path / "eq.json")
+    monkeypatch.setattr(stream_dsp, "CORRECTION", tmp_path / "correction.json")   # not the real measured one
     return Equalizer()
 
 
