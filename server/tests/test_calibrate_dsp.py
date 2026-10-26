@@ -104,3 +104,14 @@ def test_two_microphones_average_out_a_fault_and_flag_the_disagreement():
     weak = cal.design_correction(freqs, mean, confidence=conf)
     strong = cal.design_correction(freqs, mean)
     assert abs(weak[at]) < abs(strong[at])
+
+
+def test_regularize_cuts_peaks_but_barely_fills_dips():
+    freqs = cal.log_grid()
+    peak = np.where((freqs > 2500) & (freqs < 5000), -9.0, 0.0)               # a broad peak to cut
+    dip = np.where((freqs > 900) & (freqs < 1100), 9.0, 0.0)                  # a dip someone wants to fill
+    out = cal.regularize(freqs, peak + dip)
+    assert out[int(np.argmin(abs(freqs - 3500)))] < -7.0
+    assert out.max() <= 2.0 + 1e-9
+    low = cal.regularize(freqs, np.full_like(freqs, 12.0))
+    assert low[freqs < 250].max() <= 4.0 + 1e-9

@@ -135,9 +135,19 @@ def design_correction(freqs: np.ndarray, measured_db: np.ndarray, *, max_boost: 
     above = np.clip(1 - np.log2(freqs / high) / np.log2(1.3), 0, 1)                 # 1 at high, 0 at 1.3*high
     diff = np.where(diff > 0, diff * np.minimum(below, np.where(freqs > high, above, 1.0)), diff)
     diff = np.clip(diff, -max_cut, max_boost)
-    kernel = np.ones(5) / 5                                                        # light smoothing in log frequency
-    padded = np.pad(diff, 2, mode="edge")
-    return np.convolve(padded, kernel, mode="valid")
+    return regularize(freqs, diff)
+
+
+def regularize(freqs: np.ndarray, corr: np.ndarray, boost_low: float = 4.0, boost_mid: float = 2.0,
+               boost_high: float = 4.0) -> np.ndarray:
+    """Make a correction safe to apply: peaks are cut freely, dips are filled only a little (a dip is usually a
+    reflection of the desk or the room, and moves when the listener does), and everything is smoothed over about
+    half an octave so that narrow features are not chased."""
+    cap = np.where(freqs < 300, boost_low, np.where(freqs < 6000, boost_mid, boost_high))
+    out = np.minimum(corr, cap)
+    width = 9                                                                    # ~1/2 octave on the 160-point grid
+    padded = np.pad(out, width // 2, mode="edge")
+    return np.convolve(padded, np.ones(width) / width, mode="valid")
 
 
 def band_table(freqs, measured_db, target, bands=(63, 125, 250, 500, 1000, 2000, 4000, 8000, 12000)) -> list[tuple]:
