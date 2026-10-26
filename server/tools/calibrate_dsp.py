@@ -43,6 +43,16 @@ def impulse_response(recording: np.ndarray, reference: np.ndarray) -> np.ndarray
     return np.fft.irfft(rec * np.conj(ref) / (np.abs(ref) ** 2 + eps), n)
 
 
+def ir_quality(ir: np.ndarray) -> tuple[float, float]:
+    """(delay in seconds of the strongest peak, how far it stands above the rest of the response in dB).
+    A real measurement has a sharp direct-sound peak well above everything around it; noise does not."""
+    a = np.abs(ir[: len(ir) // 2])
+    peak = int(np.argmax(a))
+    guard, span = int(0.05 * RATE), int(0.5 * RATE)
+    around = np.concatenate([a[max(0, peak - span): max(0, peak - guard)], a[peak + guard: peak + span]])
+    return peak / RATE, 20 * float(np.log10(a[peak] / (np.sqrt(np.mean(around ** 2)) + 1e-12)))
+
+
 def log_grid(points: int = 160, lo: float = 30.0, hi: float = 18_000.0) -> np.ndarray:
     return np.logspace(np.log10(lo), np.log10(hi), points)
 

@@ -71,3 +71,11 @@ def test_second_pass_adds_to_the_first():
     first = cal.design_correction(freqs, db)
     again = cal.design_correction(freqs, db + first, previous=first)         # the speaker now sounds corrected
     assert np.abs(again - first).max() < 3.0                                  # already close: only a small change
+
+
+def test_ir_quality_tells_a_real_measurement_from_noise():
+    ref = cal.sweep()
+    delay, good = cal.ir_quality(cal.impulse_response(fake_speaker(ref, delay_s=1.4), ref))
+    assert delay == pytest.approx(1.4, abs=0.02) and good > 30
+    noise = np.random.default_rng(3).standard_normal(len(ref) + 4 * RATE) * 0.01
+    assert cal.ir_quality(cal.impulse_response(noise, ref))[1] < 20

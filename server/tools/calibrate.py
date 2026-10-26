@@ -16,6 +16,7 @@ import asyncio
 import json
 import sys
 import tempfile
+import wave
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -80,14 +81,32 @@ async def play_and_record(url: str, token: str, mic, signal: np.ndarray, chain: 
         return await recording
 
 
-def measure(rec: np.ndarray, ref: np.ndarray, gate_ms: float):
+def save_wav(rec: np.ndarray, name: str) -> Path:
+    RECORDINGS.mkdir(exist_ok=True)
+    path = RECORDINGS / name
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes((np.clip(rec / (np.abs(rec).max() + 1e-9) * 0.9, -1, 1) * 32767).astype("<i2").tobytes())
+    return path
+
+
+def measure(rec: np.ndarray, ref: np.ndarray, gate_ms: float, label: str):
+    print(f"  recording saved: {save_wav(rec, f'calibration-{label}.wav')}")
     peak = float(np.abs(rec).max())
     print(f"  microphone: peak {20 * np.log10(peak + 1e-9):.1f} dBFS, average {dbfs(rec):.1f} dBFS")
     if peak > 0.98:
         raise SystemExit("the microphone clips: lower its gain in Windows or use --level -26")
     if peak < 0.003:
         raise SystemExit("the microphone hardly hears anything: raise its gain in Windows or check where it points")
-    return cal.smoothed_response_db(cal.impulse_response(rec, ref), gate_ms=gate_ms)
+    ir = cal.impulse_response(rec, ref)
+    delay, snr = cal.ir_quality(ir)
+    print(f"  direct sound found at {delay:.2f} s, {snr:.0f} dB above the rest (needs 20+)")
+    if snr < 20:
+        raise SystemExit("no clear sweep in the recording (noise, or the microphone does not hear the speaker well "
+                         "enough): nothing was saved. Raise the microphone level in Windows, move it closer, or check the recording")
+    return cal.smoothed_response_db(ir, gate_ms=gate_ms)
 
 
 def make_chain(correction: tuple[list[float], list[float]] | None) -> stream_dsp.Chain:
@@ -127,7 +146,7 @@ async def main_async(args) -> None:
         chain = make_chain((freqs.tolist(), corr.tolist())) if corr is not None else None
         print(f"pass {n}: " + ("with the correction so far" if chain else "the speaker as it is") + ", ~20 s of sweep")
         rec = await play_and_record(url, token, mic, ref, chain)
-        f, db = measure(rec, ref, args.gate)
+        f, db = measure(rec, ref, args.gate, f"pass{n}")
         if first is None:
             first = db
         show(f"measured (re 1 kHz)", f, db - np.interp(np.log(1000), np.log(f), db), target)
