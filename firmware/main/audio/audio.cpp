@@ -55,12 +55,12 @@ constexpr size_t AEC_REF_BUF = 16 * 1024;     // played samples at 16 kHz waitin
 constexpr int AEC_REF_PREFILL = 640;          // 40 ms of silence ahead: the echo must never lead the reference
 constexpr float AEC_VOICE_RMS = 400.0f;       // what is left after AEC above this (x ratio/4) is a voice (no mic gain);
 // Residual echo vs the reference: ~2.5x at 25-55 % volume, up to ~7x at 85 % (the small speaker distorts loud parts).
-constexpr float AEC_ECHO_LEAK_QUIET = 2.5f, AEC_ECHO_LEAK_LOUD = 7.0f;
+constexpr float AEC_ECHO_LEAK_QUIET = 1.8f, AEC_ECHO_LEAK_LOUD = 3.5f;
 // The canceller removes most of its own echo but none of a voice: a chunk that comes out almost as loud as it
 // went in (the output lags a chunk, so against the louder of this and the previous input) is someone talking.
 constexpr float AEC_UNCANCELLED = 0.7f;
 constexpr int AEC_VOICE_CHUNKS = 4;           // ~130 ms of voice (gaps forgiven) — a short «стоп» from across the room
-constexpr int AEC_GRACE_CHUNKS = 12;          // first ~400 ms of an answer the filter is still converging
+constexpr int AEC_GRACE_CHUNKS = 40;          // first ~1.3 s of an answer the filter is still converging
 
 SendFn s_send = nullptr;
 DoneFn s_done = nullptr;
@@ -345,12 +345,12 @@ struct AecBarge {
     const float vol = std::sqrt(s_vol_q15 / (MAX_GAIN * 32768.0f));    // volume 0…1 as set by the user
     const float leak = AEC_ECHO_LEAK_QUIET + (AEC_ECHO_LEAK_LOUD - AEC_ECHO_LEAK_QUIET) * std::clamp((vol - 0.6f) / 0.3f, 0.0f, 1.0f);
     const float thr = std::max(AEC_VOICE_RMS, leak * ref_hold) * s_barge_ratio_x100 / 400.0f;
-    const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr && o > AEC_UNCANCELLED * std::max(m, mic_prev);
+    const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr;
     mic_prev = m;
     hits = loud ? hits + 1 : std::max(0, hits - 1);
     if (chunks % 16 == 0 || loud) {
-      ESP_LOGI(TAG, "эхо: микрофон %.0f, после AEC %.0f, играет %.0f, AEC %.1f мс, стек %u %s", mic_max, out_max, ref_max,
-               busy_us / 1000.0f, (unsigned)uxTaskGetStackHighWaterMark(nullptr), loud ? "ГОЛОС" : "");
+      ESP_LOGI(TAG, "эхо: микрофон %.0f, после AEC %.0f, играет %.0f, AEC %.1f мс/кадр, стек %u %s", mic_max, out_max, ref_max,
+               busy_us / 1000.0f / 16, (unsigned)uxTaskGetStackHighWaterMark(nullptr), loud ? "ГОЛОС" : "");
       mic_max = out_max = ref_max = 0;
       busy_us = 0;
     }
@@ -644,8 +644,10 @@ void init_aec() {
   cfg.filter_length = 4;
   cfg.sample_rate = MIC_RATE;
   cfg.caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-  cfg.mode = AEC_MODE_FD_HIGH_PERF;     // full duplex: built for talking over the speaker
-  cfg.nlp_level = AEC_NLP_LEVEL_VERYAGGR;
+  // FD_HIGH_PERF ate ~60 % of core 0 (screen fell to 25 fps) and its non-linear stage cut the voice together with the
+  // echo. SR mode is made for recognition: lighter and it leaves the voice alone.
+  cfg.mode = AEC_MODE_SR_HIGH_PERF;
+  cfg.nlp_level = AEC_NLP_LEVEL_NORMAL;
   if (s_ref_sb) s_aec = aec_create_from_config(&cfg);
   if (s_aec) {
     s_aec_chunk = aec_get_chunksize(s_aec);
