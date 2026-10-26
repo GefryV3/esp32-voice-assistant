@@ -336,6 +336,15 @@ struct AecBarge {
   bool chunk() {
     const int64_t t0 = esp_timer_get_time();
     aec_process(s_aec, s_aec_mic, s_aec_ref, s_aec_out);
+    if (s_barge_on && s_listening) {
+      // The cleaned sound goes to the server, which listens for «стоп» in it: a word cannot be faked by the
+      // speaker's own echo the way loudness can. Same gain as the normal mic stream.
+      const float g = s_gain_q8.load() / 256.0f;
+      for (int i = 0; i < s_aec_chunk; ++i) {
+        s_aec_mic[i] = static_cast<int16_t>(std::clamp(s_aec_out[i] * g, -32768.0f, 32767.0f));
+      }
+      xStreamBufferSend(s_mic_sb, s_aec_mic, s_aec_chunk * sizeof(int16_t), 0);
+    }
     busy_us += esp_timer_get_time() - t0;
     const float m = rms(s_aec_mic, s_aec_chunk), o = rms(s_aec_out, s_aec_chunk), r = rms(s_aec_ref, s_aec_chunk);
     mic_max = std::max(mic_max, m), out_max = std::max(out_max, o), ref_max = std::max(ref_max, r);
@@ -414,19 +423,17 @@ void mic_task(void *) {
       while (claps.take_diag(d)) log_clap(d);
     }
     ear.step(pcm, n, s_speaking);
-    // Пока динамик играет, в сеть не шлём: каждый пакет Wi-Fi — бросок тока, и усилитель
-    // трещит в такт отправкам. Слушаем только локально: не перебивает ли пользователь.
+    // Пока динамик играет, сырой микрофон в сеть не шлём (там одно эхо): с подавлением эха уходит
+    // очищенный звук (AecBarge), без него перебивание решается локально по громкости.
     if (s_speaking) {
       if (!s_barge_armed) {
         barge.idle();                      // накопление в буфере: слушать пока нечего
         aec.idle();
       } else if (s_aec) {
         barge.remember(pcm, n);            // the start of the phrase goes to the server after a barge-in
-        // the canceller gets the mic without gain: amplified, the echo clips and can no longer be subtracted
-        if (aec.step(flat, n) && s_barge_on && s_listening) {
-          audio_barge_in(barge);
-          aec.idle();
-        }
+        // the canceller gets the mic without gain: amplified, the echo clips and can no longer be subtracted.
+        // It decides nothing itself: the server hears «стоп» in its output and stops the answer.
+        aec.step(flat, n);
       } else if (s_barge_on && s_listening && barge.step(pcm, n)) {
         audio_barge_in(barge);
       }

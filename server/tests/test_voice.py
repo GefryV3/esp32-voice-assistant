@@ -515,6 +515,37 @@ async def test_barge_in_stops_reply_and_drops_old_tail(hub, voice, live):
         await ws.close()
 
 
+class FakeStop(FakeWake):
+    """«Стоп» — кадр, который начинается с b'STOP'."""
+
+    def process(self, pcm):
+        return 1.0 if pcm.startswith(b"STOP") else 0.0
+
+
+async def test_stop_word_in_echo_cancelled_mic_stops_reply(hub, live, tmp_path, monkeypatch):
+    monkeypatch.setattr(voice_mod, "NO_SPEECH_S", 0.5)
+    monkeypatch.setattr(voice_mod, "FOLLOW_UP_S", 0.3)
+    monkeypatch.setattr(voice_mod, "STOP_GRACE_S", 0.0)
+    v = Voice(hub, Audio(hub, tmp_path), Settings(device_token=TOKEN, gemini_api_key="k"),
+              wake_factory=FakeWake, live_factory=live, stop_factory=FakeStop)
+    ws = await speaker(hub)
+    log = Log(ws)
+    try:
+        task = v.start(hub.get(), "расскажи длинно")
+        await live.queue.put(Event("audio", data=b"\x02\x00" * 24000, rate=24000))
+        await log.wait(lambda m: m["type"] == "audio_start")
+        await ws.send(b"\x01\x00" * 1600)                     # the story's own residual echo: keeps playing
+        await asyncio.sleep(0.1)
+        assert not any(isinstance(m, dict) and m["type"] == "audio_stop" for m in log.msgs)
+        await ws.send(b"STOP" + b"\x00" * 3196)
+        await log.wait(lambda m: m["type"] == "audio_stop")
+        await log.wait(is_voice("listening"))
+        await live.queue.put(None)
+        await task
+    finally:
+        await ws.close()
+
+
 async def test_barge_in_ignored_when_not_speaking(hub, voice, live):
     ws = await speaker(hub)
     log = Log(ws)

@@ -39,6 +39,7 @@ FOLLOW_UP_S = 6.0       # после ответа слушаем без слов
 LONG_FOLLOW_UP_S = 14.0  # то же в немецком и играх: человек думает над ответом
 STORY_RE = re.compile(r"расскаж|сказк|истори|рассказ")
 STORY_PARTS = 6          # столько раз сами просим продолжение истории
+STOP_GRACE_S = 1.5        # «стоп» не слушаем в начале ответа: подавление эха ещё не сошлось
 MAX_TURN_S = 60.0       # один ответ дольше этого — что-то не так
 WAKE_COOLDOWN_S = 1.5   # после разговора детектор не слушает: хвост эха
 CAPTION_HOLD_S = 4.0    # подпись висит после конца разговора
@@ -196,6 +197,9 @@ class Conversation:
         self.story_left = 0          # сколько раз ещё просить продолжение истории
         self._story_asked = False    # просьба продолжить уже отправлена, ждём следующий кусок
         self._barge = asyncio.Event()  # колонка сообщила: пользователь перебил ответ
+        # while the answer plays the speaker streams its echo-cancelled mic: «стоп» in it stops the answer
+        self._stop = voice._stop_factory() if voice._stop_factory is not None else None
+        self._spoke_at = 0.0
         self.speaking = False
         # быстрый путь (#38) и шёпот (#42): только в разговоре по слову, не в текстовых и служебных
         listening_talk = not one_shot
@@ -221,6 +225,13 @@ class Conversation:
         if self.listening:
             self.mic.put_nowait(pcm)
             self._analyze(pcm)
+        elif self.speaking and self._stop is not None and not self._barge.is_set():
+            # the speaker's echo canceller needs ~1.5 s to settle; before that its output is mostly the answer itself
+            if self.voice.clock() - self._spoke_at < STOP_GRACE_S:
+                return
+            if self._stop.process(pcm) >= 1.0:
+                log.info("%s: «стоп» посреди ответа", self.dev.id)
+                self._barge.set()
 
     def _analyze(self, pcm: bytes) -> None:
         """Тот же звук — в локальные распознаватели: команда быстрого пути и признак шёпота."""
@@ -318,6 +329,9 @@ class Conversation:
         audio = self.voice.audio
         end: Event | None = None
         self._barge.clear()
+        if self._stop is not None:
+            self._stop.reset()
+        self._spoke_at = self.voice.clock()
         self.speaking = True
         try:
             return await self._speak_stream(first, events, live, audio)
@@ -545,6 +559,7 @@ class Voice:
                  live_factory: Callable[[str], LiveSession] | None = None,
                  mute_factory: Callable[[], Any] | None = None,
                  fast_factory: Callable[[], Any] | None = None,
+                 stop_factory: Callable[[], Any] | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  now: Callable[[], datetime] = datetime.now):
         self.hub = hub
@@ -553,6 +568,7 @@ class Voice:
         self.clock = clock
         self.now = now
         self._wake_factory = wake_factory
+        self._stop_factory = stop_factory
         self.brain = brain
         self.presence = None      # Presence: пока человека нет на месте, разговор не начинаем
         self.voiceid = None       # VoiceID: после слова проверяет, что говорит хозяин (voiceid.py)

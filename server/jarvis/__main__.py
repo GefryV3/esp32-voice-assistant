@@ -48,7 +48,7 @@ from .quiet import make_mute_factory
 from .voice import Voice
 from .voiceid import OnnxEmbedder, VoiceID, ensure_model as ensure_voiceid_model
 from .wake import WakeWord, ensure_models
-from .wake_vosk import MultiWake, VoskWake, ensure_model
+from .wake_vosk import MultiWake, StopWord, VoskWake, ensure_model
 from .config import ConfigError, load_settings, read_env_file
 from .console import RecentLogHandler, add_admin_route, run_console
 from .devices import DeviceHub
@@ -77,6 +77,16 @@ async def wake_factory(model_dir: Path, words: str = "мага,jarvis") -> Calla
         return None
     log.info("слова пробуждения: %s", ", ".join(names))
     return lambda: MultiWake([make() for make in makers])
+
+
+async def stop_factory(model_dir: Path) -> Callable[[], object] | None:
+    """«Стоп» посреди ответа: тот же Vosk, что и для слова пробуждения, со своим списком слов."""
+    try:
+        path = await asyncio.to_thread(ensure_model, model_dir)
+    except Exception as e:
+        logging.getLogger("jarvis").warning("«стоп» голосом выключен: %s", e)
+        return None
+    return lambda: StopWord(path)
 
 
 async def _device_send(hub: DeviceHub, msg) -> None:
@@ -120,7 +130,8 @@ async def main() -> None:
         voice = Voice(hub, audio, settings, brain=brain,
                       mute_factory=await make_mute_factory(Path(settings.data_dir) / "models"),
                       fast_factory=await asyncio.to_thread(make_fast_factory, Path(settings.data_dir) / "models"),
-                      wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words))
+                      wake_factory=await wake_factory(Path(settings.data_dir) / "models", settings.wake_words),
+                      stop_factory=await stop_factory(Path(settings.data_dir) / "models"))
         brain.agents = Agents(settings.gemini_api_key, settings.agent_model, voice.announce,
                               search=settings.agent_search, fallback_model=settings.fallback_text_model,
                               search_fn=make_search(settings.agent_search, settings.brave_key, settings.searxng_url,
