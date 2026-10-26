@@ -32,6 +32,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from jarvis.config import read_env_file  # noqa: E402
 from stream_dsp import RATE, Chain, Equalizer  # noqa: E402
 
+rng = np.random.default_rng()
+
+
+def to_pcm(x: np.ndarray) -> bytes:
+    """16-bit PCM with TPDF dither: quantisation noise stays noise instead of turning into distortion on quiet passages."""
+    dither = (rng.random(len(x)) - rng.random(len(x))) / 32768.0
+    return (np.clip(np.round((x + dither) * 32767), -32768, 32767)).astype("<i2").tobytes()
+
 BLOCK = 4800                # 100 ms; a multiple of the compressor slice
 PAGE = Path(__file__).with_name("stream_eq.html")
 
@@ -102,7 +110,7 @@ async def run(url: str, token: str, device: str | None, eq: Equalizer) -> None:
                 block = await loop.run_in_executor(None, rec.record, BLOCK)
                 mono = block.mean(axis=1)
                 out = chain.process(mono)
-                await ws.send((np.clip(out, -1, 1) * 32767).astype("<i2").tobytes())
+                await ws.send(to_pcm(out))
                 sent += 1
                 if sent % 50 == 1:
                     print(f"sent {sent} blocks, level {float(np.abs(mono).max()):.2f}", flush=True)

@@ -40,8 +40,8 @@ constexpr float LIMIT_KNEE = 0.5f;            // доля полной шкал�
 constexpr float MAX_GAIN = 0.36f;             // громкость 100 %
 // Music stream (server sets `music` in audio_start): the bass cut is only for the old tiny speaker and Gemini's voice.
 constexpr float MUSIC_HIGHPASS_HZ = 45.0f;    // just below the lowest EQ band: keeps rumble and DC off the amp
-constexpr float MUSIC_LIMIT_KNEE = 0.8f;
-constexpr float MUSIC_GAIN = 2.2f;            // x2.2 (+7 dB) over the voice curve; the limiter catches the peaks
+constexpr float MUSIC_LIMIT_KNEE = 0.95f;     // the stream already has its own limiter; this is a safety net
+constexpr float MUSIC_GAIN = 2.75f;           // x2.75: 100 % volume = full scale (MAX_GAIN * 2.75 ~ 1.0)
 
 constexpr int BARGE_FRAMES = 10;              // 10 loud frames (gaps forgiven) — перебили
 constexpr int BARGE_PREROLL_FRAMES = 12;      // 240 мс микрофона отдаём серверу вслед

@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 
 import numpy as np
+from scipy.ndimage import maximum_filter1d
 from scipy.signal import butter, sosfilt, sosfreqz
 
 RATE = 48_000
@@ -28,6 +29,7 @@ DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0}     # 0…100 %, 0…100 %
 FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
+LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
 ATTACK_S, RELEASE_S = 0.010, 0.150
 
 
@@ -139,8 +141,35 @@ class Compressor:
         return x * 10 ** (per_sample / 20)
 
 
+class Limiter:
+    """Look-ahead peak limiter: the gain starts dropping `LOOK` samples before a peak arrives, so peaks are
+    turned down instead of being bent by a waveshaper (which sounds like distortion). Output is delayed by LOOK."""
+
+    def __init__(self, ceiling: float = 0.95, look: int = LOOK) -> None:
+        self.ceiling, self.look = ceiling, look
+        self._hist = np.zeros(look)
+        self._gain = 1.0
+        self._att = 1.0 - float(np.exp(-4.5 / look))         # 4.5 time constants fit into the look-ahead: ~1 % of the cut is left
+        self._rel = float(np.exp(-1.0 / (RATE * 0.08)))      # 80 ms release
+
+    def process(self, x: np.ndarray) -> np.ndarray:
+        n, look = len(x), self.look
+        ext = np.concatenate([self._hist, x])                 # output sample i is ext[i], i.e. delayed by `look`
+        self._hist = ext[n:]
+        ahead = maximum_filter1d(np.abs(ext), size=look + 1, mode="constant", cval=0.0, origin=-(look // 2))[:n]
+        target = np.minimum(1.0, self.ceiling / np.maximum(ahead, 1e-9))
+        gains = np.empty(n)
+        g, att, rel = self._gain, self._att, self._rel
+        for i in range(n):
+            t = target[i]
+            g = g + (t - g) * att if t < g else t - (t - g) * rel
+            gains[i] = g
+        self._gain = g
+        return ext[:n] * gains
+
+
 class Chain:
-    """EQ → bass cut + virtual bass → compressor → volume → soft limiter."""
+    """EQ → bass cut + virtual bass → compressor → volume → look-ahead limiter."""
 
     def __init__(self, eq: Equalizer) -> None:
         self.eq = eq
@@ -153,6 +182,7 @@ class Chain:
         self._harm = butter(2, [110, 330], "bandpass", fs=RATE, output="sos")    # its harmonics we can
         self._harm_zi = np.zeros((len(self._harm), 2))
         self._comp = Compressor()
+        self._limiter = Limiter()
         self._cut = cut_sos(DEFAULT_FX["cut"])
         self._fx = dict(DEFAULT_FX)
         self._pre = 1.0
@@ -181,4 +211,4 @@ class Chain:
             harm, self._harm_zi = sosfilt(self._harm, shaped, zi=self._harm_zi)
             main = main + harm * (2.5 * vbass)
         main = self._comp.process(main, self._fx["comp"])
-        return soft_limit(main * self._pre)
+        return soft_limit(self._limiter.process(main * self._pre), knee=0.97)   # the soft limit is only a safety net

@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("scipy")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import stream_dsp  # noqa: E402
-from stream_dsp import RATE, Chain, Compressor, Equalizer  # noqa: E402
+from stream_dsp import LOOK, RATE, Chain, Compressor, Equalizer, Limiter  # noqa: E402
 
 
 @pytest.fixture
@@ -75,3 +75,20 @@ def test_settings_are_clamped_and_saved(eq):
     gains, volume, fx, _ = eq.snapshot()
     assert gains == [stream_dsp.MAX_DB] * 8 and volume == 12.0 and fx["cut"] == 20.0 and fx["vbass"] == 100.0
     assert Equalizer().fx["vbass"] == 100.0       # read back from the saved file
+
+
+def test_limiter_keeps_peaks_under_the_ceiling():
+    x = tone(100, amp=1.4) + tone(2500, amp=0.6)
+    assert np.abs(run(Limiter(ceiling=0.9), x)).max() <= 0.9 * 1.06     # a few percent may slip through the attack
+
+
+def test_limiter_is_transparent_below_the_ceiling_and_delays_by_the_lookahead():
+    x = tone(440, amp=0.4)
+    y = run(Limiter(), x)
+    assert np.allclose(y[LOOK:], x[:-LOOK], atol=1e-6)
+
+
+def test_limiter_works_across_block_boundaries():
+    x = np.zeros(RATE)
+    x[RATE // 2] = 1.8                        # one loud click right in the middle
+    assert np.abs(run(Limiter(ceiling=0.8), x, block=480)).max() < 0.8 * 1.06
