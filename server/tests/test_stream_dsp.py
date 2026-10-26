@@ -93,3 +93,19 @@ def test_limiter_works_across_block_boundaries():
     x = np.zeros(RATE)
     x[RATE // 2] = 1.8                        # one loud click right in the middle
     assert np.abs(run(Limiter(ceiling=0.8), x, block=480)).max() < 0.8 * 1.06
+
+
+def test_speaker_guard_limits_strong_bass_but_leaves_the_rest(eq):
+    eq.set([0] * 8, 0, {"guard": 100})
+    chain = Chain(eq)
+    assert np.abs(run(chain, tone(70, amp=0.7))[-RATE:]).max() < 0.2          # the cone is protected
+    assert level(run(chain, tone(1000, amp=0.5)), 1000) == pytest.approx(0.5, rel=0.05)
+    assert level(run(chain, tone(70, amp=0.05)), 70) == pytest.approx(0.05, rel=0.1)   # quiet bass is not touched
+
+
+def test_speaker_guard_off_recombines_the_bands_flat(eq):
+    eq.set([0] * 8, 0, {"guard": 0})
+    chain = Chain(eq)
+    assert level(run(chain, tone(100, amp=0.5)), 100) == pytest.approx(0.5, rel=0.03)      # a tone inside the guarded band
+    assert level(run(chain, tone(150, amp=0.5)), 150) == pytest.approx(0.5, rel=0.03)      # right on the crossover
+    assert level(run(chain, tone(1000, amp=0.3)), 1000) == pytest.approx(0.3, rel=0.03)

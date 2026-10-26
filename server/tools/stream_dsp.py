@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import maximum_filter1d
-from scipy.signal import butter, firwin2, freqz, lfilter, sosfilt, sosfreqz
+from scipy.signal import butter, firwin, firwin2, freqz, lfilter, sosfilt, sosfreqz
 
 RATE = 48_000
 SAVED = Path.home() / ".jarvis_stream_eq.json"
@@ -27,11 +27,14 @@ FIR_TAPS = 2049                                                  # linear phase:
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0}   # %, %, Hz (20 — practically off), % of the measured correction
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 100.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 100.0), "guard": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
+GUARD_HZ = 150.0             # speaker protection works on everything below this
+GUARD_TAPS = 513             # linear-phase split: the band edges are clean and the two bands stay aligned
+GUARD_DELAY = (GUARD_TAPS - 1) // 2 + 2 * LOOK      # total latency of the guard stage plus the final limiter, samples
 ATTACK_S, RELEASE_S = 0.010, 0.150
 
 
@@ -210,6 +213,12 @@ class Chain:
         self._harm_zi = np.zeros((len(self._harm), 2))
         self._comp = Compressor()
         self._limiter = Limiter()
+        # speaker protection: the band below GUARD_HZ gets its own limiter so that strong bass cannot slam the cone
+        self._lp = firwin(GUARD_TAPS, GUARD_HZ, fs=RATE)
+        self._lp_zi = np.zeros(GUARD_TAPS - 1)
+        self._bass_limiter = Limiter(ceiling=10.0)
+        self._y_delay = np.zeros((GUARD_TAPS - 1) // 2)      # the full signal waits as long as the FIR low band
+        self._hi_delay = np.zeros(LOOK)                       # then the high band waits as long as the limited low band
         self._cut = cut_sos(DEFAULT_FX["cut"])
         self._fx = dict(DEFAULT_FX)
         self._pre = 1.0
@@ -232,6 +241,8 @@ class Chain:
             self._fir = correction_fir(*self.eq.correction, strength)
             pre_db -= 0.6 * max(0.0, max(self.eq.correction[1]) * strength)
         self._pre = 10 ** (pre_db / 20)
+        guard = fx["guard"] / 100.0
+        self._bass_limiter.ceiling = 10.0 if guard <= 0 else 0.5 - 0.42 * guard      # 50 % -> 0.29, 100 % -> 0.08
 
     def process(self, mono: np.ndarray) -> np.ndarray:
         self._refresh()
@@ -247,4 +258,11 @@ class Chain:
             harm, self._harm_zi = sosfilt(self._harm, shaped, zi=self._harm_zi)
             main = main + harm * (2.5 * vbass)
         main = self._comp.process(main, self._fx["comp"])
-        return soft_limit(self._limiter.process(main * self._pre), knee=0.97)   # the soft limit is only a safety net
+        y = main * self._pre
+        low, self._lp_zi = lfilter(self._lp, 1.0, y, zi=self._lp_zi)
+        aligned = np.concatenate([self._y_delay, y])
+        self._y_delay = aligned[len(y):]
+        high = np.concatenate([self._hi_delay, aligned[:len(y)] - low])
+        self._hi_delay = high[len(y):]
+        y = high[:len(y)] + self._bass_limiter.process(low)
+        return soft_limit(self._limiter.process(y), knee=0.97)   # the soft limit is only a safety net

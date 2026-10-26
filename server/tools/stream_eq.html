@@ -62,6 +62,7 @@ const FX = [
   ["comp", "Компрессия (громче)", v => v.toFixed(0) + " %"],
   ["cut", "Срез низов", v => v <= 20 ? "выкл" : v.toFixed(0) + " Гц"],
   ["corr", "Подгонка под JBL", v => v.toFixed(0) + " %"],
+  ["guard", "Защита низов (от дребезга)", v => v <= 0 ? "выкл" : v.toFixed(0) + " %"],
 ];
 let state = null, timer = null;
 
