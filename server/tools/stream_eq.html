@@ -49,10 +49,10 @@
 
 <script>
 // [band gains, effects or null to leave the effects as they are]
-const OFF = { vbass: 0, comp: 0, cut: 20 };
+const OFF = { vbass: 0, comp: 0, cut: 20, corr: 0 };
 const PRESETS = {
   "Плоско":        [[0, 0, 0, 0, 0, 0, 0, 0], OFF],
-  "Кубик: громко": [[0, 0, 0, 0, 0, 0, 0, 0], { vbass: 60, comp: 50, cut: 90 }],
+  "Кубик: громко": [[0, 0, 0, 0, 0, 0, 0, 0], { vbass: 60, comp: 50, cut: 90, corr: 100 }],
   "Басы":          [[12, 10, 6, 2, 0, 0, 0, 0], null],
   "Теплее":        [[6, 5, 3, 1, 0, -1, -2, -3], null],
   "Голос":         [[-8, -4, 0, 2, 4, 4, 2, 0], null],
@@ -61,6 +61,7 @@ const FX = [
   ["vbass", "Виртуальные басы", v => v.toFixed(0) + " %"],
   ["comp", "Компрессия (громче)", v => v.toFixed(0) + " %"],
   ["cut", "Срез низов", v => v <= 20 ? "выкл" : v.toFixed(0) + " Гц"],
+  ["corr", "Подгонка под JBL", v => v.toFixed(0) + " %"],
 ];
 let state = null, timer = null;
 

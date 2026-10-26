@@ -17,16 +17,18 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import maximum_filter1d
-from scipy.signal import butter, sosfilt, sosfreqz
+from scipy.signal import butter, firwin2, freqz, lfilter, sosfilt, sosfreqz
 
 RATE = 48_000
 SAVED = Path.home() / ".jarvis_stream_eq.json"
+CORRECTION = Path.home() / ".jarvis_stream_correction.json"      # measured speaker correction (tools/calibrate.py)
+FIR_TAPS = 2049                                                  # linear phase: 21 ms delay, ~23 Hz resolution
 
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0}     # 0…100 %, 0…100 %, Hz (20 — practically off)
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
@@ -60,6 +62,15 @@ def soft_limit(x: np.ndarray, knee: float = 0.85) -> np.ndarray:
     return np.where(a <= knee, x, np.sign(x) * (knee + r * np.tanh((a - knee) / r)))
 
 
+def correction_fir(freqs, db, strength: float = 1.0) -> np.ndarray:
+    """Linear-phase FIR with the given magnitude curve (dB at `freqs`, Hz), scaled by `strength` 0…1."""
+    freqs = np.asarray(freqs, float)
+    gain = np.asarray(db, float) * strength
+    grid = np.concatenate([[0.0], freqs, [RATE / 2]]) / (RATE / 2)
+    levels = 10 ** (np.concatenate([[gain[0]], gain, [gain[-1]]]) / 20)
+    return firwin2(FIR_TAPS, grid, levels)
+
+
 class Equalizer:
     """Band gains, volume and effects, shared between the audio loop and the web page."""
 
@@ -69,6 +80,12 @@ class Equalizer:
         self.volume = 0.0
         self.fx = dict(DEFAULT_FX)
         self.version = 0
+        self.correction: tuple[list[float], list[float]] | None = None
+        try:
+            c = json.loads(CORRECTION.read_text(encoding="utf-8"))
+            self.correction = (c["freqs"], c["db"])
+        except (OSError, ValueError, KeyError):
+            pass
         try:
             saved = json.loads(SAVED.read_text(encoding="utf-8"))
             self.set(saved["gains"], saved["volume"], saved.get("fx"))
@@ -90,6 +107,12 @@ class Equalizer:
         except OSError:
             pass
 
+    def set_correction(self, freqs: list[float], db: list[float]) -> None:
+        with self.lock:
+            self.correction = ([float(f) for f in freqs], [float(g) for g in db])
+            self.version += 1
+        CORRECTION.write_text(json.dumps({"freqs": list(map(float, freqs)), "db": list(map(float, db))}), encoding="utf-8")
+
     def snapshot(self) -> tuple[list[float], float, dict, int]:
         with self.lock:
             return list(self.gains), self.volume, dict(self.fx), self.version
@@ -100,9 +123,13 @@ class Equalizer:
         sos = np.vstack([np.array([biquad(kind, g, f) for (f, kind), g in zip(BANDS, gains)]), cut_sos(fx["cut"])])
         freqs = np.logspace(np.log10(30), np.log10(11_000), 120)
         _, h = sosfreqz(sos, worN=2 * np.pi * freqs / RATE)
+        curve = 20 * np.log10(np.abs(h) + 1e-9)
+        if self.correction is not None and fx["corr"] > 0:
+            _, hc = freqz(correction_fir(*self.correction, fx["corr"] / 100.0), worN=2 * np.pi * freqs / RATE)
+            curve = curve + 20 * np.log10(np.abs(hc) + 1e-9)
         return {"bands": [f for f, _ in BANDS], "gains": gains, "volume": volume, "fx": fx, "max": MAX_DB,
-                "ranges": FX_RANGE, "freqs": freqs.round(1).tolist(),
-                "curve": (20 * np.log10(np.abs(h) + 1e-9)).round(2).tolist()}
+                "ranges": FX_RANGE, "freqs": freqs.round(1).tolist(), "curve": curve.round(2).tolist(),
+                "has_correction": self.correction is not None}
 
 
 def cut_sos(freq: float) -> np.ndarray:
@@ -186,6 +213,8 @@ class Chain:
         self._cut = cut_sos(DEFAULT_FX["cut"])
         self._fx = dict(DEFAULT_FX)
         self._pre = 1.0
+        self._fir: np.ndarray | None = None
+        self._fir_zi = np.zeros(FIR_TAPS - 1)
 
     def _refresh(self) -> None:
         gains, volume, fx, version = self.eq.snapshot()
@@ -197,10 +226,17 @@ class Chain:
         self._fx = fx
         # a boost eats headroom (half of the biggest one is taken back), so does the bass we rebuild
         pre_db = volume - 0.5 * max(0.0, max(gains)) - 3.0 * fx["vbass"] / 100.0
+        self._fir = None
+        if self.eq.correction is not None and fx["corr"] > 0:
+            strength = fx["corr"] / 100.0
+            self._fir = correction_fir(*self.eq.correction, strength)
+            pre_db -= 0.6 * max(0.0, max(self.eq.correction[1]) * strength)
         self._pre = 10 ** (pre_db / 20)
 
     def process(self, mono: np.ndarray) -> np.ndarray:
         self._refresh()
+        if self._fir is not None:
+            mono, self._fir_zi = lfilter(self._fir, 1.0, mono, zi=self._fir_zi)
         x, self._eq_zi = sosfilt(self._eq_sos, mono, zi=self._eq_zi)
         main, self._cut_zi = sosfilt(self._cut, x, zi=self._cut_zi)
         vbass = self._fx["vbass"] / 100.0
