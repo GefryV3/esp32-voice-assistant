@@ -25,6 +25,10 @@
   .db { font-variant-numeric: tabular-nums; font-size: 13px; min-height: 18px; }
   .hz { color: var(--dim); font-size: 12px; }
   .vol { color: var(--dim); }
+  .fxrow { display: grid; grid-template-columns: 170px 1fr 64px; align-items: center; gap: 12px; padding: 6px 0; }
+  .fxrow input { width: 100%; accent-color: var(--accent); }
+  .fxrow .db { text-align: right; }
+  @media (max-width: 480px) { .fxrow { grid-template-columns: 1fr 64px; } .fxrow input { grid-column: 1 / 3; } }
 </style>
 </head>
 <body>
@@ -39,16 +43,25 @@
   <div class="card">
     <div class="bands" id="bands"></div>
   </div>
+
+  <div class="card" id="fx"></div>
 </main>
 
 <script>
+// [band gains, effects or null to leave the effects as they are]
+const OFF = { vbass: 0, comp: 0, cut: 20 };
 const PRESETS = {
-  "Плоско":   [0, 0, 0, 0, 0, 0, 0, 0],
-  "Басы":     [12, 10, 6, 2, 0, 0, 0, 0],
-  "Басы макс":[15, 15, 10, 3, 0, -2, -2, -2],
-  "Теплее":   [6, 5, 3, 1, 0, -1, -2, -3],
-  "Голос":    [-8, -4, 0, 2, 4, 4, 2, 0],
+  "Плоско":        [[0, 0, 0, 0, 0, 0, 0, 0], OFF],
+  "Кубик: громко": [[0, 0, 0, 0, 0, 0, 0, 0], { vbass: 60, comp: 50, cut: 90 }],
+  "Басы":          [[12, 10, 6, 2, 0, 0, 0, 0], null],
+  "Теплее":        [[6, 5, 3, 1, 0, -1, -2, -3], null],
+  "Голос":         [[-8, -4, 0, 2, 4, 4, 2, 0], null],
 };
+const FX = [
+  ["vbass", "Виртуальные басы", v => v.toFixed(0) + " %"],
+  ["comp", "Компрессия (громче)", v => v.toFixed(0) + " %"],
+  ["cut", "Срез низов", v => v <= 20 ? "выкл" : v.toFixed(0) + " Гц"],
+];
 let state = null, timer = null;
 
 const fmtHz = f => f >= 1000 ? (f / 1000) + " кГц" : f + " Гц";
@@ -74,18 +87,32 @@ function build() {
   box.appendChild(vol);
   vol.querySelector("input").addEventListener("input", changed);
 
+  const fx = document.getElementById("fx");
+  fx.innerHTML = "";
+  FX.forEach(([key, title]) => {
+    const [lo, hi] = state.ranges[key];
+    const row = document.createElement("div");
+    row.className = "fxrow";
+    row.innerHTML = `<span>${title}</span>
+      <input type="range" id="fx_${key}" min="${lo}" max="${hi}" step="1">
+      <span class="db" id="fxv_${key}"></span>`;
+    fx.appendChild(row);
+    row.querySelector("input").addEventListener("input", changed);
+  });
+
   const pr = document.getElementById("presets");
-  for (const [name, gains] of Object.entries(PRESETS)) {
+  for (const [name, [gains, effects]] of Object.entries(PRESETS)) {
     const b = document.createElement("button");
     b.textContent = name;
-    b.onclick = () => { setSliders(gains, state.volume); send(); };
+    b.onclick = () => { setSliders(gains, state.volume, effects || state.fx); send(); };
     pr.appendChild(b);
   }
 }
 
-function setSliders(gains, volume) {
+function setSliders(gains, volume, fx) {
   gains.forEach((g, i) => { document.getElementById("g" + i).value = g; });
   document.getElementById("vol").value = volume;
+  FX.forEach(([key]) => { document.getElementById("fx_" + key).value = fx[key]; });
   labels();
 }
 
@@ -94,12 +121,18 @@ function labels() {
     document.getElementById("db" + i).textContent = fmtDb(+document.getElementById("g" + i).value);
   });
   document.getElementById("dbv").textContent = fmtDb(+document.getElementById("vol").value);
+  FX.forEach(([key, , fmt]) => {
+    document.getElementById("fxv_" + key).textContent = fmt(+document.getElementById("fx_" + key).value);
+  });
 }
 
 function read() {
+  const fx = {};
+  FX.forEach(([key]) => { fx[key] = +document.getElementById("fx_" + key).value; });
   return {
     gains: state.bands.map((_, i) => +document.getElementById("g" + i).value),
     volume: +document.getElementById("vol").value,
+    fx,
   };
 }
 
@@ -139,7 +172,7 @@ function draw() {
 (async () => {
   state = await (await fetch("/state")).json();
   build();
-  setSliders(state.gains, state.volume);
+  setSliders(state.gains, state.volume, state.fx);
   draw();
   addEventListener("resize", draw);
 })();
