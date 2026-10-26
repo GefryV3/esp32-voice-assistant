@@ -6,7 +6,7 @@
 Put a USB microphone (default: name contains "fifine") about a metre from the speaker, pointing at it. The speaker
 plays a loud-ish sweep for ~10 s per pass: the room must be quiet. Stop tools/stream.py first (it holds the speaker).
 The result is saved to ~/.jarvis_stream_correction.json; restart tools/stream.py to use it (the "Подгонка" slider
-on the equalizer page sets how much of it is applied). The microphone itself is not calibrated: expect ±3 dB.
+on the equalizer page sets how much of it is applied). The microphone itself is not calibrated: expect ±3 dB, unless you pass its calibration file with --mic-cal.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def save_wav(rec: np.ndarray, name: str) -> Path:
     return path
 
 
-def measure(rec: np.ndarray, ref: np.ndarray, gate_ms: float, label: str):
+def measure(rec: np.ndarray, ref: np.ndarray, gate_ms: float, label: str, mic_cal=None):
     print(f"  recording saved: {save_wav(rec, f'calibration-{label}.wav')}")
     peak = float(np.abs(rec).max())
     print(f"  microphone: peak {20 * np.log10(peak + 1e-9):.1f} dBFS, average {dbfs(rec):.1f} dBFS")
@@ -106,7 +106,10 @@ def measure(rec: np.ndarray, ref: np.ndarray, gate_ms: float, label: str):
     if snr < 20:
         raise SystemExit("no clear sweep in the recording (noise, or the microphone does not hear the speaker well "
                          "enough): nothing was saved. Raise the microphone level in Windows, move it closer, or check the recording")
-    return cal.smoothed_response_db(ir, gate_ms=gate_ms)
+    freqs, db = cal.smoothed_response_db(ir, gate_ms=gate_ms)
+    if mic_cal is not None:
+        db = cal.remove_mic_response(freqs, db, *mic_cal)
+    return freqs, db
 
 
 def make_chain(correction: tuple[list[float], list[float]] | None) -> stream_dsp.Chain:
@@ -136,6 +139,9 @@ async def main_async(args) -> None:
     env = read_env_file(Path(__file__).resolve().parents[1] / ".env")
     url = args.url or f"ws://{env.get('JARVIS_SERVER', '127.0.0.1')}:{env.get('JARVIS_PORT', '8765')}/admin"
     token = args.token or env.get("JARVIS_DEVICE_TOKEN", "")
+    mic_cal = cal.load_mic_calibration(args.mic_cal) if args.mic_cal else None
+    if mic_cal:
+        print(f"microphone calibration: {args.mic_cal}")
     ref = cal.sweep(level_db=args.level)
     freqs = cal.log_grid()
     target = cal.target_db(freqs)
@@ -146,7 +152,7 @@ async def main_async(args) -> None:
         chain = make_chain((freqs.tolist(), corr.tolist())) if corr is not None else None
         print(f"pass {n}: " + ("with the correction so far" if chain else "the speaker as it is") + ", ~20 s of sweep")
         rec = await play_and_record(url, token, mic, ref, chain)
-        f, db = measure(rec, ref, args.gate, f"pass{n}")
+        f, db = measure(rec, ref, args.gate, f"pass{n}", mic_cal)
         if first is None:
             first = db
         show(f"measured (re 1 kHz)", f, db - np.interp(np.log(1000), np.log(f), db), target)
@@ -178,6 +184,7 @@ def main() -> None:
     p.add_argument("--level", type=float, default=-20.0, help="sweep level, dBFS")
     p.add_argument("--passes", type=int, default=2, help="measure, then re-measure with the correction applied")
     p.add_argument("--gate", type=float, default=30.0, help="ms of the impulse response kept (cuts room reflections)")
+    p.add_argument("--mic-cal", help="microphone calibration file (`Hz dB` lines): removes the microphone's own response")
     p.add_argument("--check", action="store_true", help="only record 2 s of the room and report the level")
     p.add_argument("--url")
     p.add_argument("--token")

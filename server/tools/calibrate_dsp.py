@@ -8,6 +8,8 @@ of the room are cut off), turned into a smoothed magnitude curve and compared wi
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 RATE = 48_000
@@ -51,6 +53,31 @@ def ir_quality(ir: np.ndarray) -> tuple[float, float]:
     guard, span = int(0.05 * RATE), int(0.5 * RATE)
     around = np.concatenate([a[max(0, peak - span): max(0, peak - guard)], a[peak + guard: peak + span]])
     return peak / RATE, 20 * float(np.log10(a[peak] / (np.sqrt(np.mean(around ** 2)) + 1e-12)))
+
+
+def load_mic_calibration(path) -> tuple[np.ndarray, np.ndarray]:
+    """Microphone calibration file: lines of `Hz dB` (also comma or tab separated, `#`/`*` comments), the way
+    UMIK-1 / iMM-6 files and digitised curves come. The dB are how much the microphone over-reads at that frequency."""
+    rows = []
+    for line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip().replace(",", " ").replace("	", " ")
+        if not line or line[0] in "#*\"":
+            continue
+        parts = line.split()
+        try:
+            rows.append((float(parts[0]), float(parts[1])))
+        except (ValueError, IndexError):
+            continue                      # a header line such as "Sens Factor =-1.2dB"
+    if len(rows) < 3:
+        raise ValueError(f"{path}: need at least three `Hz dB` lines")
+    rows.sort()
+    f, d = zip(*rows)
+    return np.array(f), np.array(d)
+
+
+def remove_mic_response(freqs: np.ndarray, measured_db: np.ndarray, cal_freqs: np.ndarray, cal_db: np.ndarray) -> np.ndarray:
+    """Subtract what the microphone itself added (held flat outside the range of the calibration file)."""
+    return measured_db - np.interp(np.log(freqs), np.log(cal_freqs), cal_db)
 
 
 def log_grid(points: int = 160, lo: float = 30.0, hi: float = 18_000.0) -> np.ndarray:

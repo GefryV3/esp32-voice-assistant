@@ -79,3 +79,14 @@ def test_ir_quality_tells_a_real_measurement_from_noise():
     assert delay == pytest.approx(1.4, abs=0.02) and good > 30
     noise = np.random.default_rng(3).standard_normal(len(ref) + 4 * RATE) * 0.01
     assert cal.ir_quality(cal.impulse_response(noise, ref))[1] < 20
+
+
+def test_mic_calibration_file_is_read_and_removed(tmp_path):
+    f = tmp_path / "mic.txt"
+    f.write_text('"Sens Factor =-1.2dB"\n* header\n100\t-3.0\n1000, 0.0\n10000 4.0\n', encoding="utf-8")
+    cf, cd = cal.load_mic_calibration(f)
+    freqs = np.array([100.0, 1000.0, 10000.0])
+    assert np.allclose(cal.remove_mic_response(freqs, np.array([0.0, 0.0, 0.0]), cf, cd), [3.0, 0.0, -4.0])
+    (tmp_path / "bad.txt").write_text("1 2\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        cal.load_mic_calibration(tmp_path / "bad.txt")
