@@ -54,8 +54,11 @@ constexpr float BARGE_REF_MIN = 40.0f;        // эталон тише — па�
 constexpr size_t AEC_REF_BUF = 16 * 1024;     // played samples at 16 kHz waiting for the matching mic samples
 constexpr int AEC_REF_PREFILL = 640;          // 40 ms of silence ahead: the echo must never lead the reference
 constexpr float AEC_VOICE_RMS = 400.0f;       // what is left after AEC above this (x ratio/4) is a voice (no mic gain);
-// Residual echo vs the reference: ~4x at 55 % volume, up to ~7x at 85 % (the small speaker distorts loud parts).
-constexpr float AEC_ECHO_LEAK_QUIET = 4.5f, AEC_ECHO_LEAK_LOUD = 8.0f;
+// Residual echo vs the reference: ~2.5x at 25-55 % volume, up to ~7x at 85 % (the small speaker distorts loud parts).
+constexpr float AEC_ECHO_LEAK_QUIET = 2.5f, AEC_ECHO_LEAK_LOUD = 7.0f;
+// The canceller removes most of its own echo but none of a voice: a chunk that comes out almost as loud as it
+// went in (the output lags a chunk, so against the louder of this and the previous input) is someone talking.
+constexpr float AEC_UNCANCELLED = 0.7f;
 constexpr int AEC_VOICE_CHUNKS = 4;           // ~130 ms of voice (gaps forgiven) — a short «стоп» from across the room
 constexpr int AEC_GRACE_CHUNKS = 12;          // first ~400 ms of an answer the filter is still converging
 
@@ -263,6 +266,7 @@ struct AecBarge {
   int64_t busy_us = 0;
   float mic_max = 0, out_max = 0, ref_max = 0;
   float ref_hold = 0;            // the residual lags the reference by a chunk or two
+  float mic_prev = 0;
   // Echo delay probe: 4 ms envelopes of mic and reference over the first ~2 s, cross-correlated once.
   static constexpr int ENV_BLOCK = 64, ENV_N = 500, LAG_MIN = -25, LAG_MAX = 100;
   float env_m[ENV_N], env_r[ENV_N];
@@ -276,7 +280,7 @@ struct AecBarge {
     if (chunks > AEC_GRACE_CHUNKS && e_mic > 0 && e_out > 0) {
       ESP_LOGI(TAG, "эхо: за ответ подавлено %.1f дБ (%d кадров)", 10.0 * std::log10(e_mic / e_out), chunks);
     }
-    fill = 0; chunks = 0; hits = 0; ref_hold = 0; env_n = 0; env_fill = 0; acc_m = acc_r = 0; e_mic = e_out = 0;
+    fill = 0; chunks = 0; hits = 0; ref_hold = 0; mic_prev = 0; env_n = 0; env_fill = 0; acc_m = acc_r = 0; e_mic = e_out = 0;
   }
 
   void probe(const int16_t *m, const int16_t *r, int n) {
@@ -341,7 +345,8 @@ struct AecBarge {
     const float vol = std::sqrt(s_vol_q15 / (MAX_GAIN * 32768.0f));    // volume 0…1 as set by the user
     const float leak = AEC_ECHO_LEAK_QUIET + (AEC_ECHO_LEAK_LOUD - AEC_ECHO_LEAK_QUIET) * std::clamp((vol - 0.6f) / 0.3f, 0.0f, 1.0f);
     const float thr = std::max(AEC_VOICE_RMS, leak * ref_hold) * s_barge_ratio_x100 / 400.0f;
-    const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr;
+    const bool loud = chunks > AEC_GRACE_CHUNKS && o > thr && o > AEC_UNCANCELLED * std::max(m, mic_prev);
+    mic_prev = m;
     hits = loud ? hits + 1 : std::max(0, hits - 1);
     if (chunks % 16 == 0 || loud) {
       ESP_LOGI(TAG, "эхо: микрофон %.0f, после AEC %.0f, играет %.0f, AEC %.1f мс, стек %u %s", mic_max, out_max, ref_max,
