@@ -207,9 +207,9 @@ class Chain:
         self._eq_sos = np.zeros((len(BANDS), 6))
         self._eq_zi = np.zeros((len(BANDS), 2))
         self._cut_zi = np.zeros((2, 2))
-        self._src = butter(2, [40, 130], "bandpass", fs=RATE, output="sos")      # the bass we cannot play
+        self._src = butter(4, [40, 130], "bandpass", fs=RATE, output="sos")      # the bass we cannot play
         self._src_zi = np.zeros((len(self._src), 2))
-        self._harm = butter(2, [110, 330], "bandpass", fs=RATE, output="sos")    # its harmonics we can
+        self._harm = butter(4, [90, 360], "bandpass", fs=RATE, output="sos")     # its harmonics we can
         self._harm_zi = np.zeros((len(self._harm), 2))
         self._comp = Compressor()
         self._limiter = Limiter()
@@ -253,10 +253,12 @@ class Chain:
         vbass = self._fx["vbass"] / 100.0
         if vbass > 0.0:
             low, self._src_zi = sosfilt(self._src, x, zi=self._src_zi)
-            # tanh gives the odd harmonics (3f), |x| the even ones (2f); both land inside the second band
-            shaped = 0.5 * np.tanh(4.0 * low) + 1.0 * np.abs(low)
+            # u^2 gives the 2nd harmonic, u^3 the 3rd. Both grow faster than the level itself, so quiet bass and
+            # leaking noise make almost nothing (no hiss), loud bass makes plenty. No rectifier: it was harsh.
+            u = low / 0.25
+            shaped = 0.25 * (0.7 * u ** 2 + 0.5 * u ** 3)
             harm, self._harm_zi = sosfilt(self._harm, shaped, zi=self._harm_zi)
-            main = main + harm * (2.5 * vbass)
+            main = main + harm * (2.0 * vbass)
         main = self._comp.process(main, self._fx["comp"])
         y = main * self._pre
         low, self._lp_zi = lfilter(self._lp, 1.0, y, zi=self._lp_zi)

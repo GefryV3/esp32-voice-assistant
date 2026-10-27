@@ -109,3 +109,21 @@ def test_speaker_guard_off_recombines_the_bands_flat(eq):
     assert level(run(chain, tone(100, amp=0.5)), 100) == pytest.approx(0.5, rel=0.03)      # a tone inside the guarded band
     assert level(run(chain, tone(150, amp=0.5)), 150) == pytest.approx(0.5, rel=0.03)      # right on the crossover
     assert level(run(chain, tone(1000, amp=0.3)), 1000) == pytest.approx(0.3, rel=0.03)
+
+
+def test_virtual_bass_stays_clean_on_other_content(eq):
+    def thdn(y, f):
+        y = y[RATE:]
+        t = np.arange(len(y)) / RATE
+        a, b = 2 * np.mean(y * np.cos(2 * np.pi * f * t)), 2 * np.mean(y * np.sin(2 * np.pi * f * t))
+        resid = y - (a * np.cos(2 * np.pi * f * t) + b * np.sin(2 * np.pi * f * t))
+        return 20 * np.log10(np.sqrt(np.mean(resid ** 2)) / (np.hypot(a, b) / np.sqrt(2)))
+    eq.set([0] * 8, 0, {"vbass": 100})
+    assert thdn(run(Chain(eq), tone(440, amp=0.2)), 440) < -70            # a mid tone is left alone
+    assert thdn(run(Chain(eq), tone(1000, amp=0.2)), 1000) < -80
+
+
+def test_virtual_bass_makes_nothing_from_quiet_bass(eq):
+    eq.set([0] * 8, 0, {"cut": 120, "vbass": 100})
+    quiet = run(Chain(eq), tone(60, amp=0.01))
+    assert level(quiet, 120) < 0.0005                                      # at most -26 dB under the fundamental
