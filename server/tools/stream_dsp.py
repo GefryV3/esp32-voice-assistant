@@ -30,8 +30,8 @@ FIR_TAPS = 2049                                                  # linear phase:
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0, "bcomp": 0.0, "tpunch": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0), "bcomp": (0.0, 100.0), "tpunch": (0.0, 100.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0, "bcomp": 0.0, "tpunch": 0.0, "limit": 100.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0), "bcomp": (0.0, 100.0), "tpunch": (0.0, 100.0), "limit": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
@@ -246,6 +246,7 @@ class Chain:
         self._comp = Compressor()
         self._high_limiter = Limiter()                            # the band above GUARD_HZ; its ceiling is what the bass leaves
         self._total = 0.95                                        # the most the amplifier is asked to play, peak
+        self._limiting = True
         # clean virtual bass (tracked notes + oscillators); it adds TonalBass.D samples of latency, so the main
         # signal always waits as long, whether the effect is on or not
         self._tonal = TonalBass()
@@ -287,6 +288,9 @@ class Chain:
         self._total = 0.95 * fx["ceil"] / 100.0                                        # what the amplifier can play cleanly
         # the bass band's own ceiling: 40 % -> 0.33, 100 % -> 0.08; with protection off it may use 70 % of the total
         self._bass_limiter.ceiling = 0.7 * self._total if guard <= 0 else min(0.5 - 0.42 * guard, 0.7 * self._total)
+        self._limiting = fx["limit"] > 0                                               # 0 = no limiters at all
+        if not self._limiting:
+            self._bass_limiter.ceiling = 1e6
 
     def process(self, mono: np.ndarray) -> np.ndarray:
         self._refresh()
@@ -322,6 +326,8 @@ class Chain:
         # louder it played the less bass there was.
         bass = self._bass_limiter.process(low)
         envelope = maximum_filter1d(np.abs(bass), size=int(0.02 * RATE), mode="nearest")        # 20 ms bass peak
-        room = np.clip(self._total - envelope, 0.12 * self._total, self._total)
+        room = np.clip(self._total - envelope, 0.12 * self._total, self._total) if self._limiting else np.full(len(y), 1e6)
         y = bass + self._high_limiter.process(high, room)
-        return soft_limit(y, knee=self._total * 1.02)                                  # only a safety net
+        # with the limiters on this is only a safety net; with them off it is all that stands between a peak and a hard
+        # clip: peaks above the knee are bent towards 1.0 (never above), nothing else moves
+        return soft_limit(y, knee=self._total * 1.02 if self._limiting else 0.9)

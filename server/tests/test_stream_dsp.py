@@ -196,3 +196,12 @@ def test_bass_keeps_its_level_when_the_rest_has_to_give_way(eq):
     assert level(y, 60) == pytest.approx(0.3, rel=0.15)                       # the bass is not pulled down
     assert level(y, 1000) < 0.70                                               # the loud treble is the one that gives way
     assert np.abs(y[RATE:]).max() <= 0.95 * 1.03                              # and the total still respects the ceiling
+
+
+def test_with_the_limiter_off_nothing_is_pulled_down_and_peaks_still_stay_below_full_scale(eq):
+    eq.set([0] * 8, 0, {"cut": 20, "guard": 40, "limit": 0})
+    y = run(Chain(eq), tone(60, seconds=4.0, amp=0.5) + tone(1000, seconds=4.0, amp=0.7))
+    assert level(y, 60) == pytest.approx(0.5, rel=0.08) and level(y, 1000) == pytest.approx(0.7, rel=0.12)   # untouched
+    assert np.abs(y).max() <= 1.0                                                                          # no hard clip
+    eq.set([0] * 8, 0, {"cut": 20, "guard": 40, "limit": 100})
+    assert level(run(Chain(eq), tone(60, seconds=4.0, amp=0.5) + tone(1000, seconds=4.0, amp=0.7)), 1000) < 0.6
