@@ -186,8 +186,8 @@ def main() -> None:
         except KeyboardInterrupt:
             print("stopped")
             return
-        except (ConnectionClosed, OSError, TimeoutError) as e:
-            print(f"connection lost ({type(e).__name__}: {e}), reconnecting in 2 s", flush=True)
+        except Exception as e:                               # a lost connection, a capture device that went away, ...
+            print(f"stream stopped ({type(e).__name__}: {e}), starting again in 2 s", flush=True)
             time.sleep(2)
 
 
