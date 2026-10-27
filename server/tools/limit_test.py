@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import calibrate as cal_io  # noqa: E402
 from jarvis.config import read_env_file  # noqa: E402
+from websockets.asyncio.client import connect  # noqa: E402
 
 RATE = 48_000
 LEVELS_DB = [-24, -21, -18, -15, -12, -9, -6, -3]
@@ -37,7 +39,7 @@ THD_WARN, THD_BAD = 0.03, 0.10                    # 3 % and 10 % of the fundamen
 def chirp() -> np.ndarray:
     t = np.arange(int(CHIRP_S * RATE)) / RATE
     k = np.log(4000 / 500)
-    x = np.sin(2 * np.pi * 500 * CHIRP_S / k * (np.exp(t / CHIRP_S * k) - 1)) * 10 ** (-20 / 20)
+    x = np.sin(2 * np.pi * 500 * CHIRP_S / k * (np.exp(t / CHIRP_S * k) - 1)) * 10 ** (-14 / 20)
     x[:200] *= np.linspace(0, 1, 200)
     x[-200:] *= np.linspace(1, 0, 200)
     return x
@@ -60,7 +62,8 @@ def staircase(freq: float) -> tuple[np.ndarray, list[int]]:
 
 
 def find_start(rec: np.ndarray) -> int:
-    """Sample at which the chirp starts in the recording (cross-correlation)."""
+    """Sample at which the chirp starts in the recording (cross-correlation). Only the first 3 s are searched: the
+    loud tone bursts that follow would correlate with a part of the chirp and could win."""
     ref = chirp()
     n = 1 << int(np.ceil(np.log2(len(rec) + len(ref))))
     corr = np.fft.irfft(np.fft.rfft(rec, n) * np.conj(np.fft.rfft(ref, n)), n)[: len(rec)]
@@ -89,6 +92,18 @@ def analyse(seg: np.ndarray, freq: float) -> dict:
             "snr_db": 20 * np.log10((fundamental + 1e-12) / (floor(freq) + 1e-12))}
 
 
+async def speaker_uptime(url: str, token: str) -> int | None:
+    """Seconds since the speaker booted (asks the server), None if it is not connected."""
+    try:
+        async with connect(url, max_size=None) as ws:
+            await ws.send(token)
+            await ws.send("devices")
+            m = re.search(r"'uptime': (\d+)", await asyncio.wait_for(ws.recv(), 5))
+            return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
 async def run_frequency(url: str, token: str, mics: list, freq: float) -> list[list[dict]]:
     """For every microphone: one analysis per burst."""
     signal, starts = staircase(freq)
@@ -97,7 +112,9 @@ async def run_frequency(url: str, token: str, mics: list, freq: float) -> list[l
     for rec in recs:
         if np.abs(rec).max() > 0.98:
             print("  this microphone clips: lower its gain in Windows")
-        origin = find_start(rec[: int(6 * RATE)])
+        origin = find_start(rec[: int(3.0 * RATE)])
+        print(f"  recording {len(rec) / RATE:.1f} s, peak {np.abs(rec).max():.3f}, chirp found at {origin / RATE:.2f} s")
+        cal_io.save_wav(rec, f"limit-{int(freq)}Hz-mic{len(out) + 1}.wav")
         rows = []
         for db, s in zip(LEVELS_DB, starts):
             a = origin + s + int(0.25 * RATE)
@@ -144,9 +161,24 @@ async def main_async(args) -> None:
     token = args.token or env.get("JARVIS_DEVICE_TOKEN", "")
     limits: dict[float, float | None] = {}
     for freq in args.freqs:
+        for _ in range(30):                                   # wait for the speaker (it may be rebooting)
+            if await speaker_uptime(url, token) is not None:
+                break
+            await asyncio.sleep(1)
         print(f"\nplaying {freq} Hz staircase, ~13 s ...", flush=True)
+        started = await speaker_uptime(url, token)
         per_mic = await run_frequency(url, token, mics, freq)
+        await asyncio.sleep(2.0)
+        after = await speaker_uptime(url, token)
+        reset = started is not None and (after is None or after < started)
         limits[freq] = report(freq, per_mic, names)
+        if reset:
+            print("  !!! THE SPEAKER REBOOTED during this staircase (the supply sagged): the louder steps never played")
+            first_dead = next((i for i, r in enumerate(per_mic[0]) if r["snr_db"] < 8), None)
+            if first_dead:
+                crash = float(LEVELS_DB[first_dead - 1])
+                print(f"  the last step that played: {crash:+.0f} dBFS; that is already the rebooting level, not a safe one")
+                limits[freq] = min(crash - 3, limits[freq]) if limits[freq] is not None else crash - 3
     print("\nsummary (level at which more than 3 % of the sound turns into harmonics):")
     for freq, lim in limits.items():
         print(f"  {freq:5.0f} Hz: " + (f"{lim:+.0f} dBFS" if lim is not None else "stays clean up to -3 dBFS"))
@@ -167,7 +199,7 @@ def main() -> None:
     warnings.filterwarnings("ignore", category=sc.SoundcardRuntimeWarning)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--mic", default="fifine")
-    p.add_argument("--mic2", help="a second microphone, e.g. onboard: the two cross-check each other")
+    p.add_argument("--mic2", help="a second microphone. Not the laptop's built-in one: its noise suppression removes steady tones")
     p.add_argument("--freqs", type=float, nargs="+", default=FREQS)
     p.add_argument("--check", action="store_true", help="only record the room, play nothing")
     p.add_argument("--url")

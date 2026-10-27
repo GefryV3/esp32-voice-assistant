@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import soundcard as sc
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -77,8 +78,11 @@ async def play_and_record(url: str, token: str, mics: list, signal: np.ndarray,
         for i in range(0, len(signal), BLOCK):
             block = signal[i:i + BLOCK]
             await ws.send(pcm(chain.process(block) if chain else block))
-        await ws.send("stream_end")
-        await ws.recv()
+        try:
+            await ws.send("stream_end")
+            await ws.recv()
+        except ConnectionClosed:
+            pass                                    # the sound has all been sent; the recording is what matters
         return list(await asyncio.gather(*recordings))
 
 
