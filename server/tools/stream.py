@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 import soundcard as sc
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -121,7 +122,9 @@ def pick(name: str | None):
 async def run(url: str, token: str, device: str | None, eq: Equalizer) -> None:
     mic = pick(device)
     print(f"capturing «{mic.name}» → speaker, Ctrl+C to stop")
-    async with connect(url, max_size=None) as ws:
+    # no keepalive pings: while the speaker's buffer is full the server stops reading for a while, and an unanswered
+    # ping would kill a perfectly good stream (seen after ~3 minutes)
+    async with connect(url, max_size=None, ping_interval=None) as ws:
         await ws.send(token)
         await ws.send(f"stream {RATE} music")
         reply = await ws.recv()
@@ -175,10 +178,15 @@ def main() -> None:
     eq = Equalizer()
     serve(eq, args.port)
     print(f"equalizer: http://localhost:{args.port}  (from the phone: http://{lan_address()}:{args.port})", flush=True)
-    try:
-        asyncio.run(run(args.url, args.token, args.device, eq))
-    except KeyboardInterrupt:
-        print("stopped")
+    while True:                                              # a dropped connection is not the end: reconnect
+        try:
+            asyncio.run(run(args.url, args.token, args.device, eq))
+        except KeyboardInterrupt:
+            print("stopped")
+            return
+        except (ConnectionClosed, OSError, TimeoutError) as e:
+            print(f"connection lost ({type(e).__name__}: {e}), reconnecting in 2 s", flush=True)
+            time.sleep(2)
 
 
 if __name__ == "__main__":
