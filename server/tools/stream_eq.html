@@ -41,6 +41,8 @@
   <div class="presets" id="presets"></div>
   <div class="presets">
     <button id="restart">Перезапустить трансляцию</button>
+    <button id="save-best">Сохранить как «лучшую»</button>
+    <button id="load-best">Вернуть «лучшую»</button>
     <span class="sub" id="restart-status" style="align-self:center"></span>
   </div>
 
@@ -178,6 +180,19 @@ function draw() {
   state.freqs.forEach((f, i) => { const px = x(f), py = y(state.curve[i]); i ? g.lineTo(px, py) : g.moveTo(px, py); });
   g.stroke();
 }
+
+async function preset(action) {
+  const status = document.getElementById("restart-status");
+  const r = await fetch("/preset", { method: "POST", body: JSON.stringify({ action, name: "best" }) });
+  if (!r.ok) { status.textContent = "нет сохранённой «лучшей»"; return; }
+  state = await r.json();
+  setSliders(state.gains, state.volume, state.fx);
+  draw();
+  status.textContent = action === "save" ? "сохранено" : "возвращено";
+  setTimeout(() => { status.textContent = ""; }, 3000);
+}
+document.getElementById("save-best").onclick = () => preset("save");
+document.getElementById("load-best").onclick = () => preset("load");
 
 document.getElementById("restart").onclick = async () => {
   const button = document.getElementById("restart"), status = document.getElementById("restart-status");

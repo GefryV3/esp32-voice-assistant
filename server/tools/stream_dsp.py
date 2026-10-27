@@ -24,6 +24,7 @@ from stream_tonal import TonalBass
 RATE = 48_000
 SAVED = Path.home() / ".jarvis_stream_eq.json"
 CORRECTION = Path.home() / ".jarvis_stream_correction.json"      # measured speaker correction (tools/calibrate.py)
+PRESETS = Path.home() / ".jarvis_stream_presets"                       # named snapshots of all settings + correction
 FIR_TAPS = 2049                                                  # linear phase: 21 ms delay, ~23 Hz resolution
 
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
@@ -117,6 +118,27 @@ class Equalizer:
             self.correction = ([float(f) for f in freqs], [float(g) for g in db])
             self.version += 1
         CORRECTION.write_text(json.dumps({"freqs": list(map(float, freqs)), "db": list(map(float, db))}), encoding="utf-8")
+
+    @staticmethod
+    def _preset_path(name: str) -> Path:
+        safe = "".join(c for c in name if c.isalnum() or c in "-_")
+        if not safe:
+            raise ValueError("bad preset name")
+        return PRESETS / f"{safe}.json"
+
+    def save_preset(self, name: str) -> Path:
+        gains, volume, fx, _ = self.snapshot()
+        corr = {"freqs": self.correction[0], "db": self.correction[1]} if self.correction is not None else None
+        path = self._preset_path(name)
+        PRESETS.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"gains": gains, "volume": volume, "fx": fx, "correction": corr}, indent=1), encoding="utf-8")
+        return path
+
+    def load_preset(self, name: str) -> None:
+        data = json.loads(self._preset_path(name).read_text(encoding="utf-8"))
+        if data.get("correction"):
+            self.set_correction(data["correction"]["freqs"], data["correction"]["db"])
+        self.set(data["gains"], data["volume"], data["fx"])
 
     def snapshot(self) -> tuple[list[float], float, dict, int]:
         with self.lock:

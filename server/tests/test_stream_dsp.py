@@ -14,6 +14,7 @@ from stream_dsp import LOOK, RATE, Chain, Compressor, Equalizer, Limiter  # noqa
 def eq(tmp_path, monkeypatch):
     monkeypatch.setattr(stream_dsp, "SAVED", tmp_path / "eq.json")
     monkeypatch.setattr(stream_dsp, "CORRECTION", tmp_path / "correction.json")   # not the real measured one
+    monkeypatch.setattr(stream_dsp, "PRESETS", tmp_path / "presets")
     return Equalizer()
 
 
@@ -156,3 +157,17 @@ def test_dynamic_bass_raises_quiet_bass_more_than_loud_bass(eq):
     assert level(run(Chain(eq), tone(100, seconds=3.0, amp=0.05)), 100) == pytest.approx(0.05, rel=0.05)   # off means off
     eq.set([0] * 8, 0, {"cut": 20, "bcomp": 100, "guard": 0})
     assert level(run(Chain(eq), tone(1000, seconds=3.0, amp=0.05)), 1000) == pytest.approx(0.05, rel=0.1)  # the rest is untouched
+
+
+def test_preset_saves_and_restores_everything(eq):
+    eq.set_correction([100.0, 1000.0, 8000.0], [2.0, 0.0, -3.0])
+    eq.set([0, 3, 2, 0, 0, 0, 0, 0], 4, {"tbass": 60, "bcomp": 100, "cut": 60})
+    eq.save_preset("best")
+    eq.set([0] * 8, -9, {"tbass": 0, "bcomp": 0, "cut": 20})
+    eq.set_correction([100.0, 1000.0], [0.0, 0.0])
+    eq.load_preset("best")
+    gains, volume, fx, _ = eq.snapshot()
+    assert gains[1] == 3 and volume == 4 and fx["tbass"] == 60 and fx["bcomp"] == 100 and fx["cut"] == 60
+    assert eq.correction == ([100.0, 1000.0, 8000.0], [2.0, 0.0, -3.0])
+    with pytest.raises(OSError):
+        eq.load_preset("does-not-exist")

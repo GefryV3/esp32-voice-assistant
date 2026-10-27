@@ -73,6 +73,15 @@ def serve(eq: Equalizer, port: int) -> None:
                 self._send(PAGE.read_bytes(), "text/html; charset=utf-8")
 
         def do_POST(self) -> None:
+            if self.path == "/preset":
+                try:
+                    data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                    (eq.save_preset if data["action"] == "save" else eq.load_preset)(data["name"])
+                except (ValueError, KeyError, TypeError, OSError):
+                    self.send_error(404)
+                    return
+                self._send(json.dumps(eq.state()).encode(), "application/json")
+                return
             if self.path == "/restart":
                 self._send(b'{"ok": true}', "application/json")
                 threading.Timer(0.4, restart_self, args=(holder[0],)).start()
