@@ -188,3 +188,11 @@ def test_transient_punch_speaks_on_attacks_only(eq):
         return float(np.sqrt(np.mean(y[int(t0 * RATE): int(t1 * RATE)] ** 2)))
     assert rms(1.0, 1.08) > 0.01 and rms(2.0, 2.08) > 0.01                # the attacks get a click
     assert rms(0.2, 0.9) < 1e-4 and rms(2.5, 3.0) < 1e-4                  # silence and a sustained note do not
+
+
+def test_bass_keeps_its_level_when_the_rest_has_to_give_way(eq):
+    eq.set([0] * 8, 0, {"cut": 20, "guard": 40, "ceil": 100})
+    y = run(Chain(eq), tone(60, seconds=4.0, amp=0.3) + tone(1000, seconds=4.0, amp=0.8))
+    assert level(y, 60) == pytest.approx(0.3, rel=0.15)                       # the bass is not pulled down
+    assert level(y, 1000) < 0.70                                               # the loud treble is the one that gives way
+    assert np.abs(y[RATE:]).max() <= 0.95 * 1.03                              # and the total still respects the ceiling

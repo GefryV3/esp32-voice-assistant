@@ -37,7 +37,7 @@ SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
 GUARD_HZ = 150.0             # speaker protection works on everything below this
 GUARD_TAPS = 513             # linear-phase split: the band edges are clean and the two bands stay aligned
-GUARD_DELAY = (GUARD_TAPS - 1) // 2 + 2 * LOOK      # total latency of the guard stage plus the final limiter, samples
+GUARD_DELAY = (GUARD_TAPS - 1) // 2 + LOOK          # total latency of the guard stage and the band limiters, samples
 ATTACK_S, RELEASE_S = 0.010, 0.150
 
 
@@ -211,12 +211,15 @@ class Limiter:
         self._att = 1.0 - float(np.exp(-4.5 / look))         # 4.5 time constants fit into the look-ahead: ~1 % of the cut is left
         self._rel = float(np.exp(-1.0 / (RATE * 0.08)))      # 80 ms release
 
-    def process(self, x: np.ndarray) -> np.ndarray:
+    def process(self, x: np.ndarray, ceiling: np.ndarray | None = None) -> np.ndarray:
+        """`ceiling`: an optional ceiling per output sample (the room left by another band) instead of the fixed one."""
         n, look = len(x), self.look
         ext = np.concatenate([self._hist, x])                 # output sample i is ext[i], i.e. delayed by `look`
         self._hist = ext[n:]
-        ahead = maximum_filter1d(np.abs(ext), size=look + 1, mode="constant", cval=0.0, origin=-(look // 2))[:n]
-        target = np.minimum(1.0, self.ceiling / np.maximum(ahead, 1e-9))
+        # the ceiling of the samples that are not output yet is not known: hold the last one
+        ceil_ext = self.ceiling if ceiling is None else np.concatenate([ceiling, np.full(look, ceiling[-1])])
+        ahead = maximum_filter1d(np.abs(ext) / ceil_ext, size=look + 1, mode="constant", cval=0.0, origin=-(look // 2))[:n]
+        target = np.minimum(1.0, 1.0 / np.maximum(ahead, 1e-9))
         gains = np.empty(n)
         g, att, rel = self._gain, self._att, self._rel
         for i in range(n):
@@ -241,7 +244,8 @@ class Chain:
         self._harm = butter(4, [90, 360], "bandpass", fs=RATE, output="sos")     # its harmonics we can
         self._harm_zi = np.zeros((len(self._harm), 2))
         self._comp = Compressor()
-        self._limiter = Limiter()
+        self._high_limiter = Limiter()                            # the band above GUARD_HZ; its ceiling is what the bass leaves
+        self._total = 0.95                                        # the most the amplifier is asked to play, peak
         # clean virtual bass (tracked notes + oscillators); it adds TonalBass.D samples of latency, so the main
         # signal always waits as long, whether the effect is on or not
         self._tonal = TonalBass()
@@ -257,7 +261,6 @@ class Chain:
         # headroom there), loud bass is not (it has none). Slow, so the gain does not modulate the bass waveform itself.
         self._bass_comp = Compressor(sub=960, attack=0.04, release=0.3, top_db=-24.0, depth_db=14.0, makeup_k=0.9)
         self._y_delay = np.zeros((GUARD_TAPS - 1) // 2)      # the full signal waits as long as the FIR low band
-        self._hi_delay = np.zeros(LOOK)                       # then the high band waits as long as the limited low band
         self._cut = cut_sos(DEFAULT_FX["cut"])
         self._fx = dict(DEFAULT_FX)
         self._pre = 1.0
@@ -281,8 +284,9 @@ class Chain:
             pre_db -= 0.6 * max(0.0, max(self.eq.correction[1]) * strength)
         self._pre = 10 ** (pre_db / 20)
         guard = fx["guard"] / 100.0
-        self._bass_limiter.ceiling = 10.0 if guard <= 0 else 0.5 - 0.42 * guard      # 50 % -> 0.29, 100 % -> 0.08
-        self._limiter.ceiling = 0.95 * fx["ceil"] / 100.0                              # what the amplifier can play cleanly
+        self._total = 0.95 * fx["ceil"] / 100.0                                        # what the amplifier can play cleanly
+        # the bass band's own ceiling: 40 % -> 0.33, 100 % -> 0.08; with protection off it may use 70 % of the total
+        self._bass_limiter.ceiling = 0.7 * self._total if guard <= 0 else min(0.5 - 0.42 * guard, 0.7 * self._total)
 
     def process(self, mono: np.ndarray) -> np.ndarray:
         self._refresh()
@@ -311,8 +315,13 @@ class Chain:
         low, self._lp_zi = lfilter(self._lp, 1.0, y, zi=self._lp_zi)
         aligned = np.concatenate([self._y_delay, y])
         self._y_delay = aligned[len(y):]
-        high = np.concatenate([self._hi_delay, aligned[:len(y)] - low])
-        self._hi_delay = high[len(y):]
+        high = aligned[:len(y)] - low
         low = self._bass_comp.process(low, self._fx["bcomp"])
-        y = high[:len(y)] + self._bass_limiter.process(low)
-        return soft_limit(self._limiter.process(y), knee=self._limiter.ceiling * 1.02)   # only a safety net
+        # priority limiting: the bass keeps its level up to its own ceiling, and the band above it gets only the room
+        # the bass leaves. A single limiter on the sum turned the bass down whenever it dominated the peaks, so the
+        # louder it played the less bass there was.
+        bass = self._bass_limiter.process(low)
+        envelope = maximum_filter1d(np.abs(bass), size=int(0.02 * RATE), mode="nearest")        # 20 ms bass peak
+        room = np.clip(self._total - envelope, 0.12 * self._total, self._total)
+        y = bass + self._high_limiter.process(high, room)
+        return soft_limit(y, knee=self._total * 1.02)                                  # only a safety net

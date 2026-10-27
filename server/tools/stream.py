@@ -134,7 +134,7 @@ async def run(url: str, token: str, device: str | None, eq: Equalizer) -> None:
         loop = asyncio.get_running_loop()
         chain = Chain(eq)
         sent = 0
-        peak_out, worst_limiter, worst_comp = 0.0, 1.0, 0.0
+        peak_out, worst_limiter, worst_comp, worst_bass = 0.0, 1.0, 0.0, 1.0
         late, last = 0, time.monotonic()
         with mic.recorder(samplerate=RATE, channels=2, blocksize=BLOCK) as rec:
             while True:
@@ -147,13 +147,15 @@ async def run(url: str, token: str, device: str | None, eq: Equalizer) -> None:
                 await ws.send(to_pcm(out))
                 sent += 1
                 peak_out = max(peak_out, float(np.abs(out).max()))
-                worst_limiter = min(worst_limiter, chain._limiter._gain)
+                worst_limiter = min(worst_limiter, chain._high_limiter._gain)
+                worst_bass = min(worst_bass, chain._bass_limiter._gain)
                 worst_comp = min(worst_comp, chain._comp.reduction_db)
                 if sent % 50 == 1:
                     print(f"sent {sent} blocks, in {float(np.abs(mono).max()):.2f}, out peak {peak_out:.2f}, "
-                          f"limiter down to {20 * np.log10(worst_limiter):.1f} dB, compressor down to {worst_comp:.1f} dB, "
+                          f"bass limiter down to {20 * np.log10(worst_bass):.1f} dB, high limiter down to {20 * np.log10(worst_limiter):.1f} dB, "
+                          f"compressor down to {worst_comp:.1f} dB, "
                           f"capture glitches {discontinuities}, late blocks {late}", flush=True)
-                    peak_out, worst_limiter, worst_comp = 0.0, 1.0, 0.0
+                    peak_out, worst_limiter, worst_comp, worst_bass = 0.0, 1.0, 0.0, 1.0
 
 
 def main() -> None:
