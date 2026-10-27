@@ -127,3 +127,20 @@ def test_virtual_bass_makes_nothing_from_quiet_bass(eq):
     eq.set([0] * 8, 0, {"cut": 120, "vbass": 100})
     quiet = run(Chain(eq), tone(60, amp=0.01))
     assert level(quiet, 120) < 0.0005                                      # at most -26 dB under the fundamental
+
+
+def test_amplifier_ceiling_limits_the_output(eq):
+    eq.set([0] * 8, 6, {"ceil": 50})
+    out = run(Chain(eq), tone(1000, amp=0.9))
+    assert np.abs(out[RATE:]).max() < 0.95 * 0.5 * 1.1
+    eq.set([0] * 8, 0, {"ceil": 100})
+    assert np.abs(run(Chain(eq), tone(1000, amp=0.9))[RATE:]).max() > 0.85
+
+
+def test_clean_virtual_bass_makes_harmonics_without_intermodulation(eq):
+    eq.set([0] * 8, 0, {"cut": 160, "tbass": 100})
+    mixed = run(Chain(eq), tone(50, seconds=3.0, amp=0.25) + tone(80, seconds=3.0, amp=0.25))
+    assert level(mixed, 100) > 0.1 and level(mixed, 160) > 0.1              # the 2nd harmonics of both notes
+    assert level(mixed, 130) < 0.02 * level(mixed, 100)                    # 50 + 80: no mud
+    eq.set([0] * 8, 0, {"cut": 160, "tbass": 0})
+    assert level(run(Chain(eq), tone(60, seconds=3.0, amp=0.25)), 120) < 0.005   # off means off

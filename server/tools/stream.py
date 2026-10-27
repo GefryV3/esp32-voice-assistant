@@ -19,6 +19,7 @@ import json
 import socket
 import sys
 import threading
+import time
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -41,6 +42,7 @@ def to_pcm(x: np.ndarray) -> bytes:
     return (np.clip(np.round((x + dither) * 32767), -32768, 32767)).astype("<i2").tobytes()
 
 BLOCK = 4800                # 100 ms; a multiple of the compressor slice
+discontinuities = 0         # glitches the capture API reported (dropped or repeated audio before it ever got here)
 PAGE = Path(__file__).with_name("stream_eq.html")
 
 
@@ -105,20 +107,35 @@ async def run(url: str, token: str, device: str | None, eq: Equalizer) -> None:
         loop = asyncio.get_running_loop()
         chain = Chain(eq)
         sent = 0
+        peak_out, worst_limiter, worst_comp = 0.0, 1.0, 0.0
+        late, last = 0, time.monotonic()
         with mic.recorder(samplerate=RATE, channels=2, blocksize=BLOCK) as rec:
             while True:
                 block = await loop.run_in_executor(None, rec.record, BLOCK)
+                now = time.monotonic()
+                late += now - last > 0.25          # a block that took more than 250 ms: the speaker would run dry
+                last = now
                 mono = block.mean(axis=1)
                 out = chain.process(mono)
                 await ws.send(to_pcm(out))
                 sent += 1
+                peak_out = max(peak_out, float(np.abs(out).max()))
+                worst_limiter = min(worst_limiter, chain._limiter._gain)
+                worst_comp = min(worst_comp, chain._comp.reduction_db)
                 if sent % 50 == 1:
-                    print(f"sent {sent} blocks, level {float(np.abs(mono).max()):.2f}", flush=True)
+                    print(f"sent {sent} blocks, in {float(np.abs(mono).max()):.2f}, out peak {peak_out:.2f}, "
+                          f"limiter down to {20 * np.log10(worst_limiter):.1f} dB, compressor down to {worst_comp:.1f} dB, "
+                          f"capture glitches {discontinuities}, late blocks {late}", flush=True)
+                    peak_out, worst_limiter, worst_comp = 0.0, 1.0, 0.0
 
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
-    warnings.filterwarnings("ignore", category=sc.SoundcardRuntimeWarning)   # loopback data discontinuity
+    def count_glitch(message, category, *args, **kwargs):        # loopback "data discontinuity": count, don't print
+        global discontinuities
+        discontinuities += 1
+    warnings.showwarning = count_glitch
+    warnings.simplefilter("always", sc.SoundcardRuntimeWarning)
     env = read_env_file(Path(__file__).resolve().parents[1] / ".env")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--url", default=f"ws://{env.get('JARVIS_SERVER', '127.0.0.1')}:{env.get('JARVIS_PORT', '8765')}/admin")

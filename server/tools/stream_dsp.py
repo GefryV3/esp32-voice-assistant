@@ -19,6 +19,8 @@ import numpy as np
 from scipy.ndimage import maximum_filter1d
 from scipy.signal import butter, firwin, firwin2, freqz, lfilter, sosfilt, sosfreqz
 
+from stream_tonal import TonalBass
+
 RATE = 48_000
 SAVED = Path.home() / ".jarvis_stream_eq.json"
 CORRECTION = Path.home() / ".jarvis_stream_correction.json"      # measured speaker correction (tools/calibrate.py)
@@ -27,8 +29,8 @@ FIR_TAPS = 2049                                                  # linear phase:
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 100.0), "guard": (0.0, 100.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
@@ -213,6 +215,12 @@ class Chain:
         self._harm_zi = np.zeros((len(self._harm), 2))
         self._comp = Compressor()
         self._limiter = Limiter()
+        # clean virtual bass (tracked notes + oscillators); it adds TonalBass.D samples of latency, so the main
+        # signal always waits as long, whether the effect is on or not
+        self._tonal = TonalBass()
+        self._tonal_lp = butter(4, 160.0, "lowpass", fs=RATE, output="sos")
+        self._tonal_lp_zi = np.zeros((len(self._tonal_lp), 2))
+        self._main_delay = np.zeros(TonalBass.D)
         # speaker protection: the band below GUARD_HZ gets its own limiter so that strong bass cannot slam the cone
         self._lp = firwin(GUARD_TAPS, GUARD_HZ, fs=RATE)
         self._lp_zi = np.zeros(GUARD_TAPS - 1)
@@ -234,7 +242,7 @@ class Chain:
         self._cut = cut_sos(fx["cut"])
         self._fx = fx
         # a boost eats headroom (half of the biggest one is taken back), so does the bass we rebuild
-        pre_db = volume - 0.5 * max(0.0, max(gains)) - 3.0 * fx["vbass"] / 100.0
+        pre_db = volume - 0.5 * max(0.0, max(gains)) - 3.0 * fx["vbass"] / 100.0 - 2.0 * fx["tbass"] / 100.0
         self._fir = None
         if self.eq.correction is not None and fx["corr"] > 0:
             strength = fx["corr"] / 100.0
@@ -243,6 +251,7 @@ class Chain:
         self._pre = 10 ** (pre_db / 20)
         guard = fx["guard"] / 100.0
         self._bass_limiter.ceiling = 10.0 if guard <= 0 else 0.5 - 0.42 * guard      # 50 % -> 0.29, 100 % -> 0.08
+        self._limiter.ceiling = 0.95 * fx["ceil"] / 100.0                              # what the amplifier can play cleanly
 
     def process(self, mono: np.ndarray) -> np.ndarray:
         self._refresh()
@@ -259,6 +268,12 @@ class Chain:
             shaped = 0.25 * (0.7 * u ** 2 + 0.5 * u ** 3)
             harm, self._harm_zi = sosfilt(self._harm, shaped, zi=self._harm_zi)
             main = main + harm * (2.0 * vbass)
+        delayed = np.concatenate([self._main_delay, main])
+        self._main_delay = delayed[len(main):]
+        main = delayed[: len(main)]
+        bass_band, self._tonal_lp_zi = sosfilt(self._tonal_lp, x, zi=self._tonal_lp_zi)
+        harmonics = self._tonal.process(bass_band)             # always runs, so the note tracker stays warm
+        main = main + harmonics * (1.5 * self._fx["tbass"] / 100.0)
         main = self._comp.process(main, self._fx["comp"])
         y = main * self._pre
         low, self._lp_zi = lfilter(self._lp, 1.0, y, zi=self._lp_zi)
@@ -267,4 +282,4 @@ class Chain:
         high = np.concatenate([self._hi_delay, aligned[:len(y)] - low])
         self._hi_delay = high[len(y):]
         y = high[:len(y)] + self._bass_limiter.process(low)
-        return soft_limit(self._limiter.process(y), knee=0.97)   # the soft limit is only a safety net
+        return soft_limit(self._limiter.process(y), knee=self._limiter.ceiling * 1.02)   # only a safety net
