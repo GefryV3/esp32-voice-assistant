@@ -18,7 +18,8 @@
   "guard": 40.0,
   "ceil": 100.0,
   "tbass": 0.0,
-  "bcomp": 100.0
+  "bcomp": 100.0,
+  "tpunch": 0.0
  },
  "correction": {
   "freqs": [
