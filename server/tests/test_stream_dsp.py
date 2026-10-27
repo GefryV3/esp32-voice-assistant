@@ -144,3 +144,15 @@ def test_clean_virtual_bass_makes_harmonics_without_intermodulation(eq):
     assert level(mixed, 130) < 0.02 * level(mixed, 100)                    # 50 + 80: no mud
     eq.set([0] * 8, 0, {"cut": 160, "tbass": 0})
     assert level(run(Chain(eq), tone(60, seconds=3.0, amp=0.25)), 120) < 0.005   # off means off
+
+
+def test_dynamic_bass_raises_quiet_bass_more_than_loud_bass(eq):
+    eq.set([0] * 8, 0, {"cut": 20, "bcomp": 100, "guard": 0})
+    chain = Chain(eq)
+    quiet = level(run(chain, tone(100, seconds=4.0, amp=0.01)), 100) / 0.01
+    loud = level(run(chain, tone(100, seconds=4.0, amp=0.3)), 100) / 0.3
+    assert quiet > 3.0 and quiet > 2.0 * loud            # quiet bass gets a big lift, loud bass hardly any
+    eq.set([0] * 8, 0, {"cut": 20, "bcomp": 0, "guard": 0})
+    assert level(run(Chain(eq), tone(100, seconds=3.0, amp=0.05)), 100) == pytest.approx(0.05, rel=0.05)   # off means off
+    eq.set([0] * 8, 0, {"cut": 20, "bcomp": 100, "guard": 0})
+    assert level(run(Chain(eq), tone(1000, seconds=3.0, amp=0.05)), 1000) == pytest.approx(0.05, rel=0.1)  # the rest is untouched

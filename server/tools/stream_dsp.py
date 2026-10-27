@@ -29,8 +29,8 @@ FIR_TAPS = 2049                                                  # linear phase:
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0, "bcomp": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0), "bcomp": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
@@ -145,20 +145,25 @@ class Compressor:
     """Feed-forward peak compressor on 5 ms slices; gain is smoothed (fast attack, slow release) and
     interpolated per sample. Peaks that slip through during the attack are caught by the soft limiter."""
 
-    def __init__(self) -> None:
+    def __init__(self, sub: int = SUB, attack: float = ATTACK_S, release: float = RELEASE_S,
+                 top_db: float = -6.0, depth_db: float = 18.0, makeup_k: float = 0.6) -> None:
+        """`top_db`: threshold at 0 % amount; it drops by `depth_db` at 100 %. `makeup_k`: share of the average
+        reduction given back as gain (bigger = quiet parts are raised more)."""
+        self.sub, self.top_db, self.depth_db, self.makeup_k = sub, top_db, depth_db, makeup_k
         self.reduction_db = 0.0
-        self._att = float(np.exp(-SUB / RATE / ATTACK_S))
-        self._rel = float(np.exp(-SUB / RATE / RELEASE_S))
+        self._att = float(np.exp(-sub / RATE / attack))
+        self._rel = float(np.exp(-sub / RATE / release))
 
     def process(self, x: np.ndarray, amount: float) -> np.ndarray:
+        SUB = self.sub
         a = amount / 100.0
         n = len(x) // SUB
         if a <= 0.0 or n == 0 or len(x) % SUB:
             self.reduction_db = 0.0
             return x
-        threshold = -6.0 - 18.0 * a                   # dBFS
+        threshold = self.top_db - self.depth_db * a   # dBFS
         ratio = 1.0 + 3.0 * a
-        makeup = 0.6 * -threshold * (1.0 - 1.0 / ratio)
+        makeup = self.makeup_k * -threshold * (1.0 - 1.0 / ratio)
         level = 20 * np.log10(np.abs(x).reshape(n, SUB).max(axis=1) + 1e-6)
         target = -np.maximum(level - threshold, 0.0) * (1.0 - 1.0 / ratio)   # wanted reduction, dB (<= 0)
         gains = np.empty(n)
@@ -225,6 +230,9 @@ class Chain:
         self._lp = firwin(GUARD_TAPS, GUARD_HZ, fs=RATE)
         self._lp_zi = np.zeros(GUARD_TAPS - 1)
         self._bass_limiter = Limiter(ceiling=10.0)
+        # dynamic bass: slow compressor with make-up on the low band only. Quiet bass is raised a lot (the amplifier has
+        # headroom there), loud bass is not (it has none). Slow, so the gain does not modulate the bass waveform itself.
+        self._bass_comp = Compressor(sub=960, attack=0.04, release=0.3, top_db=-24.0, depth_db=14.0, makeup_k=0.9)
         self._y_delay = np.zeros((GUARD_TAPS - 1) // 2)      # the full signal waits as long as the FIR low band
         self._hi_delay = np.zeros(LOOK)                       # then the high band waits as long as the limited low band
         self._cut = cut_sos(DEFAULT_FX["cut"])
@@ -281,5 +289,6 @@ class Chain:
         self._y_delay = aligned[len(y):]
         high = np.concatenate([self._hi_delay, aligned[:len(y)] - low])
         self._hi_delay = high[len(y):]
+        low = self._bass_comp.process(low, self._fx["bcomp"])
         y = high[:len(y)] + self._bass_limiter.process(low)
         return soft_limit(self._limiter.process(y), knee=self._limiter.ceiling * 1.02)   # only a safety net
