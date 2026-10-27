@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import re
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -104,6 +105,56 @@ async def speaker_uptime(url: str, token: str) -> int | None:
         return None
 
 
+async def listen(url: str, token: str, freq: float) -> None:
+    """Play the staircase for the ears only (no microphone) and watch whether the speaker drops off the network."""
+    signal, starts = staircase(freq)
+    signal = np.concatenate([signal, np.zeros(RATE)])
+    for _ in range(30):
+        if await speaker_uptime(url, token) is not None:
+            break
+        await asyncio.sleep(1)
+    events: list[tuple[float, str]] = []
+    done = asyncio.Event()
+    t0 = time.monotonic()
+
+    async def watch() -> None:
+        last = await speaker_uptime(url, token)
+        while not done.is_set():
+            await asyncio.sleep(0.4)
+            now = await speaker_uptime(url, token)
+            if now is None and last is not None:
+                events.append((time.monotonic() - t0, "left the network"))
+            elif now is not None and last is not None and now < last:
+                events.append((time.monotonic() - t0, "came back after a reboot"))
+            last = now if now is not None else None
+
+    async with connect(url, max_size=None, ping_interval=None) as ws:
+        await ws.send(token)
+        await ws.send(f"stream {RATE} music")
+        if await asyncio.wait_for(ws.recv(), 6) != "ok":
+            raise SystemExit("the speaker is busy: stop tools/stream.py first")
+        watcher = asyncio.create_task(watch())
+        t0 = time.monotonic()
+        print(f"  steps ({freq:.0f} Hz): " + ", ".join(f"{db:+d}" for db in LEVELS_DB) + " dBFS, 1.3 s each", flush=True)
+        for i in range(0, len(signal), 4800):
+            await ws.send(cal_io.pcm(signal[i:i + 4800]))
+        try:
+            await ws.send("stream_end")
+            await asyncio.wait_for(ws.recv(), 12)
+        except Exception:
+            pass
+        await asyncio.sleep(2.5)
+        done.set()
+        await watcher
+    first_step = (CHIRP_S + LEAD_S)
+    if not events:
+        print("  the speaker stayed on the network the whole time (no reboot)")
+    for t, what in events:
+        step = (t - 1.5 - first_step) / (BURST_S + GAP_S)          # ~1.5 s from sending to sound
+        idx = int(np.clip(np.floor(step), 0, len(LEVELS_DB) - 1))
+        print(f"  {t:5.1f} s after the start the speaker {what}: about step {idx + 1} ({LEVELS_DB[idx]:+d} dBFS)")
+
+
 async def run_frequency(url: str, token: str, mics: list, freq: float) -> list[list[dict]]:
     """For every microphone: one analysis per burst."""
     signal, starts = staircase(freq)
@@ -145,6 +196,11 @@ def report(freq: float, per_mic: list[list[dict]], names: list[str]) -> float | 
 
 
 async def main_async(args) -> None:
+    if args.listen:
+        env = read_env_file(Path(__file__).resolve().parents[1] / ".env")
+        url = args.url or f"ws://{env.get('JARVIS_SERVER', '127.0.0.1')}:{env.get('JARVIS_PORT', '8765')}/admin"
+        await listen(url, args.token or env.get("JARVIS_DEVICE_TOKEN", ""), args.freqs[0])
+        return
     mics = [cal_io.find_mic(args.mic)] + ([cal_io.find_mic(args.mic2)] if args.mic2 else [])
     names = [m.name for m in mics]
     print("microphones: " + "; ".join(names))
@@ -155,6 +211,11 @@ async def main_async(args) -> None:
         if not args.check and cal_io.dbfs(ambient) > -45:
             raise SystemExit("the room is too noisy: quieter, please")
     if args.check:
+        return
+    if args.listen:
+        env = read_env_file(Path(__file__).resolve().parents[1] / ".env")
+        url = args.url or f"ws://{env.get('JARVIS_SERVER', '127.0.0.1')}:{env.get('JARVIS_PORT', '8765')}/admin"
+        await listen(url, args.token or env.get("JARVIS_DEVICE_TOKEN", ""), args.freqs[0])
         return
     env = read_env_file(Path(__file__).resolve().parents[1] / ".env")
     url = args.url or f"ws://{env.get('JARVIS_SERVER', '127.0.0.1')}:{env.get('JARVIS_PORT', '8765')}/admin"
@@ -202,6 +263,7 @@ def main() -> None:
     p.add_argument("--mic2", help="a second microphone. Not the laptop's built-in one: its noise suppression removes steady tones")
     p.add_argument("--freqs", type=float, nargs="+", default=FREQS)
     p.add_argument("--check", action="store_true", help="only record the room, play nothing")
+    p.add_argument("--listen", action="store_true", help="just play the first staircase for the ears (no microphones) and report reboots")
     p.add_argument("--url")
     p.add_argument("--token")
     asyncio.run(main_async(p.parse_args()))

@@ -171,3 +171,20 @@ def test_preset_saves_and_restores_everything(eq):
     assert eq.correction == ([100.0, 1000.0, 8000.0], [2.0, 0.0, -3.0])
     with pytest.raises(OSError):
         eq.load_preset("does-not-exist")
+
+
+def test_transient_punch_speaks_on_attacks_only(eq):
+    from stream_tonal import TransientPunch
+    n = np.arange(RATE * 3) / RATE
+    x = np.zeros(RATE * 3)
+    kick = (n >= 1.0) & (n < 1.4)
+    x[kick] = 0.5 * np.exp(-(n[kick] - 1.0) / 0.08) * np.sin(2 * np.pi * 60 * (n[kick] - 1.0))
+    note = n >= 2.0
+    x[note] = 0.3 * np.sin(2 * np.pi * 60 * (n[note] - 2.0))
+    punch = TransientPunch()
+    y = np.concatenate([punch.process(x[i:i + 4800]) for i in range(0, len(x), 4800)])
+
+    def rms(t0, t1):
+        return float(np.sqrt(np.mean(y[int(t0 * RATE): int(t1 * RATE)] ** 2)))
+    assert rms(1.0, 1.08) > 0.01 and rms(2.0, 2.08) > 0.01                # the attacks get a click
+    assert rms(0.2, 0.9) < 1e-4 and rms(2.5, 3.0) < 1e-4                  # silence and a sustained note do not

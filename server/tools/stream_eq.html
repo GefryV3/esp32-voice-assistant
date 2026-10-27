@@ -43,6 +43,8 @@
     <button id="restart">Перезапустить трансляцию</button>
     <button id="save-best">Сохранить как «лучшую»</button>
     <button id="load-best">Вернуть «лучшую»</button>
+    <button id="load-a">Вариант A: бас шире</button>
+    <button id="load-b">Вариант B: A + удар</button>
     <span class="sub" id="restart-status" style="align-self:center"></span>
   </div>
 
@@ -67,6 +69,7 @@ const PRESETS = {
 const FX = [
   ["tbass", "Чистые басы (новые, по нотам)", v => v <= 0 ? "выкл" : v.toFixed(0) + " %"],
   ["bcomp", "Динамический бас (плотность)", v => v <= 0 ? "выкл" : v.toFixed(0) + " %"],
+  ["tpunch", "Удар (бочка, щелчок)", v => v <= 0 ? "выкл" : v.toFixed(0) + " %"],
   ["vbass", "Виртуальные басы", v => v.toFixed(0) + " %"],
   ["comp", "Компрессия (громче)", v => v.toFixed(0) + " %"],
   ["cut", "Срез низов", v => v <= 20 ? "выкл" : v.toFixed(0) + " Гц"],
@@ -181,18 +184,20 @@ function draw() {
   g.stroke();
 }
 
-async function preset(action) {
+async function preset(action, name = "best") {
   const status = document.getElementById("restart-status");
-  const r = await fetch("/preset", { method: "POST", body: JSON.stringify({ action, name: "best" }) });
-  if (!r.ok) { status.textContent = "нет сохранённой «лучшей»"; return; }
+  const r = await fetch("/preset", { method: "POST", body: JSON.stringify({ action, name }) });
+  if (!r.ok) { status.textContent = "нет сохранённого пресета"; return; }
   state = await r.json();
   setSliders(state.gains, state.volume, state.fx);
   draw();
-  status.textContent = action === "save" ? "сохранено" : "возвращено";
+  status.textContent = (action === "save" ? "сохранено: " : "включено: ") + ({ best: "лучшая", A: "вариант A", B: "вариант B" }[name] || name);
   setTimeout(() => { status.textContent = ""; }, 3000);
 }
 document.getElementById("save-best").onclick = () => preset("save");
 document.getElementById("load-best").onclick = () => preset("load");
+document.getElementById("load-a").onclick = () => preset("load", "A");
+document.getElementById("load-b").onclick = () => preset("load", "B");
 
 document.getElementById("restart").onclick = async () => {
   const button = document.getElementById("restart"), status = document.getElementById("restart-status");

@@ -19,7 +19,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter1d
 from scipy.signal import butter, firwin, firwin2, freqz, lfilter, sosfilt, sosfreqz
 
-from stream_tonal import TonalBass
+from stream_tonal import TonalBass, TransientPunch
 
 RATE = 48_000
 SAVED = Path.home() / ".jarvis_stream_eq.json"
@@ -30,8 +30,8 @@ FIR_TAPS = 2049                                                  # linear phase:
 # (centre Hz, kind): the lowest and highest bands are shelves, the rest are peaks of about an octave
 BANDS = [(63, "ls"), (125, "pk"), (250, "pk"), (500, "pk"), (1000, "pk"), (2000, "pk"), (4000, "pk"), (8000, "hs")]
 MAX_DB = 15.0
-DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0, "bcomp": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
-FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0), "bcomp": (0.0, 100.0)}
+DEFAULT_FX = {"vbass": 0.0, "comp": 0.0, "cut": 20.0, "corr": 100.0, "guard": 0.0, "ceil": 100.0, "tbass": 0.0, "bcomp": 0.0, "tpunch": 0.0}   # %, %, Hz (20 — practically off), % of the measured correction
+FX_RANGE = {"vbass": (0.0, 100.0), "comp": (0.0, 100.0), "cut": (20.0, 160.0), "corr": (0.0, 200.0), "guard": (0.0, 100.0), "ceil": (40.0, 100.0), "tbass": (0.0, 100.0), "bcomp": (0.0, 100.0), "tpunch": (0.0, 100.0)}
 
 SUB = 240                    # compressor works on 5 ms slices
 LOOK = 240                   # limiter looks 5 ms ahead (and delays the sound by as much)
@@ -245,6 +245,7 @@ class Chain:
         # clean virtual bass (tracked notes + oscillators); it adds TonalBass.D samples of latency, so the main
         # signal always waits as long, whether the effect is on or not
         self._tonal = TonalBass()
+        self._punch = TransientPunch()
         self._tonal_lp = butter(4, 160.0, "lowpass", fs=RATE, output="sos")
         self._tonal_lp_zi = np.zeros((len(self._tonal_lp), 2))
         self._main_delay = np.zeros(TonalBass.D)
@@ -298,10 +299,11 @@ class Chain:
             shaped = 0.25 * (0.7 * u ** 2 + 0.5 * u ** 3)
             harm, self._harm_zi = sosfilt(self._harm, shaped, zi=self._harm_zi)
             main = main + harm * (2.0 * vbass)
+        bass_band, self._tonal_lp_zi = sosfilt(self._tonal_lp, x, zi=self._tonal_lp_zi)
+        main = main + self._punch.process(bass_band) * (2.0 * self._fx["tpunch"] / 100.0)   # no latency: before the delay
         delayed = np.concatenate([self._main_delay, main])
         self._main_delay = delayed[len(main):]
         main = delayed[: len(main)]
-        bass_band, self._tonal_lp_zi = sosfilt(self._tonal_lp, x, zi=self._tonal_lp_zi)
         harmonics = self._tonal.process(bass_band)             # always runs, so the note tracker stays warm
         main = main + harmonics * (1.5 * self._fx["tbass"] / 100.0)
         main = self._comp.process(main, self._fx["comp"])
