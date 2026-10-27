@@ -59,10 +59,10 @@ def pcm(x: np.ndarray) -> bytes:
 
 
 async def play_and_record(url: str, token: str, mics: list, signal: np.ndarray,
-                          chain: stream_dsp.Chain | None) -> list[np.ndarray]:
+                          chain: stream_dsp.Chain | None, extra: float = 7.0) -> list[np.ndarray]:
     loop = asyncio.get_running_loop()
     signal = np.concatenate([signal, np.zeros(RATE)])                     # a second of tail for the pipeline
-    seconds = len(signal) / RATE + 7                                      # + ~1.5 s of delay before the sound starts
+    seconds = len(signal) / RATE + extra                                  # + ~1.5 s of delay before the sound starts
     async with connect(url, max_size=None) as ws:
         await ws.send(token)
         await ws.send(f"stream {RATE} music")
