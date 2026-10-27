@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import socket
 import sys
 import threading
@@ -46,7 +47,16 @@ discontinuities = 0         # glitches the capture API reported (dropped or repe
 PAGE = Path(__file__).with_name("stream_eq.html")
 
 
+def restart_self(server: ThreadingHTTPServer) -> None:
+    """Start this program over with the same arguments (the equalizer page's restart button)."""
+    server.shutdown()
+    server.server_close()                                   # free the port for the new process
+    os.execv(sys.executable, [sys.executable, "-u", *sys.argv])
+
+
 def serve(eq: Equalizer, port: int) -> None:
+    holder: list[ThreadingHTTPServer] = []
+
     class Handler(BaseHTTPRequestHandler):
         def _send(self, body: bytes, kind: str) -> None:
             self.send_response(200)
@@ -63,6 +73,10 @@ def serve(eq: Equalizer, port: int) -> None:
                 self._send(PAGE.read_bytes(), "text/html; charset=utf-8")
 
         def do_POST(self) -> None:
+            if self.path == "/restart":
+                self._send(b'{"ok": true}', "application/json")
+                threading.Timer(0.4, restart_self, args=(holder[0],)).start()
+                return
             try:
                 data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 eq.set(data["gains"], data["volume"], data.get("fx"))
@@ -75,6 +89,7 @@ def serve(eq: Equalizer, port: int) -> None:
             pass
 
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    holder.append(server)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
 

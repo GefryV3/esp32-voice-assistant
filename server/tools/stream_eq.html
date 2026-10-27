@@ -39,6 +39,10 @@
   <div class="card"><canvas id="curve"></canvas></div>
 
   <div class="presets" id="presets"></div>
+  <div class="presets">
+    <button id="restart">Перезапустить трансляцию</button>
+    <span class="sub" id="restart-status" style="align-self:center"></span>
+  </div>
 
   <div class="card">
     <div class="bands" id="bands"></div>
@@ -174,6 +178,28 @@ function draw() {
   state.freqs.forEach((f, i) => { const px = x(f), py = y(state.curve[i]); i ? g.lineTo(px, py) : g.moveTo(px, py); });
   g.stroke();
 }
+
+document.getElementById("restart").onclick = async () => {
+  const button = document.getElementById("restart"), status = document.getElementById("restart-status");
+  button.disabled = true;
+  status.textContent = "перезапускаю…";
+  try { await fetch("/restart", { method: "POST" }); } catch (e) { /* the server may already be going down */ }
+  const started = Date.now();
+  while (Date.now() - started < 40000) {
+    await new Promise(r => setTimeout(r, 1200));
+    try {
+      const r = await fetch("/state", { cache: "no-store" });
+      if (r.ok) {
+        status.textContent = "готово";
+        button.disabled = false;
+        setTimeout(() => { status.textContent = ""; }, 3000);
+        return;
+      }
+    } catch (e) { /* still restarting */ }
+  }
+  status.textContent = "не поднялась: проверьте компьютер";
+  button.disabled = false;
+};
 
 (async () => {
   state = await (await fetch("/state")).json();
